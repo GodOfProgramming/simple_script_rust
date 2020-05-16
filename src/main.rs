@@ -1,7 +1,8 @@
 use simple_script::core::Interpreter;
 use std::env;
-use std::io;
 use std::fs;
+use std::io;
+use std::path::Display;
 use std::path::Path;
 
 fn help() -> String {
@@ -9,20 +10,21 @@ fn help() -> String {
 }
 
 fn main() -> io::Result<()> {
-  let mut i = Interpreter::new();
-
+  let inter = Interpreter::new();
   let args: Vec<String> = env::args().collect();
 
-  if args.len() > 2 {
+  if args.contains(&String::from("-h")) {
     println!("{}", help());
   } else if args.len() == 2 {
+    // from file
     let p = Path::new(&args[1]);
     if p.exists() {
-      let contents = fs::read_to_string(p)?;
-      i.run_script(contents);
+      let _contents = fs::read_to_string(p)?;
+    } else {
+      println!("Fatal: could not find source file '{}'", p.display());
     }
   } else {
-    i.interactive_mode()?;
+    inter.run_interactive()?;
   }
 
   Ok(())
