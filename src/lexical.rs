@@ -48,6 +48,8 @@ pub enum TokenType {
   Var,
   While,
 
+  // Line Delimiters
+  NewLine,
   Eof,
 }
 
@@ -93,31 +95,44 @@ impl Lexer {
   pub fn analyze(starting_line: usize, src: &str) -> Result<Vec<Token>, usize> {
     let mut tokens = Vec::new();
     let mut line = starting_line;
-    let mut start_pos = 0;
-    let mut current_pos = 0;
+    let mut start_pos = 0usize;
+    let mut current_pos = 0usize;
 
-    let type_and_lexeme = |chr: char| -> Result<(TokenType, String), ()> {
-      match chr {
-        '(' => Ok((TokenType::LeftParen, format!("{}", chr))),
-        ')' => Ok((TokenType::RightParen, format!("{}", chr))),
-        '{' => Ok((TokenType::LeftBrace, format!("{}", chr))),
-        '}' => Ok((TokenType::RightBrace, format!("{}", chr))),
-        ',' => Ok((TokenType::Comma, format!("{}", chr))),
-        '.' => Ok((TokenType::Dot, format!("{}", chr))),
-        '-' => Ok((TokenType::Minus, format!("{}", chr))),
-        '+' => Ok((TokenType::Plus, format!("{}", chr))),
-        ';' => Ok((TokenType::Semicolon, format!("{}", chr))),
-        '*' => Ok((TokenType::Asterisk, format!("{}", chr))),
-        _ => Err(()),
-      }
-    };
+    let bytes = src.as_bytes();
+    let mut it = bytes.iter();
+    while let Some(byte) = it.next() {
+      let token = match *byte as char {
+        '(' => Ok((TokenType::LeftParen, "(")),
+        ')' => Ok((TokenType::RightParen, ")")),
+        '{' => Ok((TokenType::LeftBrace, "{")),
+        '}' => Ok((TokenType::RightBrace, "}")),
+        ',' => Ok((TokenType::Comma, ",")),
+        '.' => Ok((TokenType::Dot, ".")),
+        '-' => Ok((TokenType::Minus, "-")),
+        '+' => Ok((TokenType::Plus, "+")),
+        ';' => Ok((TokenType::Semicolon, ";")),
+        '*' => Ok((TokenType::Asterisk, "*")),
+        '!' => {
+          let mut peek = it.clone();
+          match peek.next() {
+            Some(next) => match *next as char {
+              '=' => {
+                it.next();
+                Ok((TokenType::ExEq, "!="))
+              }
+              _ => Ok((TokenType::Equal, "=")),
+            },
+            None => Ok((TokenType::Equal, "=")),
+          }
+        }
+        '\n' => {
+          line += 1;
+          Ok((TokenType::NewLine, "\n"))
+        }
+        _ => Err(line),
+      }?;
 
-    let c = src.chars();
-    for chr in src.chars() {
-      match type_and_lexeme(chr) {
-        Ok(t) => tokens.push(Token::new(t.0, Some(t.1), line)),
-        Err(_) => return Err(line),
-      }
+      tokens.push(Token::new(token.0, Some(String::from(token.1)), line));
     }
 
     tokens.push(Token::new(TokenType::Eof, None, line));

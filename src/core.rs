@@ -15,12 +15,10 @@ impl Interpreter {
     while !exit {
       print!("ss(main):{}> ", line_number);
       io::stdout().flush()?;
-      match io::stdin().read_line(&mut input) {
-        Ok(_) => match self.exec(&input) {
-          Ok(lines) => line_number += lines,
-          Err(err_line) => println!("Error found on line number {}", err_line),
-        },
-        Err(err) => return Err(err),
+      io::stdin().read_line(&mut input)?;
+      match self.exec(&input) {
+        Ok(lines_executed) => line_number += lines_executed,
+        Err(err_line) => println!("Error found on line number {}", err_line),
       }
     }
 
