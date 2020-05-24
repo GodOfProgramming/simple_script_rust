@@ -303,7 +303,7 @@ impl Lexer {
             }
           } else if is_alpha(c) {
             while let Some(next) = peek(&bytes, current_pos) {
-              if is_alpha(next) {
+              if is_alphanumeric(next) {
                 current_pos += 1;
               } else {
                 break;
@@ -345,7 +345,7 @@ impl Lexer {
 mod tests {
   use super::*;
 
-  const good_src: &'static str = r#"var foo = "bar";"#;
+  const good_src: &'static str = r#"var var_1 = "some value";"#;
 
   #[test]
   fn lexer_analyze_with_no_error_basic() {
@@ -355,13 +355,13 @@ mod tests {
     let expected_tokens = vec![
       Token::new(TokenType::Var, Some(String::from("var")), 0),
       Token::new(TokenType::Space, None, 0),
-      Token::new(TokenType::Identifier, Some(String::from("foo")), 0),
+      Token::new(TokenType::Identifier, Some(String::from("var_1")), 0),
       Token::new(TokenType::Space, None, 0),
       Token::new(TokenType::Equal, Some(String::from("=")), 0),
       Token::new(TokenType::Space, None, 0),
       Token::new(
-        TokenType::StringLiteral(String::from("bar")),
-        Some(String::from(r#""bar""#)),
+        TokenType::StringLiteral(String::from("some value")),
+        Some(String::from(r#""some value""#)),
         0,
       ),
       Token::new(TokenType::Semicolon, Some(String::from(";")), 0),
