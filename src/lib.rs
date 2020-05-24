@@ -1,2 +1,3 @@
 pub mod core;
-pub mod lexical;
+pub mod lex;
+pub mod expr;

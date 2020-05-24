@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use crate::lexical::Lexer;
+use crate::lex::Lexer;
 
 pub struct Interpreter {}
 

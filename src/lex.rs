@@ -3,6 +3,12 @@ use std::fmt::{self, Display};
 use std::str;
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Literal {
+    Str(String),
+    Num(f64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Single-character tokens.
     LeftParen,

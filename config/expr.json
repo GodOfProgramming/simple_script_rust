@@ -1,0 +1,50 @@
+[
+    {
+        "members": [
+            {
+                "name": "left",
+                "type": "Box<Expr>"
+            },
+            {
+                "name": "operator",
+                "type": "Token"
+            },
+            {
+                "name": "right",
+                "type": "Box<Expr>"
+            }
+        ],
+        "name": "Binary"
+    },
+    {
+        "members": [
+            {
+                "name": "expression",
+                "type": "Box<Expr>"
+            }
+        ],
+        "name": "Grouping"
+    },
+    {
+        "members": [
+            {
+                "name": "value",
+                "type": "Literal"
+            }
+        ],
+        "name": "Literal"
+    },
+    {
+        "members": [
+            {
+                "name": "operator",
+                "type": "Token"
+            },
+            {
+                "name": "right",
+                "type": "Box<Expr>"
+            }
+        ],
+        "name": "Unary"
+    }
+]
