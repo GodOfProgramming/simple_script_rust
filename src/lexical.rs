@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::str;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
   // Single-character tokens.
   LeftParen,
@@ -63,6 +63,7 @@ pub enum TokenType {
   Eof,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Token {
   token_type: TokenType,
   lexeme: Option<String>,
@@ -337,5 +338,42 @@ impl Lexer {
     tokens.push(Token::new(TokenType::Eof, None, line));
 
     Ok((line, tokens))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  const good_src: &'static str = r#"var foo = "bar";"#;
+
+  #[test]
+  fn lexer_analyze_with_no_error_basic() {
+    let lexer = Lexer::new();
+    let result = lexer.analyze(good_src);
+
+    let expected_tokens = vec![
+      Token::new(TokenType::Var, Some(String::from("var")), 0),
+      Token::new(TokenType::Space, None, 0),
+      Token::new(TokenType::Identifier, Some(String::from("foo")), 0),
+      Token::new(TokenType::Space, None, 0),
+      Token::new(TokenType::Equal, Some(String::from("=")), 0),
+      Token::new(TokenType::Space, None, 0),
+      Token::new(
+        TokenType::StringLiteral(String::from("bar")),
+        Some(String::from(r#""bar""#)),
+        0,
+      ),
+      Token::new(TokenType::Semicolon, Some(String::from(";")), 0),
+      Token::new(TokenType::Eof, None, 0),
+    ];
+
+    match result {
+      Ok((line, tokens)) => {
+        assert_eq!(line, 0);
+        assert_eq!(tokens, expected_tokens);
+      }
+      Err(_) => assert!(false),
+    }
   }
 }
