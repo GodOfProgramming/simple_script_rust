@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use crate::lexical::Lexer;
 
 pub struct Interpreter {}
 
@@ -18,19 +19,22 @@ impl Interpreter {
       io::stdin().read_line(&mut input)?;
       match self.exec(&input) {
         Ok(lines_executed) => line_number += lines_executed,
-        Err(err_line) => println!("Error found on line number {}", err_line),
+        Err(err_line) => println!("Error found on line number {}", line_number + err_line),
       }
+      input.clear();
     }
 
     Ok(())
   }
 
-  pub fn exec(&self, _src: &str) -> Result<usize, usize> {
-    // create scanner
-    // scan tokens into list
-    // print tokens
+  pub fn exec(&self, src: &str) -> Result<usize, usize> {
+    let lexer = Lexer::new();
 
-    let lines_executed = 0;
+    let (lines_executed, tokens) = lexer.analyze(src)?;
+
+    for token in tokens.iter() {
+      println!("{}", token);
+    }
 
     Ok(lines_executed)
   }

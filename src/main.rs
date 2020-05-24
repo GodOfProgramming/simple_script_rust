@@ -9,7 +9,7 @@ fn help() -> String {
   format!("{}\n", "Usage: iss [optional script]")
 }
 
-fn main() -> io::Result<()> {
+fn main() -> Result<(), ()> {
   let inter = Interpreter::new();
   let args: Vec<String> = env::args().collect();
 
@@ -19,12 +19,23 @@ fn main() -> io::Result<()> {
     // from file
     let p = Path::new(&args[1]);
     if p.exists() {
-      let _contents = fs::read_to_string(p)?;
+      match fs::read_to_string(p) {
+        Ok(contents) => {
+          if let Err(line) = inter.exec(&contents) {
+            println!("Fatal: could not run script, error on line {}", line);
+          }
+        }
+        Err(_) => {
+          return Err(());
+        }
+      }
     } else {
       println!("Fatal: could not find source file '{}'", p.display());
     }
   } else {
-    inter.run_interactive()?;
+    if let Err(err) = inter.run_interactive() {
+      println!("Fatal: could not start interactive mode: {}", err);
+    }
   }
 
   Ok(())

@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::fmt::{self, Display};
+use std::str;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TokenType {
   // Single-character tokens.
   LeftParen,
@@ -48,6 +50,14 @@ pub enum TokenType {
   Var,
   While,
 
+  // Misc
+  Comment,
+
+  // Whitespace
+  Space,
+  CarriageReturn,
+  Tab,
+
   // Line Delimiters
   NewLine,
   Eof,
@@ -74,69 +84,258 @@ impl Display for Token {
     match &self.token_type {
       TokenType::StringLiteral(string) => write!(f, "{:?}({})", self.token_type, string),
       TokenType::NumberLiteral(number) => write!(f, "{:?}({})", self.token_type, number),
-      other => write!(f, "{:?}", other),
+      other => match &self.lexeme {
+        Some(lex) => write!(f, "{:?}({})", other, lex),
+        None => write!(f, "{:?}", other),
+      },
     }
   }
 }
 
-pub enum AnalyzeResult {
-  Ok,
-  CheckNext,
-  Err,
+fn basic_keywords() -> HashMap<&'static str, TokenType> {
+  let mut map = HashMap::new();
+  map.insert("and", TokenType::And);
+  map.insert("class", TokenType::Class);
+  map.insert("else", TokenType::Else);
+  map.insert("false", TokenType::False);
+  map.insert("for", TokenType::For);
+  map.insert("fun", TokenType::Fun);
+  map.insert("if", TokenType::If);
+  map.insert("nil", TokenType::Nil);
+  map.insert("or", TokenType::Or);
+  map.insert("print", TokenType::Print);
+  map.insert("return", TokenType::Return);
+  map.insert("super", TokenType::Super);
+  map.insert("this", TokenType::This);
+  map.insert("true", TokenType::True);
+  map.insert("var", TokenType::Var);
+  map.insert("while", TokenType::While);
+
+  map
 }
 
-pub struct Lexer;
+pub struct Lexer {
+  keywords: HashMap<&'static str, TokenType>,
+}
 
 impl Lexer {
   pub fn new() -> Lexer {
-    Lexer {}
+    Lexer {
+      keywords: basic_keywords(),
+    }
   }
 
-  pub fn analyze(starting_line: usize, src: &str) -> Result<Vec<Token>, usize> {
+  pub fn analyze(&self, src: &str) -> Result<(usize, Vec<Token>), usize> {
+    enum AnalyzeResult {
+      HasLexeme,
+      NoLexeme,
+    };
+
     let mut tokens = Vec::new();
-    let mut line = starting_line;
-    let mut start_pos = 0usize;
+    let mut line = 0;
     let mut current_pos = 0usize;
 
+    let peek = |buff: &[u8], current_pos| -> Option<char> {
+      if current_pos + 1 >= buff.len() {
+        None
+      } else {
+        Some(buff[current_pos + 1] as char)
+      }
+    };
+
+    let create_token = |buff: &[u8], start, end, token_type| -> Result<(TokenType, String), ()> {
+      match str::from_utf8(&buff[start..end]) {
+        Ok(string) => Ok((token_type, String::from(string))),
+        Err(_) => Err(()),
+      }
+    };
+
+    let is_digit = |c: char| -> bool { c >= '0' && c <= '9' };
+
+    let is_alpha =
+      |c: char| -> bool { (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' };
+
+    let is_alphanumeric = |c: char| -> bool { is_digit(c) || is_alpha(c) };
+
     let bytes = src.as_bytes();
-    let mut it = bytes.iter();
-    while let Some(byte) = it.next() {
-      let token = match *byte as char {
-        '(' => Ok((TokenType::LeftParen, "(")),
-        ')' => Ok((TokenType::RightParen, ")")),
-        '{' => Ok((TokenType::LeftBrace, "{")),
-        '}' => Ok((TokenType::RightBrace, "}")),
-        ',' => Ok((TokenType::Comma, ",")),
-        '.' => Ok((TokenType::Dot, ".")),
-        '-' => Ok((TokenType::Minus, "-")),
-        '+' => Ok((TokenType::Plus, "+")),
-        ';' => Ok((TokenType::Semicolon, ";")),
-        '*' => Ok((TokenType::Asterisk, "*")),
+    let len = bytes.len();
+    while current_pos < len {
+      let start_pos = current_pos;
+      let c = bytes[current_pos] as char;
+      let token = match c {
+        '(' => Ok((TokenType::LeftParen, AnalyzeResult::HasLexeme)),
+        ')' => Ok((TokenType::RightParen, AnalyzeResult::HasLexeme)),
+        '{' => Ok((TokenType::LeftBrace, AnalyzeResult::HasLexeme)),
+        '}' => Ok((TokenType::RightBrace, AnalyzeResult::HasLexeme)),
+        ',' => Ok((TokenType::Comma, AnalyzeResult::HasLexeme)),
+        '.' => Ok((TokenType::Dot, AnalyzeResult::HasLexeme)),
+        '-' => Ok((TokenType::Minus, AnalyzeResult::HasLexeme)),
+        '+' => Ok((TokenType::Plus, AnalyzeResult::HasLexeme)),
+        ';' => Ok((TokenType::Semicolon, AnalyzeResult::HasLexeme)),
+        '*' => Ok((TokenType::Asterisk, AnalyzeResult::HasLexeme)),
         '!' => {
-          let mut peek = it.clone();
-          match peek.next() {
-            Some(next) => match *next as char {
-              '=' => {
-                it.next();
-                Ok((TokenType::ExEq, "!="))
-              }
-              _ => Ok((TokenType::Equal, "=")),
-            },
-            None => Ok((TokenType::Equal, "=")),
+          if let Some(next) = peek(&bytes, current_pos) {
+            if next == '=' {
+              current_pos += 1;
+              Ok((TokenType::ExEq, AnalyzeResult::HasLexeme))
+            } else {
+              Ok((TokenType::Equal, AnalyzeResult::HasLexeme))
+            }
+          } else {
+            Ok((TokenType::Equal, AnalyzeResult::HasLexeme))
           }
         }
+        '=' => {
+          if let Some(next) = peek(&bytes, current_pos) {
+            if next == '=' {
+              current_pos += 1;
+              Ok((TokenType::EqEq, AnalyzeResult::HasLexeme))
+            } else {
+              Ok((TokenType::Equal, AnalyzeResult::HasLexeme))
+            }
+          } else {
+            Ok((TokenType::Equal, AnalyzeResult::HasLexeme))
+          }
+        }
+        '<' => {
+          if let Some(next) = peek(&bytes, current_pos) {
+            if next == '=' {
+              current_pos += 1;
+              Ok((TokenType::LessEq, AnalyzeResult::HasLexeme))
+            } else {
+              Ok((TokenType::Equal, AnalyzeResult::HasLexeme))
+            }
+          } else {
+            Ok((TokenType::Equal, AnalyzeResult::HasLexeme))
+          }
+        }
+        '>' => {
+          if let Some(next) = peek(&bytes, current_pos) {
+            if next == '=' {
+              current_pos += 1;
+              Ok((TokenType::GreaterEq, AnalyzeResult::HasLexeme))
+            } else {
+              Ok((TokenType::Equal, AnalyzeResult::HasLexeme))
+            }
+          } else {
+            Ok((TokenType::Equal, AnalyzeResult::HasLexeme))
+          }
+        }
+        '/' => {
+          // TODO clean this up/make more efficient
+          if let Some(next) = peek(&bytes, current_pos) {
+            if next == '/' {
+              current_pos += 1;
+              while let Some(next) = peek(&bytes, current_pos) {
+                if next == '\n' {
+                  break;
+                } else {
+                  current_pos += 1;
+                }
+              }
+              Ok((TokenType::Comment, AnalyzeResult::HasLexeme))
+            } else {
+              Ok((TokenType::Slash, AnalyzeResult::HasLexeme))
+            }
+          } else {
+            Ok((TokenType::Slash, AnalyzeResult::HasLexeme))
+          }
+        }
+        '"' => {
+          // TODO clean this up/make more efficient
+          loop {
+            match peek(&bytes, current_pos) {
+              Some(next) => {
+                if next != '"' {
+                  if next == '\n' {
+                    line += 1;
+                  }
+                } else {
+                  break Ok(());
+                }
+              }
+              None => break Err(line),
+            }
+            current_pos += 1;
+          }?;
+          current_pos += 1;
+
+          match String::from_utf8(bytes[start_pos + 1..current_pos].to_vec()) {
+            Ok(string) => Ok((TokenType::StringLiteral(string), AnalyzeResult::HasLexeme)),
+            Err(_) => Err(line),
+          }
+        }
+        ' ' => Ok((TokenType::Space, AnalyzeResult::NoLexeme)),
+        '\r' => Ok((TokenType::CarriageReturn, AnalyzeResult::NoLexeme)),
+        '\t' => Ok((TokenType::Tab, AnalyzeResult::NoLexeme)),
         '\n' => {
           line += 1;
-          Ok((TokenType::NewLine, "\n"))
+          Ok((TokenType::NewLine, AnalyzeResult::NoLexeme))
         }
-        _ => Err(line),
+        c => {
+          if is_digit(c) {
+            let mut dot_found = false;
+            while let Some(next) = peek(&bytes, current_pos) {
+              if is_digit(next) {
+                current_pos += 1;
+              } else if next == '.' && !dot_found {
+                if let Some(next_next) = peek(&bytes, current_pos + 1) {
+                  if is_digit(next_next) {
+                    current_pos += 2;
+                    dot_found = true;
+                  } else {
+                    break;
+                  }
+                } else {
+                  break;
+                }
+              } else {
+                break;
+              }
+            }
+            match str::from_utf8(&bytes[start_pos..current_pos + 1]) {
+              Ok(string) => match string.parse() {
+                Ok(num) => Ok((TokenType::NumberLiteral(num), AnalyzeResult::HasLexeme)),
+                Err(_) => Err(line),
+              },
+              Err(_) => Err(line),
+            }
+          } else if is_alpha(c) {
+            while let Some(next) = peek(&bytes, current_pos) {
+              if is_alpha(next) {
+                current_pos += 1;
+              } else {
+                break;
+              }
+            }
+            match str::from_utf8(&bytes[start_pos..current_pos + 1]) {
+              Ok(string) => match self.keywords.get(string) {
+                Some(token) => Ok((token.clone(), AnalyzeResult::HasLexeme)),
+                None => Ok((TokenType::Identifier, AnalyzeResult::HasLexeme)),
+              },
+              Err(_) => Err(line),
+            }
+          } else {
+            Err(line)
+          }
+        }
       }?;
 
-      tokens.push(Token::new(token.0, Some(String::from(token.1)), line));
+      current_pos += 1;
+
+      match token.1 {
+        AnalyzeResult::HasLexeme => match create_token(&bytes, start_pos, current_pos, token.0) {
+          Ok(token) => tokens.push(Token::new(token.0, Some(token.1), line)),
+          Err(_) => return Err(line),
+        },
+        AnalyzeResult::NoLexeme => {
+          tokens.push(Token::new(token.0, None, line));
+        }
+      }
     }
 
     tokens.push(Token::new(TokenType::Eof, None, line));
 
-    Ok(tokens)
+    Ok((line, tokens))
   }
 }

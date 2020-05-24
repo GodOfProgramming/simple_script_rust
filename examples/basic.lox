@@ -1,0 +1,6 @@
+fun print_num(num) {
+	print "num = " + num;
+}
+
+print_num(1.22 + 3);
+
