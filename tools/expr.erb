@@ -1,10 +1,5 @@
 use std::marker::PhantomData;
-use crate::lex::Token;
-
-pub enum Value {
-  Str(String),
-  F64(f64),
-}
+use crate::lex::{Token, Value};
 
 pub trait Expr<R> {
   fn accept(&self, visitor: &mut dyn Visitor<R>) -> R;
@@ -34,7 +29,7 @@ impl<V> <%= expr.name %><V> {
 } 
 
 impl <R> Expr<R> for <%= expr.name %><R> {
-  fn accept(&self, visitor: &mut Visitor<R>) -> R {
+  fn accept(&self, visitor: &mut dyn Visitor<R>) -> R {
     visitor.visit_<%= expr.name.underscore %>_expr(self)
   }
 }

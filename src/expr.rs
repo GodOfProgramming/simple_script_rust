@@ -1,10 +1,5 @@
-use crate::lex::Token;
+use crate::lex::{Token, Value};
 use std::marker::PhantomData;
-
-pub enum Value {
-    Str(String),
-    F64(f64),
-}
 
 pub trait Expr<R> {
     fn accept(&self, visitor: &mut dyn Visitor<R>) -> R;
@@ -29,7 +24,7 @@ impl<V> Binary<V> {
 }
 
 impl<R> Expr<R> for Binary<R> {
-    fn accept(&self, visitor: &mut Visitor<R>) -> R {
+    fn accept(&self, visitor: &mut dyn Visitor<R>) -> R {
         visitor.visit_binary_expr(self)
     }
 }
@@ -49,7 +44,7 @@ impl<V> Grouping<V> {
 }
 
 impl<R> Expr<R> for Grouping<R> {
-    fn accept(&self, visitor: &mut Visitor<R>) -> R {
+    fn accept(&self, visitor: &mut dyn Visitor<R>) -> R {
         visitor.visit_grouping_expr(self)
     }
 }
@@ -69,7 +64,7 @@ impl<V> Literal<V> {
 }
 
 impl<R> Expr<R> for Literal<R> {
-    fn accept(&self, visitor: &mut Visitor<R>) -> R {
+    fn accept(&self, visitor: &mut dyn Visitor<R>) -> R {
         visitor.visit_literal_expr(self)
     }
 }
@@ -91,7 +86,7 @@ impl<V> Unary<V> {
 }
 
 impl<R> Expr<R> for Unary<R> {
-    fn accept(&self, visitor: &mut Visitor<R>) -> R {
+    fn accept(&self, visitor: &mut dyn Visitor<R>) -> R {
         visitor.visit_unary_expr(self)
     }
 }

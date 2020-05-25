@@ -1,5 +1,6 @@
 use std::io::{self, Write};
 use crate::lex::Lexer;
+use crate::ast::{Parser, Printer};
 
 pub struct Interpreter {}
 
@@ -27,14 +28,24 @@ impl Interpreter {
     Ok(())
   }
 
-  pub fn exec(&self, src: &str) -> Result<usize, usize> {
+  pub fn exec(&self, src: &str) -> Result<usize, String> {
     let lexer = Lexer::new();
 
-    let (lines_executed, tokens) = lexer.analyze(src)?;
+    let (lines_executed, tokens) = match lexer.analyze(src) {
+        Ok(tuple) => tuple,
+        Err(line) => return Err(format!("")),
+    };
 
-    for token in tokens.iter() {
-      println!("{}", token);
-    }
+    let parser = Parser::new(tokens);
+
+    let expr = match parser.parse() {
+        Ok(e) => e,
+        Err(s) => return Err(s),
+    };
+
+    let printer = Printer::new();
+    
+    println!("{}", printer.print(expr));
 
     Ok(lines_executed)
   }

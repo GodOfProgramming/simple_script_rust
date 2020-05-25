@@ -3,6 +3,15 @@ use std::fmt::{self, Display};
 use std::str;
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    True,
+    False,
+    Nil,
+    Str(String),
+    Num(f64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Single-character tokens.
     LeftParen,
@@ -29,8 +38,8 @@ pub enum TokenType {
 
     // Literals.
     Identifier,
-    StringLiteral(String),
-    NumberLiteral(f64),
+    StringLiteral,
+    NumberLiteral,
 
     // Keywords.
     And,
@@ -67,14 +76,21 @@ pub enum TokenType {
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: Option<String>,
+    pub literal: Option<Value>,
     pub line: usize,
 }
 
 impl Token {
-    pub fn new(token_type: TokenType, lexeme: Option<String>, line: usize) -> Token {
+    pub fn new(
+        token_type: TokenType,
+        lexeme: Option<String>,
+        literal: Option<Value>,
+        line: usize,
+    ) -> Token {
         Token {
             token_type,
             lexeme,
+            literal,
             line,
         }
     }
@@ -144,13 +160,29 @@ impl Lexer {
             }
         };
 
-        let create_token =
-            |buff: &[u8], start, end, token_type| -> Result<(TokenType, String), ()> {
-                match str::from_utf8(&buff[start..end]) {
-                    Ok(string) => Ok((token_type, String::from(string))),
-                    Err(_) => Err(()),
-                }
+        let create_token = |buff: &[u8],
+                            start,
+                            end,
+                            token_type|
+         -> Result<(TokenType, String, Value), ()> {
+            let lexeme = match str::from_utf8(&buff[start..end]) {
+                Ok(string) => string,
+                Err(_) => return Err(()),
             };
+
+            let lexeme = String::from(lexeme);
+
+            let value = match token_type {
+                TokenType::StringLiteral => Value::Str(lexeme),
+                TokenType::NumberLiteral => match lexeme.parse() {
+                    Ok(n) => Value::Num(n),
+                    Err(_) => return Err(()),
+                },
+                _ => return Err(()),
+            };
+
+            Ok((token_type, lexeme, value))
+        };
 
         let is_digit = |c: char| -> bool { c >= '0' && c <= '9' };
 
@@ -253,12 +285,7 @@ impl Lexer {
 
                     current_pos += 1;
 
-                    match String::from_utf8(bytes[start_pos + 1..current_pos].to_vec()) {
-                        Ok(string) => {
-                            Ok((TokenType::StringLiteral(string), AnalyzeResult::HasLexeme))
-                        }
-                        Err(_) => Err(line),
-                    }
+                    Ok((TokenType::StringLiteral, AnalyzeResult::HasLexeme))
                 }
                 ' ' => Ok((TokenType::Space, AnalyzeResult::NoLexeme)),
                 '\r' => Ok((TokenType::CarriageReturn, AnalyzeResult::NoLexeme)),
@@ -289,15 +316,7 @@ impl Lexer {
                             }
                         }
 
-                        match str::from_utf8(&bytes[start_pos..current_pos + 1]) {
-                            Ok(string) => match string.parse() {
-                                Ok(num) => {
-                                    Ok((TokenType::NumberLiteral(num), AnalyzeResult::HasLexeme))
-                                }
-                                Err(_) => Err(line),
-                            },
-                            Err(_) => Err(line),
-                        }
+                        Ok((TokenType::NumberLiteral, AnalyzeResult::HasLexeme))
                     } else if is_alpha(c) {
                         while let Some(next) = peek(&bytes, current_pos) {
                             if is_alphanumeric(next) {
@@ -325,17 +344,17 @@ impl Lexer {
             match token.1 {
                 AnalyzeResult::HasLexeme => {
                     match create_token(&bytes, start_pos, current_pos, token.0) {
-                        Ok(token) => tokens.push(Token::new(token.0, Some(token.1), line)),
+                        Ok(token) => tokens.push(Token::new(token.0, Some(token.1), Some(token.2), line)),
                         Err(_) => return Err(line),
                     }
                 }
                 AnalyzeResult::NoLexeme => {
-                    tokens.push(Token::new(token.0, None, line));
+                    tokens.push(Token::new(token.0, None, None, line));
                 }
             }
         }
 
-        tokens.push(Token::new(TokenType::Eof, None, line));
+        tokens.push(Token::new(TokenType::Eof, None, None, line));
 
         Ok((line, tokens))
     }
