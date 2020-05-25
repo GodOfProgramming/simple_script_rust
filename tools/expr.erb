@@ -1,0 +1,28 @@
+use crate::lex::{Token, Literal};
+
+pub enum Expr {
+<% for enum in enums %>
+  <%= enum.name %> {
+  <%- for m in enum.members -%>
+    <%= m.name %>: <%= m.type %>,  
+  <%- end -%>
+  },
+<% end %>
+}
+
+impl Expr {
+<% for enum in enums %>
+  pub fn new_<%= enum.name.underscore %>(
+  <% for m in enum.members %>
+    <%= m.name %>: <%= m.type %>,  
+  <%- end -%>
+  ) -> Expr {
+    Expr::<%= enum.name %> {
+    <%- for m in enum.members -%>
+      <%= m.name %>,  
+    <%- end -%>
+    }
+  }
+<% end %>
+}
+

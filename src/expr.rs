@@ -6,12 +6,15 @@ pub enum Expr {
         operator: Token,
         right: Box<Expr>,
     },
+
     Grouping {
         expression: Box<Expr>,
     },
+
     Literal {
         value: Literal,
     },
+
     Unary {
         operator: Token,
         right: Box<Expr>,
@@ -26,12 +29,15 @@ impl Expr {
             right,
         }
     }
+
     pub fn new_grouping(expression: Box<Expr>) -> Expr {
         Expr::Grouping { expression }
     }
+
     pub fn new_literal(value: Literal) -> Expr {
         Expr::Literal { value }
     }
+
     pub fn new_unary(operator: Token, right: Box<Expr>) -> Expr {
         Expr::Unary { operator, right }
     }
