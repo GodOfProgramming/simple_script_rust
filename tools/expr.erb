@@ -1,28 +1,48 @@
-use crate::lex::{Token, Literal};
+use std::marker::PhantomData;
+use crate::lex::Token;
 
-pub enum Expr {
-<% for enum in enums %>
-  <%= enum.name %> {
-  <%- for m in enum.members -%>
-    <%= m.name %>: <%= m.type %>,  
-  <%- end -%>
-  },
-<% end %>
+pub enum Value {
+  Str(String),
+  F64(f64),
 }
 
-impl Expr {
-<% for enum in enums %>
-  pub fn new_<%= enum.name.underscore %>(
-  <% for m in enum.members %>
+pub trait Expr<R> {
+  fn accept(&self, visitor: &mut dyn Visitor<R>) -> R;
+}
+
+<% for expr in expressions %>
+pub struct <%= expr.name %><V> {
+  <%- for m in expr.members -%>
     <%= m.name %>: <%= m.type %>,  
   <%- end -%>
-  ) -> Expr {
-    Expr::<%= enum.name %> {
-    <%- for m in enum.members -%>
+  phantom_data: PhantomData<V>,
+}
+
+impl<V> <%= expr.name %><V> {
+  pub fn new(
+  <% for m in expr.members %>
+    <%= m.name %>: <%= m.type %>,  
+  <%- end -%>
+  ) -> <%= expr.name %><V> {
+    <%= expr.name %> {
+    <%- for m in expr.members -%>
       <%= m.name %>,  
     <%- end -%>
+      phantom_data: PhantomData,
     }
   }
+} 
+
+impl <R> Expr<R> for <%= expr.name %><R> {
+  fn accept(&self, visitor: &mut Visitor<R>) -> R {
+    visitor.visit_<%= expr.name.underscore %>_expr(self)
+  }
+}
+<% end %>
+
+pub trait Visitor<R> {
+<% for expr in expressions %>
+  fn visit_<%= expr.name.underscore %>_expr(&mut self, e: &<%= expr.name %><R>) -> R;
 <% end %>
 }
 

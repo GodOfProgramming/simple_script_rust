@@ -9,9 +9,7 @@ File.open('config/expr.json') do |f|
   contents = f.read
 end
 
-expressions = JSON.parse(contents)
-
-enums = expressions.map do |config|
+expressions = JSON.parse(contents).map do |config|
   OpenStruct.new(
     name: config['name'],
     members: config['members'].map do |m| 

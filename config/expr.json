@@ -3,7 +3,7 @@
         "members": [
             {
                 "name": "left",
-                "type": "Box<Expr>"
+                "type": "Box<dyn Expr<V>>"
             },
             {
                 "name": "operator",
@@ -11,7 +11,7 @@
             },
             {
                 "name": "right",
-                "type": "Box<Expr>"
+                "type": "Box<dyn Expr<V>>"
             }
         ],
         "name": "Binary"
@@ -20,7 +20,7 @@
         "members": [
             {
                 "name": "expression",
-                "type": "Box<Expr>"
+                "type": "Box<dyn Expr<V>>"
             }
         ],
         "name": "Grouping"
@@ -29,7 +29,7 @@
         "members": [
             {
                 "name": "value",
-                "type": "Literal"
+                "type": "Value"
             }
         ],
         "name": "Literal"
@@ -42,7 +42,7 @@
             },
             {
                 "name": "right",
-                "type": "Box<Expr>"
+                "type": "Box<dyn Expr<V>>"
             }
         ],
         "name": "Unary"
