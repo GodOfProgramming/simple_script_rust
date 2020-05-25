@@ -20,7 +20,7 @@ impl Interpreter {
       io::stdin().read_line(&mut input)?;
       match self.exec(&input) {
         Ok(lines_executed) => line_number += lines_executed,
-        Err(err_line) => println!("Error found on line number {}", line_number + err_line),
+        Err(err_line) => println!("Error found on line number {} + {}", line_number, err_line),
       }
       input.clear();
     }
@@ -33,17 +33,17 @@ impl Interpreter {
 
     let (lines_executed, tokens) = match lexer.analyze(src) {
         Ok(tuple) => tuple,
-        Err(line) => return Err(format!("")),
+        Err(line) => return Err(format!("{}", line)),
     };
 
-    let parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens);
 
     let expr = match parser.parse() {
         Ok(e) => e,
         Err(s) => return Err(s),
     };
 
-    let printer = Printer::new();
+    let mut printer = Printer::new();
     
     println!("{}", printer.print(expr));
 

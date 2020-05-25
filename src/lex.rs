@@ -99,8 +99,8 @@ impl Token {
 impl Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.token_type {
-            TokenType::StringLiteral(string) => write!(f, "{:?}({})", self.token_type, string),
-            TokenType::NumberLiteral(number) => write!(f, "{:?}({})", self.token_type, number),
+            TokenType::StringLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
+            TokenType::NumberLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
             other => match &self.lexeme {
                 Some(lex) => write!(f, "{:?}({})", other, lex),
                 None => write!(f, "{:?}", other),
@@ -160,29 +160,26 @@ impl Lexer {
             }
         };
 
-        let create_token = |buff: &[u8],
-                            start,
-                            end,
-                            token_type|
-         -> Result<(TokenType, String, Value), ()> {
-            let lexeme = match str::from_utf8(&buff[start..end]) {
-                Ok(string) => string,
-                Err(_) => return Err(()),
-            };
-
-            let lexeme = String::from(lexeme);
-
-            let value = match token_type {
-                TokenType::StringLiteral => Value::Str(lexeme),
-                TokenType::NumberLiteral => match lexeme.parse() {
-                    Ok(n) => Value::Num(n),
+        let create_token =
+            |buff: &[u8], start, end, token_type| -> Result<(TokenType, String, Value), ()> {
+                let lexeme = match str::from_utf8(&buff[start..end]) {
+                    Ok(string) => string,
                     Err(_) => return Err(()),
-                },
-                _ => return Err(()),
-            };
+                };
 
-            Ok((token_type, lexeme, value))
-        };
+                let lexeme = String::from(lexeme);
+
+                let value = match token_type {
+                    TokenType::StringLiteral => Value::Str(lexeme),
+                    TokenType::NumberLiteral => match lexeme.parse() {
+                        Ok(n) => Value::Num(n),
+                        Err(_) => return Err(()),
+                    },
+                    _ => return Err(()),
+                };
+
+                Ok((token_type, lexeme, value))
+            };
 
         let is_digit = |c: char| -> bool { c >= '0' && c <= '9' };
 
@@ -344,7 +341,9 @@ impl Lexer {
             match token.1 {
                 AnalyzeResult::HasLexeme => {
                     match create_token(&bytes, start_pos, current_pos, token.0) {
-                        Ok(token) => tokens.push(Token::new(token.0, Some(token.1), Some(token.2), line)),
+                        Ok(token) => {
+                            tokens.push(Token::new(token.0, Some(token.1), Some(token.2), line))
+                        }
                         Err(_) => return Err(line),
                     }
                 }
@@ -372,19 +371,20 @@ mod tests {
         let result = lexer.analyze(good_src);
 
         let expected_tokens = vec![
-            Token::new(TokenType::Var, Some(String::from("var")), 0),
-            Token::new(TokenType::Space, None, 0),
-            Token::new(TokenType::Identifier, Some(String::from("var_1")), 0),
-            Token::new(TokenType::Space, None, 0),
-            Token::new(TokenType::Equal, Some(String::from("=")), 0),
-            Token::new(TokenType::Space, None, 0),
+            Token::new(TokenType::Var, Some(String::from("var")), None, 0),
+            Token::new(TokenType::Space, None, None, 0),
+            Token::new(TokenType::Identifier, Some(String::from("var_1")), None, 0),
+            Token::new(TokenType::Space, None, None, 0),
+            Token::new(TokenType::Equal, Some(String::from("=")), None, 0),
+            Token::new(TokenType::Space, None, None, 0),
             Token::new(
-                TokenType::StringLiteral(String::from("some value")),
+                TokenType::StringLiteral,
                 Some(String::from(r#""some value""#)),
+                Some(Value::Str(String::from("some value"))),
                 0,
             ),
-            Token::new(TokenType::Semicolon, Some(String::from(";")), 0),
-            Token::new(TokenType::Eof, None, 0),
+            Token::new(TokenType::Semicolon, Some(String::from(";")), None, 0),
+            Token::new(TokenType::Eof, None, None, 0),
         ];
 
         match result {

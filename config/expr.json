@@ -3,7 +3,7 @@
         "members": [
             {
                 "name": "left",
-                "type": "Box<dyn Expr<V>>"
+                "type": "Box<dyn Expr<'a, V>>"
             },
             {
                 "name": "operator",
@@ -11,7 +11,7 @@
             },
             {
                 "name": "right",
-                "type": "Box<dyn Expr<V>>"
+                "type": "Box<dyn Expr<'a, V>>"
             }
         ],
         "name": "Binary"
@@ -20,7 +20,7 @@
         "members": [
             {
                 "name": "expression",
-                "type": "Box<dyn Expr<V>>"
+                "type": "Box<dyn Expr<'a, V>>"
             }
         ],
         "name": "Grouping"
@@ -42,7 +42,7 @@
             },
             {
                 "name": "right",
-                "type": "Box<dyn Expr<V>>"
+                "type": "Box<dyn Expr<'a, V>>"
             }
         ],
         "name": "Unary"

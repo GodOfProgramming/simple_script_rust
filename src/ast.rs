@@ -11,15 +11,15 @@ impl Parser {
         Parser { tokens, current: 0 }
     }
 
-    pub fn parse<T>(&mut self) -> Result<Box<dyn Expr<T>>, String> {
+    pub fn parse<T: 'static>(&mut self) -> Result<Box<dyn Expr<'static, T>>, String> {
         self.expression()
     }
 
-    fn expression<T>(&mut self) -> Result<Box<dyn Expr<T>>, String> {
+    fn expression<T: 'static>(&mut self) -> Result<Box<dyn Expr<'static, T>>, String> {
         self.equality()
     }
 
-    fn equality<'a, T: 'a>(&mut self) -> Result<Box<dyn Expr<T>>, String> {
+    fn equality<T: 'static>(&mut self) -> Result<Box<dyn Expr<'static, T>>, String> {
         let mut expr = self.comparision()?;
 
         while self.match_token(&[TokenType::ExEq, TokenType::EqEq]) {
@@ -31,7 +31,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn comparision<T>(&mut self) -> Result<Box<dyn Expr<T>>, String> {
+    fn comparision<T: 'static>(&mut self) -> Result<Box<dyn Expr<'static, T>>, String> {
         let mut expr = self.addition()?;
 
         while self.match_token(&[
@@ -48,7 +48,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn addition<T>(&mut self) -> Result<Box<dyn Expr<T>>, String> {
+    fn addition<T: 'static>(&mut self) -> Result<Box<dyn Expr<'static, T>>, String> {
         let mut expr = self.multiplication()?;
 
         while self.match_token(&[TokenType::Plus, TokenType::Minus]) {
@@ -60,7 +60,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn multiplication<T>(&mut self) -> Result<Box<dyn Expr<T>>, String> {
+    fn multiplication<T: 'static>(&mut self) -> Result<Box<dyn Expr<'static, T>>, String> {
         let mut expr = self.unary()?;
 
         while self.match_token(&[TokenType::Slash, TokenType::Asterisk]) {
@@ -72,7 +72,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn unary<T>(&mut self) -> Result<Box<dyn Expr<T>>, String> {
+    fn unary<T: 'static>(&mut self) -> Result<Box<dyn Expr<'static, T>>, String> {
         if self.match_token(&[TokenType::Exclamation, TokenType::Minus]) {
             let op = self.previous();
             let right = self.unary()?;
@@ -82,7 +82,7 @@ impl Parser {
         }
     }
 
-    fn primary<T>(&mut self) -> Result<Box<dyn Expr<T>>, String> {
+    fn primary<T: 'static>(&mut self) -> Result<Box<dyn Expr<'static, T>>, String> {
         if self.match_token(&[
             TokenType::False,
             TokenType::True,
@@ -92,14 +92,14 @@ impl Parser {
         ]) {
             let prev = self.previous();
 
-            if let Some(v) = prev.literal {
-                return Ok(Box::new(Literal::new(v)));
+            if let Some(v) = &prev.literal {
+                return Ok(Box::new(Literal::new(*v)));
             }
         }
 
         if self.match_token(&[TokenType::LeftParen]) {
             let expr = self.expression()?;
-            self.consume(TokenType::RightParen, "Expect ')' after expression.");
+            self.consume(&TokenType::RightParen, "Expect ')' after expression.");
             return Ok(Box::new(Grouping::new(expr)));
         }
 
@@ -109,7 +109,7 @@ impl Parser {
 
     fn match_token(&mut self, types: &[TokenType]) -> bool {
         for token_type in types.iter() {
-            if self.check(*token_type) {
+            if self.check(token_type) {
                 self.advance();
                 return true;
             }
@@ -118,8 +118,8 @@ impl Parser {
         false
     }
 
-    fn check(&self, t: TokenType) -> bool {
-        !self.is_at_end() && self.peek().token_type == t
+    fn check(&self, t: &TokenType) -> bool {
+        !self.is_at_end() && self.peek().token_type == *t
     }
 
     fn advance(&mut self) -> &Token {
@@ -142,11 +142,11 @@ impl Parser {
         &self.tokens[self.current - 1]
     }
 
-    fn consume(&mut self, token_type: TokenType, msg: &'static str) -> Result<&Token, String> {
+    fn consume(&mut self, token_type: &TokenType, msg: &'static str) -> Result<&Token, String> {
         if self.check(token_type) {
             Ok(self.advance())
         } else {
-            Err(format!(""))
+            Err(format!("{}", msg))
         }
     }
 
@@ -199,7 +199,7 @@ impl Printer {
     }
 }
 
-impl Visitor<String> for Printer {
+impl Visitor<'_, String> for Printer {
     fn visit_binary_expr(&mut self, e: &Binary<String>) -> String {
         if let Some(lexeme) = &e.operator.lexeme {
             self.parenthesize(&lexeme, &[&e.left, &e.right])
