@@ -13,7 +13,7 @@ pub trait Expr<R> {
 <% for expr in expressions %>
 pub struct <%= expr.name %><V> {
   <%- for m in expr.members -%>
-    <%= m.name %>: <%= m.type %>,  
+    pub <%= m.name %>: <%= m.type %>,  
   <%- end -%>
   phantom_data: PhantomData<V>,
 }

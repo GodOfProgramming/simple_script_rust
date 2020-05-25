@@ -11,9 +11,9 @@ pub trait Expr<R> {
 }
 
 pub struct Binary<V> {
-    left: Box<dyn Expr<V>>,
-    operator: Token,
-    right: Box<dyn Expr<V>>,
+    pub left: Box<dyn Expr<V>>,
+    pub operator: Token,
+    pub right: Box<dyn Expr<V>>,
     phantom_data: PhantomData<V>,
 }
 
@@ -35,7 +35,7 @@ impl<R> Expr<R> for Binary<R> {
 }
 
 pub struct Grouping<V> {
-    expression: Box<dyn Expr<V>>,
+    pub expression: Box<dyn Expr<V>>,
     phantom_data: PhantomData<V>,
 }
 
@@ -55,7 +55,7 @@ impl<R> Expr<R> for Grouping<R> {
 }
 
 pub struct Literal<V> {
-    value: Value,
+    pub value: Value,
     phantom_data: PhantomData<V>,
 }
 
@@ -75,8 +75,8 @@ impl<R> Expr<R> for Literal<R> {
 }
 
 pub struct Unary<V> {
-    operator: Token,
-    right: Box<dyn Expr<V>>,
+    pub operator: Token,
+    pub right: Box<dyn Expr<V>>,
     phantom_data: PhantomData<V>,
 }
 
