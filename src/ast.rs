@@ -8,114 +8,65 @@ pub fn parse<T: 'static>(tokens: &Vec<Token>) -> Result<Box<dyn Expr<'static, T>
     expression(tokens, &mut current)
 }
 
-fn expression<T: 'static>(
-    tokens: &Vec<Token>,
-    current: &mut usize,
-) -> ParseResult<T> {
+fn expression<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
     list(tokens, current)
 }
 
-fn list<T: 'static>(
-    tokens: &Vec<Token>,
-    current: &mut usize,
-) -> ParseResult<T> {
-    let mut expr = equality(tokens, current)?;
-
-    while match_token(tokens, current, &[TokenType::Comma]) {
-        let op = previous(tokens, current);
-        let right = equality(tokens, current)?;
-        expr = Box::new(Binary::new(expr, op.clone(), right));
-    }
-
-    Ok(expr)
+fn list<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+    left_associative_binary(tokens, current, equality, &[TokenType::Comma])
 }
 
-fn equality<T: 'static>(
-    tokens: &Vec<Token>,
-    current: &mut usize,
-) -> ParseResult<T> {
-    let mut expr = comparison(tokens, current)?;
-
-    while match_token(tokens, current, &[TokenType::ExEq, TokenType::EqEq]) {
-        let op = previous(tokens, current);
-        let right = comparison(tokens, current)?;
-        expr = Box::new(Binary::new(expr, op.clone(), right));
-    }
-
-    Ok(expr)
-}
-
-fn comparison<T: 'static>(
-    tokens: &Vec<Token>,
-    current: &mut usize,
-) -> ParseResult<T> {
-    let mut expr = addition(tokens, current)?;
-
-    while match_token(
+fn equality<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+    left_associative_binary(
         tokens,
         current,
+        comparison,
+        &[TokenType::ExEq, TokenType::EqEq],
+    )
+}
+
+fn comparison<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+    left_associative_binary(
+        tokens,
+        current,
+        addition,
         &[
             TokenType::GreaterThan,
             TokenType::GreaterEq,
             TokenType::LessThan,
             TokenType::LessEq,
         ],
-    ) {
-        let op = previous(tokens, current);
-        let right = addition(tokens, current)?;
-        expr = Box::new(Binary::new(expr, op.clone(), right));
-    }
-
-    Ok(expr)
+    )
 }
 
-fn addition<T: 'static>(
-    tokens: &Vec<Token>,
-    current: &mut usize,
-) -> ParseResult<T> {
-    let mut expr = multiplication(tokens, current)?;
-
-    while match_token(tokens, current, &[TokenType::Plus, TokenType::Minus]) {
-        let op = previous(tokens, current);
-        let right = multiplication(tokens, current)?;
-        expr = Box::new(Binary::new(expr, op.clone(), right));
-    }
-
-    Ok(expr)
+fn addition<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+    left_associative_binary(
+        tokens,
+        current,
+        multiplication,
+        &[TokenType::Plus, TokenType::Minus],
+    )
 }
 
-fn multiplication<T: 'static>(
-    tokens: &Vec<Token>,
-    current: &mut usize,
-) -> ParseResult<T> {
-    let mut expr = unary(tokens, current)?;
-
-    while match_token(tokens, current, &[TokenType::Slash, TokenType::Asterisk]) {
-        let op = previous(tokens, current);
-        let right = unary(tokens, current)?;
-        expr = Box::new(Binary::new(expr, op.clone(), right));
-    }
-
-    Ok(expr)
+fn multiplication<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+    left_associative_binary(
+        tokens,
+        current,
+        unary,
+        &[TokenType::Slash, TokenType::Asterisk],
+    )
 }
 
-fn unary<T: 'static>(
-    tokens: &Vec<Token>,
-    current: &mut usize,
-) -> ParseResult<T> {
-    if match_token(tokens, current, &[TokenType::Exclamation, TokenType::Minus]) {
-        let op = previous(tokens, current);
-        let right = unary(tokens, current)?;
-        Ok(Box::new(Unary::new(op.clone(), right)))
-    } else {
-        primary(tokens, current)
-    }
+fn unary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+    right_associateive_unary(
+        tokens,
+        current,
+        primary,
+        &[TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
+    )
 }
 
-fn primary<T: 'static>(
-    tokens: &Vec<Token>,
-    current: &mut usize,
-) -> ParseResult<T> {
+fn primary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
     if match_token(
         tokens,
         current,
@@ -147,6 +98,38 @@ fn primary<T: 'static>(
 
     // TODO proper error handling
     Err(format!(""))
+}
+
+fn left_associative_binary<T: 'static>(
+    tokens: &Vec<Token>,
+    current: &mut usize,
+    next: fn(&Vec<Token>, &mut usize) -> ParseResult<T>,
+    types: &[TokenType],
+) -> ParseResult<T> {
+    let mut expr = next(tokens, current)?;
+
+    while match_token(tokens, current, types) {
+        let op = previous(tokens, current);
+        let right = next(tokens, current)?;
+        expr = Box::new(Binary::new(expr, op.clone(), right));
+    }
+
+    Ok(expr)
+}
+
+fn right_associateive_unary<T: 'static>(
+    tokens: &Vec<Token>,
+    current: &mut usize,
+    next: fn(&Vec<Token>, &mut usize) -> ParseResult<T>,
+    types: &[TokenType],
+) -> ParseResult<T> {
+    if match_token(tokens, current, types) {
+        let op = previous(tokens, current);
+        let right = unary(tokens, current)?;
+        Ok(Box::new(Unary::new(op.clone(), right)))
+    } else {
+        next(tokens, current)
+    }
 }
 
 fn match_token(tokens: &Vec<Token>, current: &mut usize, types: &[TokenType]) -> bool {
@@ -279,11 +262,11 @@ impl Visitor<'_, String> for Printer {
 
 #[cfg(test)]
 mod tests {
-    use crate::lex;
     use super::*;
+    use crate::lex;
 
     const BASIC_MATH_SRC: &str = r#"1 / 2 * (3 + 4) + 1"#;
-    
+
     // todo, define a visitor type that is configured to use a list
     // of expected tokens. then when visiting it iterates through that
     // list of tokens checking each node of the ast while traversing
