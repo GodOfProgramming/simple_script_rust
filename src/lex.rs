@@ -21,6 +21,17 @@ impl Value {
   }
 }
 
+impl Display for Value {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Value::Nil => write!(f, "nil"),
+      Value::Bool(b) => write!(f, "{}", b),
+      Value::Num(n) => write!(f, "{}", n),
+      Value::Str(s) => write!(f, "{}", s),
+    }
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenType {
   // Single-character tokens.
