@@ -21,8 +21,8 @@ fn main() -> Result<(), ()> {
     if p.exists() {
       match fs::read_to_string(p) {
         Ok(contents) => {
-          if let Err(line) = inter.exec(&contents) {
-            println!("Fatal: could not run script, error on line {}", line);
+          if let Err((line, msg)) = inter.exec(&contents) {
+            println!("Fatal: could not run script: {}: {}", msg, line);
           }
         }
         Err(_) => {

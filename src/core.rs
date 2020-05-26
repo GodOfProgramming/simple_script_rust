@@ -1,50 +1,50 @@
 use crate::ast::{self, Printer};
-use crate::lex::Lexer;
+use crate::lex;
 use std::io::{self, Write};
 
 pub struct Interpreter {}
 
 impl Interpreter {
-  pub fn new() -> Interpreter {
-    Interpreter {}
-  }
-
-  pub fn run_interactive(&self) -> io::Result<()> {
-    let mut input = String::new();
-    let exit = false;
-    let mut line_number = 0;
-
-    while !exit {
-      print!("ss(main):{}> ", line_number);
-      io::stdout().flush()?;
-      io::stdin().read_line(&mut input)?;
-      match self.exec(&input) {
-        Ok(lines_executed) => line_number += lines_executed,
-        Err(err_line) => println!("Error found on line number {} + {}", line_number, err_line),
-      }
-      input.clear();
+    pub fn new() -> Interpreter {
+        Interpreter {}
     }
 
-    Ok(())
-  }
+    pub fn run_interactive(&self) -> io::Result<()> {
+        let mut input = String::new();
+        let exit = false;
+        let mut line_number = 0;
 
-  pub fn exec(&self, src: &str) -> Result<usize, String> {
-    let lexer = Lexer::new();
+        while !exit {
+            print!("ss(main):{}> ", line_number);
+            io::stdout().flush()?;
+            io::stdin().read_line(&mut input)?;
+            match self.exec(&input) {
+                Ok(lines_executed) => line_number += lines_executed,
+                Err((err_line, msg)) => println!("{}: {}", msg, line_number + err_line),
+            }
+            input.clear();
+        }
 
-    let (lines_executed, tokens) = match lexer.analyze(src) {
-      Ok(tuple) => tuple,
-      Err(line) => return Err(format!("{}", line)),
-    };
+        Ok(())
+    }
 
-    let expr = match ast::parse(&tokens) {
-      Ok(e) => e,
-      Err(s) => return Err(s),
-    };
+    pub fn exec(&self, src: &str) -> Result<usize, (usize, String)> {
+        let (lines_executed, tokens) = match lex::analyze(src) {
+            Ok(tuple) => tuple,
+            Err(line) => {
+                return Err((line, String::from("analyze error")));
+            }
+        };
 
-    let mut printer = Printer::new();
+        let expr = match ast::parse(&tokens) {
+            Ok(ast) => ast,
+            Err(msg) => return Err((0, format!("parse error: {}", msg))),
+        };
 
-    println!("{}", printer.print(expr));
+        let mut printer = Printer::new();
 
-    Ok(lines_executed)
-  }
+        println!("{}", printer.print(expr));
+
+        Ok(lines_executed)
+    }
 }
