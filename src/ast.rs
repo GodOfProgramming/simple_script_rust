@@ -1,6 +1,8 @@
 use crate::expr::{Binary, Expr, Grouping, Literal, Unary, Visitor};
 use crate::lex::{Token, TokenType, Value};
 
+type ParseResult<T> = Result<Box<dyn Expr<'static, T>>, String>;
+
 pub fn parse<T: 'static>(tokens: &Vec<Token>) -> Result<Box<dyn Expr<'static, T>>, String> {
     let mut current = 0usize;
     expression(tokens, &mut current)
@@ -9,14 +11,29 @@ pub fn parse<T: 'static>(tokens: &Vec<Token>) -> Result<Box<dyn Expr<'static, T>
 fn expression<T: 'static>(
     tokens: &Vec<Token>,
     current: &mut usize,
-) -> Result<Box<dyn Expr<'static, T>>, String> {
-    equality(tokens, current)
+) -> ParseResult<T> {
+    list(tokens, current)
+}
+
+fn list<T: 'static>(
+    tokens: &Vec<Token>,
+    current: &mut usize,
+) -> ParseResult<T> {
+    let mut expr = equality(tokens, current)?;
+
+    while match_token(tokens, current, &[TokenType::Comma]) {
+        let op = previous(tokens, current);
+        let right = equality(tokens, current)?;
+        expr = Box::new(Binary::new(expr, op.clone(), right));
+    }
+
+    Ok(expr)
 }
 
 fn equality<T: 'static>(
     tokens: &Vec<Token>,
     current: &mut usize,
-) -> Result<Box<dyn Expr<'static, T>>, String> {
+) -> ParseResult<T> {
     let mut expr = comparison(tokens, current)?;
 
     while match_token(tokens, current, &[TokenType::ExEq, TokenType::EqEq]) {
@@ -31,7 +48,7 @@ fn equality<T: 'static>(
 fn comparison<T: 'static>(
     tokens: &Vec<Token>,
     current: &mut usize,
-) -> Result<Box<dyn Expr<'static, T>>, String> {
+) -> ParseResult<T> {
     let mut expr = addition(tokens, current)?;
 
     while match_token(
@@ -55,7 +72,7 @@ fn comparison<T: 'static>(
 fn addition<T: 'static>(
     tokens: &Vec<Token>,
     current: &mut usize,
-) -> Result<Box<dyn Expr<'static, T>>, String> {
+) -> ParseResult<T> {
     let mut expr = multiplication(tokens, current)?;
 
     while match_token(tokens, current, &[TokenType::Plus, TokenType::Minus]) {
@@ -70,7 +87,7 @@ fn addition<T: 'static>(
 fn multiplication<T: 'static>(
     tokens: &Vec<Token>,
     current: &mut usize,
-) -> Result<Box<dyn Expr<'static, T>>, String> {
+) -> ParseResult<T> {
     let mut expr = unary(tokens, current)?;
 
     while match_token(tokens, current, &[TokenType::Slash, TokenType::Asterisk]) {
@@ -85,7 +102,7 @@ fn multiplication<T: 'static>(
 fn unary<T: 'static>(
     tokens: &Vec<Token>,
     current: &mut usize,
-) -> Result<Box<dyn Expr<'static, T>>, String> {
+) -> ParseResult<T> {
     if match_token(tokens, current, &[TokenType::Exclamation, TokenType::Minus]) {
         let op = previous(tokens, current);
         let right = unary(tokens, current)?;
@@ -98,7 +115,7 @@ fn unary<T: 'static>(
 fn primary<T: 'static>(
     tokens: &Vec<Token>,
     current: &mut usize,
-) -> Result<Box<dyn Expr<'static, T>>, String> {
+) -> ParseResult<T> {
     if match_token(
         tokens,
         current,
