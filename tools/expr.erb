@@ -6,7 +6,7 @@ pub trait Expr<'a, R> {
 }
 
 <% for expr in expressions %>
-pub struct <%= expr.name %><'a, V> {
+pub struct <%= expr.name %><'a, V> where V: 'a {
 <%- for m in expr.members -%>
   pub <%= m.name %>: <%= m.type %>,  
 <%- end -%>

@@ -11,7 +11,19 @@ pub enum Value {
     Num(f64),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl Value {
+  pub fn from(v: &Value) -> Value {
+    match v {
+      Value::True => Value::True,
+      Value::False => Value::False,
+      Value::Nil => Value::Nil,
+      Value::Str(s) => Value::Str(s.clone()),
+      Value::Num(n) => Value::Num(n.clone()),
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenType {
     // Single-character tokens.
     LeftParen,
@@ -72,7 +84,7 @@ pub enum TokenType {
     Eof,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: Option<String>,
@@ -170,7 +182,7 @@ impl Lexer {
                 let lexeme = String::from(lexeme);
 
                 let value = match token_type {
-                    TokenType::StringLiteral => Value::Str(lexeme),
+                    TokenType::StringLiteral => Value::Str(lexeme.clone()),
                     TokenType::NumberLiteral => match lexeme.parse() {
                         Ok(n) => Value::Num(n),
                         Err(_) => return Err(()),

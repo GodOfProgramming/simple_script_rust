@@ -5,7 +5,10 @@ pub trait Expr<'a, R> {
     fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R;
 }
 
-pub struct Binary<'a, V> {
+pub struct Binary<'a, V>
+where
+    V: 'a,
+{
     pub left: Box<dyn Expr<'a, V>>,
     pub operator: Token,
     pub right: Box<dyn Expr<'a, V>>,
@@ -41,7 +44,10 @@ where
     }
 }
 
-pub struct Grouping<'a, V> {
+pub struct Grouping<'a, V>
+where
+    V: 'a,
+{
     pub expression: Box<dyn Expr<'a, V>>,
     _phantom_data: PhantomData<&'a V>,
 }
@@ -67,7 +73,10 @@ where
     }
 }
 
-pub struct Literal<'a, V> {
+pub struct Literal<'a, V>
+where
+    V: 'a,
+{
     pub value: Value,
     _phantom_data: PhantomData<&'a V>,
 }
@@ -93,7 +102,10 @@ where
     }
 }
 
-pub struct Unary<'a, V> {
+pub struct Unary<'a, V>
+where
+    V: 'a,
+{
     pub operator: Token,
     pub right: Box<dyn Expr<'a, V>>,
     _phantom_data: PhantomData<&'a V>,
