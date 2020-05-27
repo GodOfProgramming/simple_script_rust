@@ -2,290 +2,255 @@ use crate::env::Environment;
 use crate::expr::{self, Binary, Expr, Grouping, Literal, Unary, Variable};
 use crate::lex::{Token, TokenType, Value};
 use crate::stmt::{self, Expression, Print, Stmt, Var};
+use std::marker::PhantomData;
 
-type ParseResult<T> = Result<Vec<Box<dyn Stmt<'static, T>>>, String>;
-type StatementResult<T> = Result<Box<dyn Stmt<'static, T>>, String>;
-type ExprResult<T> = Result<Box<dyn Expr<'static, T>>, String>;
+type ParseResult<'a, T> = Result<Vec<Box<dyn Stmt<'a, T>>>, String>;
+type StatementResult<'a, T> = Result<Box<dyn Stmt<'a, T>>, String>;
+type ExprResult<'a, T> = Result<Box<dyn Expr<'a, T>>, String>;
 
-pub fn parse<T: 'static>(tokens: &Vec<Token>) -> ParseResult<T> {
-  let mut current = 0usize;
-  let mut statements = Vec::new();
-
-  while !is_at_end(tokens, &current) {
-    statements.push(decl(tokens, &mut current)?);
-  }
-
-  Ok(statements)
+pub fn parse<'a, T: 'a>(tokens: &'a Vec<Token>) -> ParseResult<'a, T> {
+  let parser = Parser::<'a, T>::new(tokens);
+  parser.parse()
 }
 
-fn decl<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
-  match if match_token(tokens, current, &[TokenType::Var]) {
-    var_decl(tokens, current)
-  } else {
-    statement(tokens, current)
-  } {
-    Ok(v) => Ok(v),
-    Err(msg) => {
-      sync(tokens, current);
-      Err(msg)
+struct Parser<'a> {
+  tokens: &'a Vec<Token>,
+  current: usize,
+}
+
+impl<'a> Parser<'a> {
+  fn new(tokens: &'a Vec<Token>) -> Parser<'a> {
+    Parser {
+      tokens,
+      current: 0,
     }
   }
-}
 
-fn var_decl<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
-  let name = consume(
-    tokens,
-    current,
-    &TokenType::Identifier,
-    "Expected variable name",
-  )?;
-  let expr = None;
-  if match_token(tokens, current, &[TokenType::Equal]) {
-    expr = Some(expression(tokens, current)?);
+  fn parse<T>(&'a mut self) -> ParseResult<'a, T> {
+    let mut current = 0usize;
+    let mut statements = Vec::new();
+
+    while !self.is_at_end() {
+      statements.push(self.decl()?);
+    }
+
+    Ok(statements)
   }
 
-  consume(
-    tokens,
-    current,
-    &TokenType::Semicolon,
-    "Expected ';' after variable declaration",
-  )?;
-  Ok(Box::new(Var::new(name.clone(), expr)))
-}
-
-fn statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
-  if match_token(tokens, current, &[TokenType::Print]) {
-    print_statement(tokens, current)
-  } else {
-    expr_statement(tokens, current)
+  fn decl<T>(&'a mut self) -> StatementResult<'a, T> {
+    match if self.match_token(&[TokenType::Var]) {
+      self.var_decl()
+    } else {
+      self.statement()
+    } {
+      Ok(v) => Ok(v),
+      Err(msg) => {
+        self.sync();
+        Err(msg)
+      }
+    }
   }
-}
 
-fn print_statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
-  let expr = expression(tokens, current)?;
-  consume(
-    tokens,
-    current,
-    &TokenType::Semicolon,
-    "expected ';' after value",
-  )?;
-  Ok(Box::new(Print::new(expr)))
-}
+  fn var_decl<T>(&'a mut self) -> StatementResult<'a, T> {
+    let name = self.consume(&TokenType::Identifier, "Expected variable name")?;
+    let expr = None;
+    if self.match_token(&[TokenType::Equal]) {
+      expr = Some(self.expression()?);
+    }
 
-fn expr_statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
-  let expr = expression(tokens, current)?;
-  consume(
-    tokens,
-    current,
-    &TokenType::Semicolon,
-    "expected ';' after value",
-  )?;
-  Ok(Box::new(Expression::new(expr)))
-}
+    self.consume<T>(&TokenType::Semicolon, "Expected ';' after variable decl")?;
+    Ok(Box::new(Var::new(name.clone(), expr)))
+  }
 
-fn expression<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
-  list(tokens, current)
-}
+  fn statement<T>(&'a mut self) -> StatementResult<'a, T> {
+    if self.match_token(&[TokenType::Print]) {
+      self.print_statement()
+    } else {
+      self.expr_statement()
+    }
+  }
 
-fn list<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
-  left_associative_binary(tokens, current, equality, &[TokenType::Comma])
-}
+  fn print_statement<T>(&'a mut self) -> StatementResult<'a, T> {
+    let expr = self.expression()?;
+    self.consume(&TokenType::Semicolon, "expected ';' after value")?;
+    Ok(Box::new(Print::new(expr)))
+  }
 
-fn equality<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
-  left_associative_binary(
-    tokens,
-    current,
-    comparison,
-    &[TokenType::ExEq, TokenType::EqEq],
-  )
-}
+  fn expr_statement<T>(&'a mut self) -> StatementResult<'a, T> {
+    let expr = self.expression()?;
+    self.consume(&TokenType::Semicolon, "expected ';' after value")?;
+    Ok(Box::new(Expression::new(expr)))
+  }
 
-fn comparison<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
-  left_associative_binary(
-    tokens,
-    current,
-    addition,
-    &[
-      TokenType::GreaterThan,
-      TokenType::GreaterEq,
-      TokenType::LessThan,
-      TokenType::LessEq,
-    ],
-  )
-}
+  fn expression<T>(&'a mut self) -> ExprResult<'a, T> {
+    self.list()
+  }
 
-fn addition<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
-  left_associative_binary(
-    tokens,
-    current,
-    multiplication,
-    &[TokenType::Plus, TokenType::Minus],
-  )
-}
+  fn list<T>(&'a mut self) -> ExprResult<'a, T> {
+    self.left_associative_binary(Parser::equality, &[TokenType::Comma])
+  }
 
-fn multiplication<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
-  left_associative_binary(
-    tokens,
-    current,
-    unary,
-    &[TokenType::Slash, TokenType::Asterisk],
-  )
-}
+  fn equality<T>(&'a mut self) -> ExprResult<'a, T> {
+    self.left_associative_binary(Parser::comparison, &[TokenType::ExEq, TokenType::EqEq])
+  }
 
-fn unary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
-  right_associateive_unary(
-    tokens,
-    current,
-    primary,
-    &[TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
-  )
-}
+  fn comparison<T>(&'a mut self) -> ExprResult<'a, T> {
+    self.left_associative_binary(
+      Parser::addition,
+      &[
+        TokenType::GreaterThan,
+        TokenType::GreaterEq,
+        TokenType::LessThan,
+        TokenType::LessEq,
+      ],
+    )
+  }
 
-fn primary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
-  if match_token(
-    tokens,
-    current,
-    &[
+  fn addition<T>(&'a mut self) -> ExprResult<'a, T> {
+    self.left_associative_binary(Parser::multiplication, &[TokenType::Plus, TokenType::Minus])
+  }
+
+  fn multiplication<T>(&'a mut self) -> ExprResult<'a, T> {
+    self.left_associative_binary(Parser::unary, &[TokenType::Slash, TokenType::Asterisk])
+  }
+
+  fn unary<T>(&'a mut self) -> ExprResult<'a, T> {
+    self.right_associateive_unary(
+      Parser::primary,
+      &[TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
+    )
+  }
+
+  fn primary<T>(&'a mut self) -> ExprResult<'a, T> {
+    if self.match_token(&[
       TokenType::False,
       TokenType::True,
       TokenType::Nil,
       TokenType::NumberLiteral,
       TokenType::StringLiteral,
-    ],
-  ) {
-    let prev = previous(tokens, current);
+    ]) {
+      let prev = self.previous();
 
-    if let Some(v) = &prev.literal {
-      return Ok(Box::new(Literal::new(Value::from(v))));
+      if let Some(v) = &prev.literal {
+        return Ok(Box::new(Literal::new(Value::from(v))));
+      }
+    }
+
+    if self.match_token(&[TokenType::Identifier]) {
+      return Ok(Box::new(Variable::new(self.previous().clone())));
+    }
+
+    if self.match_token(&[TokenType::LeftParen]) {
+      let expr = self.expression()?;
+      self.consume(&TokenType::RightParen, "Expect ')' after expression.")?;
+      return Ok(Box::new(Grouping::new(expr)));
+    }
+
+    // TODO proper error handling
+    Err(format!(""))
+  }
+
+  fn left_associative_binary<T>(
+    &'a mut self,
+    next: fn(&'a mut Self) -> ExprResult<'a, T>,
+    types: &[TokenType],
+  ) -> ExprResult<'a, T> {
+    let mut expr = next(self)?;
+
+    while self.match_token(types) {
+      let op = self.previous();
+      let right = next(self)?;
+      expr = Box::new(Binary::new(expr, op.clone(), right));
+    }
+
+    Ok(expr)
+  }
+
+  fn right_associateive_unary<T>(
+    &'a mut self,
+    next: fn(&'a mut Self) -> ExprResult<'a, T>,
+    types: &[TokenType],
+  ) -> ExprResult<'a, T> {
+    if self.match_token(types) {
+      let op = self.previous();
+      let right = self.unary()?;
+      Ok(Box::new(Unary::new(op.clone(), right)))
+    } else {
+      next(self)
     }
   }
 
-  if match_token(tokens, current, &[TokenType::Identifier]) {
-    return Ok(Box::new(Variable::new(previous(tokens, current).clone())));
+  fn match_token(&'a mut self, types: &[TokenType]) -> bool {
+    for token_type in types.iter() {
+      if self.check(token_type) {
+        self.advance();
+        return true;
+      }
+    }
+
+    false
   }
 
-  if match_token(tokens, current, &[TokenType::LeftParen]) {
-    let expr = expression(tokens, current)?;
-    consume(
-      tokens,
-      current,
-      &TokenType::RightParen,
-      "Expect ')' after expression.",
-    )?;
-    return Ok(Box::new(Grouping::new(expr)));
+  fn check(&self, t: &TokenType) -> bool {
+    !self.is_at_end() && self.peek().token_type == *t
   }
 
-  // TODO proper error handling
-  Err(format!(""))
-}
+  fn advance(&'a mut self) -> &'a Token {
+    if !self.is_at_end() {
+      self.current += 1;
+    }
 
-fn left_associative_binary<T: 'static>(
-  tokens: &Vec<Token>,
-  current: &mut usize,
-  next: fn(&Vec<Token>, &mut usize) -> ExprResult<T>,
-  types: &[TokenType],
-) -> ExprResult<T> {
-  let mut expr = next(tokens, current)?;
-
-  while match_token(tokens, current, types) {
-    let op = previous(tokens, current);
-    let right = next(tokens, current)?;
-    expr = Box::new(Binary::new(expr, op.clone(), right));
+    self.previous()
   }
 
-  Ok(expr)
-}
-
-fn right_associateive_unary<T: 'static>(
-  tokens: &Vec<Token>,
-  current: &mut usize,
-  next: fn(&Vec<Token>, &mut usize) -> ExprResult<T>,
-  types: &[TokenType],
-) -> ExprResult<T> {
-  if match_token(tokens, current, types) {
-    let op = previous(tokens, current);
-    let right = unary(tokens, current)?;
-    Ok(Box::new(Unary::new(op.clone(), right)))
-  } else {
-    next(tokens, current)
+  fn is_at_end(&self) -> bool {
+    self.peek().token_type == TokenType::Eof
   }
-}
 
-fn match_token(tokens: &Vec<Token>, current: &mut usize, types: &[TokenType]) -> bool {
-  for token_type in types.iter() {
-    if check(tokens, current, token_type) {
-      advance(tokens, current);
-      return true;
+  fn peek(&'a self) -> &'a Token {
+    &self.tokens[self.current]
+  }
+
+  fn previous(&'a self) -> &'a Token {
+    &self.tokens[self.current - 1]
+  }
+
+  fn consume(&'a mut self, token_type: &TokenType, msg: &'static str) -> Result<&'a Token, String> {
+    if self.check(token_type) {
+      Ok(self.advance())
+    } else {
+      Err(format!("{}", msg))
     }
   }
 
-  false
-}
+  fn sync(&'a mut self) {
+    self.advance();
 
-fn check(tokens: &Vec<Token>, current: &usize, t: &TokenType) -> bool {
-  !is_at_end(tokens, current) && peek(tokens, current).token_type == *t
-}
+    while !self.is_at_end() {
+      if self.previous().token_type == TokenType::Semicolon {
+        return;
+      }
 
-fn advance<'a>(tokens: &'a Vec<Token>, current: &mut usize) -> &'a Token {
-  if !is_at_end(tokens, current) {
-    *current += 1;
-  }
+      match self.peek().token_type {
+        TokenType::Class => return,
+        TokenType::Fun => return,
+        TokenType::Var => return,
+        TokenType::For => return,
+        TokenType::If => return,
+        TokenType::While => return,
+        TokenType::Print => return,
+        TokenType::Return => return,
+        _ => (),
+      }
 
-  previous(tokens, current)
-}
-
-fn is_at_end(tokens: &Vec<Token>, current: &usize) -> bool {
-  peek(tokens, current).token_type == TokenType::Eof
-}
-
-fn peek<'a>(tokens: &'a Vec<Token>, current: &usize) -> &'a Token {
-  &tokens[*current]
-}
-
-fn previous<'a>(tokens: &'a Vec<Token>, current: &usize) -> &'a Token {
-  &tokens[current - 1]
-}
-
-fn consume<'a>(
-  tokens: &'a Vec<Token>,
-  current: &mut usize,
-  token_type: &TokenType,
-  msg: &'static str,
-) -> Result<&'a Token, String> {
-  if check(tokens, current, token_type) {
-    Ok(advance(tokens, current))
-  } else {
-    Err(format!("{}", msg))
-  }
-}
-
-fn sync(tokens: &Vec<Token>, current: &mut usize) {
-  advance(tokens, current);
-
-  while !is_at_end(tokens, current) {
-    if previous(tokens, current).token_type == TokenType::Semicolon {
-      return;
+      self.advance();
     }
-
-    match peek(tokens, current).token_type {
-      TokenType::Class => return,
-      TokenType::Fun => return,
-      TokenType::Var => return,
-      TokenType::For => return,
-      TokenType::If => return,
-      TokenType::While => return,
-      TokenType::Print => return,
-      TokenType::Return => return,
-      _ => (),
-    }
-
-    advance(tokens, current);
   }
 }
 
 type EvalResult = Result<Value, String>;
 
-pub fn exec<'a>(globals: &'a Environment, prgm: Vec<Box<dyn Stmt<EvalResult>>>) -> EvalResult {
+pub fn exec<'a>(globals: &'a Environment, prgm: Vec<Box<dyn Stmt<'a, EvalResult>>>) -> EvalResult {
   let mut e = Evaluator::new(globals);
   let mut res = Value::Nil;
 
@@ -305,11 +270,11 @@ impl<'a> Evaluator<'a> {
     Evaluator { globals }
   }
 
-  pub fn exec(&mut self, stmt: &Box<dyn Stmt<EvalResult>>) -> EvalResult {
+  pub fn exec(&mut self, stmt: &Box<dyn Stmt<'a, EvalResult>>) -> EvalResult {
     stmt.accept(self)
   }
 
-  pub fn eval(&mut self, expr: &Box<dyn Expr<EvalResult>>) -> EvalResult {
+  pub fn eval(&mut self, expr: &Box<dyn Expr<'a, EvalResult>>) -> EvalResult {
     expr.accept(self)
   }
 
@@ -326,18 +291,18 @@ impl<'a> Evaluator<'a> {
   }
 }
 
-impl stmt::Visitor<'_, EvalResult> for Evaluator {
-  fn visit_expression_stmt(&mut self, e: &Expression<EvalResult>) -> EvalResult {
+impl<'a> stmt::Visitor<'a, EvalResult> for Evaluator<'a> {
+  fn visit_expression_stmt(&mut self, e: &Expression<'a, EvalResult>) -> EvalResult {
     self.eval(&e.expr)
   }
 
-  fn visit_print_stmt(&mut self, e: &Print<EvalResult>) -> EvalResult {
+  fn visit_print_stmt(&mut self, e: &Print<'a, EvalResult>) -> EvalResult {
     let value = self.eval(&e.expr)?;
     println!("{}", value);
     Ok(Value::Nil)
   }
 
-  fn visit_var_stmt(&mut self, e: &Var<EvalResult>) -> EvalResult {
+  fn visit_var_stmt(&mut self, e: &Var<'a, EvalResult>) -> EvalResult {
     let mut value = Value::Nil;
 
     if let Some(i) = e.initializer {
@@ -353,8 +318,8 @@ impl stmt::Visitor<'_, EvalResult> for Evaluator {
   }
 }
 
-impl expr::Visitor<'_, EvalResult> for Evaluator {
-  fn visit_binary_expr(&mut self, e: &Binary<EvalResult>) -> EvalResult {
+impl<'a> expr::Visitor<'a, EvalResult> for Evaluator<'a> {
+  fn visit_binary_expr(&mut self, e: &Binary<'a, EvalResult>) -> EvalResult {
     let left = self.eval(&e.left)?;
     let right = self.eval(&e.right)?;
 
@@ -408,7 +373,7 @@ impl expr::Visitor<'_, EvalResult> for Evaluator {
     ))
   }
 
-  fn visit_grouping_expr(&mut self, e: &Grouping<EvalResult>) -> EvalResult {
+  fn visit_grouping_expr(&mut self, e: &Grouping<'a, EvalResult>) -> EvalResult {
     self.eval(&e.expression)
   }
 
@@ -416,7 +381,7 @@ impl expr::Visitor<'_, EvalResult> for Evaluator {
     Ok(e.value.clone())
   }
 
-  fn visit_unary_expr(&mut self, e: &Unary<EvalResult>) -> EvalResult {
+  fn visit_unary_expr(&mut self, e: &Unary<'a, EvalResult>) -> EvalResult {
     let right = self.eval(&e.right)?;
 
     match e.operator.token_type {

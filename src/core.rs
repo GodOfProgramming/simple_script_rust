@@ -2,15 +2,18 @@ use crate::ast;
 use crate::env::Environment;
 use crate::lex;
 use std::io::{self, Write};
+use std::marker::PhantomData;
 
-pub struct Interpreter {
+pub struct Interpreter<'a> {
   globals: Environment,
+  _phantom_lifetime: PhantomData<&'a i32>,
 }
 
-impl Interpreter {
-  pub fn new() -> Interpreter {
+impl<'a> Interpreter<'a> {
+  pub fn new() -> Interpreter<'a> {
     Interpreter {
       globals: Environment::new(),
+      _phantom_lifetime: PhantomData,
     }
   }
 
@@ -23,7 +26,7 @@ impl Interpreter {
       print!("ss(main):{}> ", line_number);
       io::stdout().flush()?;
       io::stdin().read_line(&mut input)?;
-      match self.exec(&input) {
+      match self.run(&input) {
         Ok(lines_executed) => line_number += lines_executed,
         Err((err_line, msg)) => println!("{}: {}", msg, line_number + err_line),
       }
@@ -33,7 +36,7 @@ impl Interpreter {
     Ok(())
   }
 
-  pub fn exec(&self, src: &str) -> Result<usize, (usize, String)> {
+  pub fn run(&self, src: &str) -> Result<usize, (usize, String)> {
     let (lines_executed, tokens) = match lex::analyze(src) {
       Ok(tuple) => tuple,
       Err(line) => {
