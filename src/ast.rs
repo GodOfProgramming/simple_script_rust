@@ -1,6 +1,7 @@
-use crate::expr::{self, Binary, Expr, Grouping, Literal, Unary};
+use crate::env::Environment;
+use crate::expr::{self, Binary, Expr, Grouping, Literal, Unary, Variable};
 use crate::lex::{Token, TokenType, Value};
-use crate::stmt::{self, Stmt, Print, Expression};
+use crate::stmt::{self, Expression, Print, Stmt, Var};
 
 type ParseResult<T> = Result<Vec<Box<dyn Stmt<'static, T>>>, String>;
 type StatementResult<T> = Result<Box<dyn Stmt<'static, T>>, String>;
@@ -11,10 +12,45 @@ pub fn parse<T: 'static>(tokens: &Vec<Token>) -> ParseResult<T> {
   let mut statements = Vec::new();
 
   while !is_at_end(tokens, &current) {
-    statements.push(statement(tokens, &mut current)?);
+    statements.push(decl(tokens, &mut current)?);
   }
 
   Ok(statements)
+}
+
+fn decl<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
+  match if match_token(tokens, current, &[TokenType::Var]) {
+    var_decl(tokens, current)
+  } else {
+    statement(tokens, current)
+  } {
+    Ok(v) => Ok(v),
+    Err(msg) => {
+      sync(tokens, current);
+      Err(msg)
+    }
+  }
+}
+
+fn var_decl<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
+  let name = consume(
+    tokens,
+    current,
+    &TokenType::Identifier,
+    "Expected variable name",
+  )?;
+  let expr = None;
+  if match_token(tokens, current, &[TokenType::Equal]) {
+    expr = Some(expression(tokens, current)?);
+  }
+
+  consume(
+    tokens,
+    current,
+    &TokenType::Semicolon,
+    "Expected ';' after variable declaration",
+  )?;
+  Ok(Box::new(Var::new(name.clone(), expr)))
 }
 
 fn statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
@@ -27,13 +63,23 @@ fn statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementR
 
 fn print_statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
   let expr = expression(tokens, current)?;
-  consume(tokens, current, &TokenType::Semicolon, "expected ';' after value")?;
+  consume(
+    tokens,
+    current,
+    &TokenType::Semicolon,
+    "expected ';' after value",
+  )?;
   Ok(Box::new(Print::new(expr)))
 }
 
 fn expr_statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
   let expr = expression(tokens, current)?;
-  consume(tokens, current, &TokenType::Semicolon, "expected ';' after value")?;
+  consume(
+    tokens,
+    current,
+    &TokenType::Semicolon,
+    "expected ';' after value",
+  )?;
   Ok(Box::new(Expression::new(expr)))
 }
 
@@ -112,6 +158,10 @@ fn primary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T
     if let Some(v) = &prev.literal {
       return Ok(Box::new(Literal::new(Value::from(v))));
     }
+  }
+
+  if match_token(tokens, current, &[TokenType::Identifier]) {
+    return Ok(Box::new(Variable::new(previous(tokens, current).clone())));
   }
 
   if match_token(tokens, current, &[TokenType::LeftParen]) {
@@ -235,8 +285,8 @@ fn sync(tokens: &Vec<Token>, current: &mut usize) {
 
 type EvalResult = Result<Value, String>;
 
-pub fn exec(prgm: Vec<Box<dyn Stmt<EvalResult>>>) -> EvalResult {
-  let mut e = Evaluator::new();
+pub fn exec<'a>(globals: &'a Environment, prgm: Vec<Box<dyn Stmt<EvalResult>>>) -> EvalResult {
+  let mut e = Evaluator::new(globals);
   let mut res = Value::Nil;
 
   for stmt in prgm.iter() {
@@ -246,11 +296,13 @@ pub fn exec(prgm: Vec<Box<dyn Stmt<EvalResult>>>) -> EvalResult {
   Ok(res)
 }
 
-struct Evaluator;
+struct Evaluator<'a> {
+  globals: &'a Environment,
+}
 
-impl Evaluator {
-  fn new() -> Evaluator {
-    Evaluator {}
+impl<'a> Evaluator<'a> {
+  fn new(globals: &'a Environment) -> Evaluator {
+    Evaluator { globals }
   }
 
   pub fn exec(&mut self, stmt: &Box<dyn Stmt<EvalResult>>) -> EvalResult {
@@ -275,15 +327,30 @@ impl Evaluator {
 }
 
 impl stmt::Visitor<'_, EvalResult> for Evaluator {
-    fn visit_expression_stmt(&mut self, e: &Expression<EvalResult>) -> EvalResult {
-      self.eval(&e.expr)
+  fn visit_expression_stmt(&mut self, e: &Expression<EvalResult>) -> EvalResult {
+    self.eval(&e.expr)
+  }
+
+  fn visit_print_stmt(&mut self, e: &Print<EvalResult>) -> EvalResult {
+    let value = self.eval(&e.expr)?;
+    println!("{}", value);
+    Ok(Value::Nil)
+  }
+
+  fn visit_var_stmt(&mut self, e: &Var<EvalResult>) -> EvalResult {
+    let mut value = Value::Nil;
+
+    if let Some(i) = e.initializer {
+      value = self.eval(&i)?;
     }
 
-    fn visit_print_stmt(&mut self, e: &Print<EvalResult>) -> EvalResult {
-      let value = self.eval(&e.expr)?;
-      println!("{}", value);
-      Ok(Value::Nil)
+    match e.name.lexeme {
+      Some(l) => self.globals.define(&l, value),
+      None => return Err(String::from("missing variable name")),
     }
+
+    Ok(Value::Nil)
+  }
 }
 
 impl expr::Visitor<'_, EvalResult> for Evaluator {
@@ -371,65 +438,14 @@ impl expr::Visitor<'_, EvalResult> for Evaluator {
       _ => Err(format!("")),
     }
   }
-}
 
-pub struct Printer;
-
-impl Printer {
-  pub fn new() -> Printer {
-    Printer {}
-  }
-
-  pub fn print(&mut self, expr: Box<dyn Expr<String>>) -> String {
-    expr.accept(self)
-  }
-
-  fn parenthesize(&mut self, name: &String, exprs: &[&Box<dyn Expr<String>>]) -> String {
-    let mut strings = Vec::new();
-    strings.push(String::from("("));
-    strings.push(name.clone());
-    for expr in exprs.iter() {
-      strings.push(String::from(" "));
-      strings.push(expr.accept(self));
-    }
-    strings.push(String::from(")"));
-    strings.join("")
-  }
-}
-
-impl expr::Visitor<'_, String> for Printer {
-  fn visit_binary_expr(&mut self, e: &Binary<String>) -> String {
-    if let Some(lexeme) = &e.operator.lexeme {
-      self.parenthesize(&lexeme, &[&e.left, &e.right])
-    } else {
-      String::from("?")
-    }
-  }
-
-  fn visit_grouping_expr(&mut self, e: &Grouping<String>) -> String {
-    self.parenthesize(&String::from("group"), &[&e.expression])
-  }
-
-  fn visit_literal_expr(&mut self, e: &Literal<String>) -> String {
-    match &e.value {
-      Value::Nil => String::from("nil"),
-      Value::Bool(b) => {
-        if *b {
-          String::from("true")
-        } else {
-          String::from("false")
-        }
-      }
-      Value::Str(s) => s.clone(),
-      Value::Num(f) => format!("{}", f),
-    }
-  }
-
-  fn visit_unary_expr(&mut self, e: &Unary<String>) -> String {
-    if let Some(lexeme) = &e.operator.lexeme {
-      self.parenthesize(&lexeme, &[&e.right])
-    } else {
-      String::from("?")
+  fn visit_variable_expr(&mut self, e: &Variable<EvalResult>) -> EvalResult {
+    match e.name.lexeme {
+      Some(l) => match self.globals.lookup(&l) {
+        Some(v) => Ok(v.clone()),
+        None => Err(String::from("used uninitialized variable")),
+      },
+      None => Err(String::from("cannot declare var with token")),
     }
   }
 }

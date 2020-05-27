@@ -1,12 +1,17 @@
 use crate::ast;
+use crate::env::Environment;
 use crate::lex;
 use std::io::{self, Write};
 
-pub struct Interpreter {}
+pub struct Interpreter {
+  globals: Environment,
+}
 
 impl Interpreter {
   pub fn new() -> Interpreter {
-    Interpreter {}
+    Interpreter {
+      globals: Environment::new(),
+    }
   }
 
   pub fn run_interactive(&self) -> io::Result<()> {
@@ -41,7 +46,7 @@ impl Interpreter {
       Err(msg) => return Err((0, format!("parse error: {}", msg))),
     };
 
-    let value = match ast::exec(prgm) {
+    let value = match ast::exec(&self.globals, prgm) {
       Ok(v) => v,
       Err(msg) => return Err((0, msg)),
     };

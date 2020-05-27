@@ -10,7 +10,7 @@ comparison     	→ addition ( ( ">" | ">=" | "<" | "<=" ) addition )* ;
 addition       	→ multiplication ( ( "-" | "+" ) multiplication )* ;
 multiplication 	→ unary ( ( "/" | "*" ) unary )* ;
 unary          	→ ( "!" | "-" ) unary | primary ;
-primary        	→ NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" ;
+primary        	→ NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" | IDENTIFIER ;
 
 Terminal 		- Code to match and consume a token
 Nonterminal	- Call to that rule’s function

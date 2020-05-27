@@ -133,6 +133,35 @@ where
     }
 }
 
+pub struct Variable<'a, V>
+where
+    V: 'a,
+{
+    pub name: Token,
+    _phantom_data: PhantomData<&'a V>,
+}
+
+impl<'a, V> Variable<'a, V>
+where
+    V: 'a,
+{
+    pub fn new(name: Token) -> Variable<'a, V> {
+        Variable {
+            name,
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
+impl<'a, R> Expr<'a, R> for Variable<'a, R>
+where
+    R: 'a,
+{
+    fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R {
+        visitor.visit_variable_expr(self)
+    }
+}
+
 pub trait Visitor<'a, R>
 where
     R: 'a,
@@ -144,4 +173,6 @@ where
     fn visit_literal_expr(&mut self, e: &Literal<'a, R>) -> R;
 
     fn visit_unary_expr(&mut self, e: &Unary<'a, R>) -> R;
+
+    fn visit_variable_expr(&mut self, e: &Variable<'a, R>) -> R;
 }

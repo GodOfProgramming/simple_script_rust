@@ -53,6 +53,15 @@
 						"type": "Box<dyn Expr<'a, V>>"
 					}
 				]
+			},
+			{
+				"name": "Variable",
+				"members": [
+					{
+						"name": "name",
+						"type": "Token"
+					}
+				]
 			}
 		]
 	},
@@ -60,7 +69,8 @@
 		"name": "Stmt",
 		"uses": [
 			"std::marker::PhantomData",
-			"crate::expr::Expr"
+			"crate::expr::Expr",
+			"crate::lex::Token"
 		],
 		"impl": [
 			{
@@ -78,6 +88,19 @@
 					{
 						"name": "expr",
 						"type": "Box<dyn Expr<'a, V>>"
+					}
+				]
+			},
+			{
+				"name": "Var",
+				"members": [
+					{
+						"name": "name",
+						"type": "Token"
+					},
+					{
+						"name": "initializer",
+						"type": "Option<Box<dyn Expr<'a, V>>>"
 					}
 				]
 			}

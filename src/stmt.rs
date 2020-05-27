@@ -1,4 +1,5 @@
 use crate::expr::Expr;
+use crate::lex::Token;
 use std::marker::PhantomData;
 
 pub trait Stmt<'a, R> {
@@ -63,6 +64,37 @@ where
     }
 }
 
+pub struct Var<'a, V>
+where
+    V: 'a,
+{
+    pub name: Token,
+    pub initializer: Option<Box<dyn Expr<'a, V>>>,
+    _phantom_data: PhantomData<&'a V>,
+}
+
+impl<'a, V> Var<'a, V>
+where
+    V: 'a,
+{
+    pub fn new(name: Token, initializer: Option<Box<dyn Expr<'a, V>>>) -> Var<'a, V> {
+        Var {
+            name,
+            initializer,
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
+impl<'a, R> Stmt<'a, R> for Var<'a, R>
+where
+    R: 'a,
+{
+    fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R {
+        visitor.visit_var_stmt(self)
+    }
+}
+
 pub trait Visitor<'a, R>
 where
     R: 'a,
@@ -70,4 +102,6 @@ where
     fn visit_expression_stmt(&mut self, e: &Expression<'a, R>) -> R;
 
     fn visit_print_stmt(&mut self, e: &Print<'a, R>) -> R;
+
+    fn visit_var_stmt(&mut self, e: &Var<'a, R>) -> R;
 }
