@@ -1,15 +1,15 @@
-use crate::env::Environment;
-use crate::expr::{self, Binary, Expr, Grouping, Literal, Unary, Variable};
+use crate::env::EnvRef;
+use crate::expr::{self, BinaryExpr, Expr, GroupingExpr, LiteralExpr, UnaryExpr, VariableExpr};
 use crate::lex::{Token, TokenType, Value};
-use crate::stmt::{self, Expression, Print, Stmt, Var};
+use crate::stmt::{self, ExpressionStmt, PrintStmt, Stmt, VarStmt};
 use std::marker::PhantomData;
 
-type ParseResult<'a, T> = Result<Vec<Box<dyn Stmt<'a, T>>>, String>;
-type StatementResult<'a, T> = Result<Box<dyn Stmt<'a, T>>, String>;
-type ExprResult<'a, T> = Result<Box<dyn Expr<'a, T>>, String>;
+type ParseResult = Result<Vec<Stmt>, String>;
+type StatementResult = Result<Stmt, String>;
+type ExprResult = Result<Expr, String>;
 
-pub fn parse<'a, T: 'a>(tokens: &'a Vec<Token>) -> ParseResult<'a, T> {
-  let parser = Parser::<'a, T>::new(tokens);
+pub fn parse<'a>(tokens: &'a Vec<Token>) -> ParseResult {
+  let mut parser = Parser::<'a>::new(tokens);
   parser.parse()
 }
 
@@ -20,14 +20,10 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
   fn new(tokens: &'a Vec<Token>) -> Parser<'a> {
-    Parser {
-      tokens,
-      current: 0,
-    }
+    Parser { tokens, current: 0 }
   }
 
-  fn parse<T>(&'a mut self) -> ParseResult<'a, T> {
-    let mut current = 0usize;
+  fn parse(&mut self) -> ParseResult {
     let mut statements = Vec::new();
 
     while !self.is_at_end() {
@@ -37,7 +33,7 @@ impl<'a> Parser<'a> {
     Ok(statements)
   }
 
-  fn decl<T>(&'a mut self) -> StatementResult<'a, T> {
+  fn decl(&mut self) -> StatementResult {
     match if self.match_token(&[TokenType::Var]) {
       self.var_decl()
     } else {
@@ -51,18 +47,18 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn var_decl<T>(&'a mut self) -> StatementResult<'a, T> {
+  fn var_decl(&mut self) -> StatementResult {
     let name = self.consume(&TokenType::Identifier, "Expected variable name")?;
-    let expr = None;
+    let mut expr = None;
     if self.match_token(&[TokenType::Equal]) {
       expr = Some(self.expression()?);
     }
 
-    self.consume<T>(&TokenType::Semicolon, "Expected ';' after variable decl")?;
-    Ok(Box::new(Var::new(name.clone(), expr)))
+    self.consume(&TokenType::Semicolon, "Expected ';' after variable decl")?;
+    Ok(Stmt::Var(Box::new(VarStmt::new(name.clone(), expr))))
   }
 
-  fn statement<T>(&'a mut self) -> StatementResult<'a, T> {
+  fn statement(&mut self) -> StatementResult {
     if self.match_token(&[TokenType::Print]) {
       self.print_statement()
     } else {
@@ -70,31 +66,31 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn print_statement<T>(&'a mut self) -> StatementResult<'a, T> {
+  fn print_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
     self.consume(&TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Box::new(Print::new(expr)))
+    Ok(Stmt::Print(Box::new(PrintStmt::new(expr))))
   }
 
-  fn expr_statement<T>(&'a mut self) -> StatementResult<'a, T> {
+  fn expr_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
     self.consume(&TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Box::new(Expression::new(expr)))
+    Ok(Stmt::Expression(Box::new(ExpressionStmt::new(expr))))
   }
 
-  fn expression<T>(&'a mut self) -> ExprResult<'a, T> {
+  fn expression(&mut self) -> ExprResult {
     self.list()
   }
 
-  fn list<T>(&'a mut self) -> ExprResult<'a, T> {
+  fn list(&mut self) -> ExprResult {
     self.left_associative_binary(Parser::equality, &[TokenType::Comma])
   }
 
-  fn equality<T>(&'a mut self) -> ExprResult<'a, T> {
+  fn equality(&mut self) -> ExprResult {
     self.left_associative_binary(Parser::comparison, &[TokenType::ExEq, TokenType::EqEq])
   }
 
-  fn comparison<T>(&'a mut self) -> ExprResult<'a, T> {
+  fn comparison(&mut self) -> ExprResult {
     self.left_associative_binary(
       Parser::addition,
       &[
@@ -106,22 +102,22 @@ impl<'a> Parser<'a> {
     )
   }
 
-  fn addition<T>(&'a mut self) -> ExprResult<'a, T> {
+  fn addition(&mut self) -> ExprResult {
     self.left_associative_binary(Parser::multiplication, &[TokenType::Plus, TokenType::Minus])
   }
 
-  fn multiplication<T>(&'a mut self) -> ExprResult<'a, T> {
+  fn multiplication(&mut self) -> ExprResult {
     self.left_associative_binary(Parser::unary, &[TokenType::Slash, TokenType::Asterisk])
   }
 
-  fn unary<T>(&'a mut self) -> ExprResult<'a, T> {
+  fn unary(&mut self) -> ExprResult {
     self.right_associateive_unary(
       Parser::primary,
       &[TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
     )
   }
 
-  fn primary<T>(&'a mut self) -> ExprResult<'a, T> {
+  fn primary(&mut self) -> ExprResult {
     if self.match_token(&[
       TokenType::False,
       TokenType::True,
@@ -132,55 +128,57 @@ impl<'a> Parser<'a> {
       let prev = self.previous();
 
       if let Some(v) = &prev.literal {
-        return Ok(Box::new(Literal::new(Value::from(v))));
+        return Ok(Expr::Literal(Box::new(LiteralExpr::new(Value::from(v)))));
       }
     }
 
     if self.match_token(&[TokenType::Identifier]) {
-      return Ok(Box::new(Variable::new(self.previous().clone())));
+      return Ok(Expr::Variable(Box::new(VariableExpr::new(
+        self.previous().clone(),
+      ))));
     }
 
     if self.match_token(&[TokenType::LeftParen]) {
       let expr = self.expression()?;
       self.consume(&TokenType::RightParen, "Expect ')' after expression.")?;
-      return Ok(Box::new(Grouping::new(expr)));
+      return Ok(Expr::Grouping(Box::new(GroupingExpr::new(expr))));
     }
 
     // TODO proper error handling
     Err(format!(""))
   }
 
-  fn left_associative_binary<T>(
-    &'a mut self,
-    next: fn(&'a mut Self) -> ExprResult<'a, T>,
+  fn left_associative_binary(
+    &mut self,
+    next: fn(&mut Self) -> ExprResult,
     types: &[TokenType],
-  ) -> ExprResult<'a, T> {
+  ) -> ExprResult {
     let mut expr = next(self)?;
 
     while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
-      expr = Box::new(Binary::new(expr, op.clone(), right));
+      expr = Expr::Binary(Box::new(BinaryExpr::new(expr, op.clone(), right)));
     }
 
     Ok(expr)
   }
 
-  fn right_associateive_unary<T>(
-    &'a mut self,
-    next: fn(&'a mut Self) -> ExprResult<'a, T>,
+  fn right_associateive_unary(
+    &mut self,
+    next: fn(&mut Self) -> ExprResult,
     types: &[TokenType],
-  ) -> ExprResult<'a, T> {
+  ) -> ExprResult {
     if self.match_token(types) {
       let op = self.previous();
       let right = self.unary()?;
-      Ok(Box::new(Unary::new(op.clone(), right)))
+      Ok(Expr::Unary(Box::new(UnaryExpr::new(op.clone(), right))))
     } else {
       next(self)
     }
   }
 
-  fn match_token(&'a mut self, types: &[TokenType]) -> bool {
+  fn match_token(&mut self, types: &[TokenType]) -> bool {
     for token_type in types.iter() {
       if self.check(token_type) {
         self.advance();
@@ -195,7 +193,7 @@ impl<'a> Parser<'a> {
     !self.is_at_end() && self.peek().token_type == *t
   }
 
-  fn advance(&'a mut self) -> &'a Token {
+  fn advance(&mut self) -> &'a Token {
     if !self.is_at_end() {
       self.current += 1;
     }
@@ -207,15 +205,15 @@ impl<'a> Parser<'a> {
     self.peek().token_type == TokenType::Eof
   }
 
-  fn peek(&'a self) -> &'a Token {
+  fn peek(&self) -> &'a Token {
     &self.tokens[self.current]
   }
 
-  fn previous(&'a self) -> &'a Token {
+  fn previous(&self) -> &'a Token {
     &self.tokens[self.current - 1]
   }
 
-  fn consume(&'a mut self, token_type: &TokenType, msg: &'static str) -> Result<&'a Token, String> {
+  fn consume(&mut self, token_type: &TokenType, msg: &'static str) -> Result<&'a Token, String> {
     if self.check(token_type) {
       Ok(self.advance())
     } else {
@@ -223,7 +221,7 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn sync(&'a mut self) {
+  fn sync(&mut self) {
     self.advance();
 
     while !self.is_at_end() {
@@ -250,7 +248,7 @@ impl<'a> Parser<'a> {
 
 type EvalResult = Result<Value, String>;
 
-pub fn exec<'a>(globals: &'a Environment, prgm: Vec<Box<dyn Stmt<'a, EvalResult>>>) -> EvalResult {
+pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> EvalResult {
   let mut e = Evaluator::new(globals);
   let mut res = Value::Nil;
 
@@ -261,20 +259,20 @@ pub fn exec<'a>(globals: &'a Environment, prgm: Vec<Box<dyn Stmt<'a, EvalResult>
   Ok(res)
 }
 
-struct Evaluator<'a> {
-  globals: &'a Environment,
+struct Evaluator {
+  globals: EnvRef,
 }
 
-impl<'a> Evaluator<'a> {
-  fn new(globals: &'a Environment) -> Evaluator {
+impl<'a> Evaluator {
+  fn new(globals: EnvRef) -> Evaluator {
     Evaluator { globals }
   }
 
-  pub fn exec(&mut self, stmt: &Box<dyn Stmt<'a, EvalResult>>) -> EvalResult {
+  fn exec(&mut self, stmt: &'a Stmt) -> EvalResult {
     stmt.accept(self)
   }
 
-  pub fn eval(&mut self, expr: &Box<dyn Expr<'a, EvalResult>>) -> EvalResult {
+  fn eval(&mut self, expr: &'a Expr) -> EvalResult {
     expr.accept(self)
   }
 
@@ -291,26 +289,26 @@ impl<'a> Evaluator<'a> {
   }
 }
 
-impl<'a> stmt::Visitor<'a, EvalResult> for Evaluator<'a> {
-  fn visit_expression_stmt(&mut self, e: &Expression<'a, EvalResult>) -> EvalResult {
+impl stmt::Visitor<EvalResult> for Evaluator {
+  fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> EvalResult {
     self.eval(&e.expr)
   }
 
-  fn visit_print_stmt(&mut self, e: &Print<'a, EvalResult>) -> EvalResult {
+  fn visit_print_stmt(&mut self, e: &PrintStmt) -> EvalResult {
     let value = self.eval(&e.expr)?;
     println!("{}", value);
     Ok(Value::Nil)
   }
 
-  fn visit_var_stmt(&mut self, e: &Var<'a, EvalResult>) -> EvalResult {
+  fn visit_var_stmt(&mut self, e: &VarStmt) -> EvalResult {
     let mut value = Value::Nil;
 
-    if let Some(i) = e.initializer {
+    if let Some(i) = &e.initializer {
       value = self.eval(&i)?;
     }
 
-    match e.name.lexeme {
-      Some(l) => self.globals.define(&l, value),
+    match &e.name.lexeme {
+      Some(l) => self.globals.borrow_mut().define(&l, value),
       None => return Err(String::from("missing variable name")),
     }
 
@@ -318,8 +316,8 @@ impl<'a> stmt::Visitor<'a, EvalResult> for Evaluator<'a> {
   }
 }
 
-impl<'a> expr::Visitor<'a, EvalResult> for Evaluator<'a> {
-  fn visit_binary_expr(&mut self, e: &Binary<'a, EvalResult>) -> EvalResult {
+impl expr::Visitor<EvalResult> for Evaluator {
+  fn visit_binary_expr(&mut self, e: &BinaryExpr) -> EvalResult {
     let left = self.eval(&e.left)?;
     let right = self.eval(&e.right)?;
 
@@ -373,15 +371,15 @@ impl<'a> expr::Visitor<'a, EvalResult> for Evaluator<'a> {
     ))
   }
 
-  fn visit_grouping_expr(&mut self, e: &Grouping<'a, EvalResult>) -> EvalResult {
+  fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> EvalResult {
     self.eval(&e.expression)
   }
 
-  fn visit_literal_expr(&mut self, e: &Literal<EvalResult>) -> EvalResult {
+  fn visit_literal_expr(&mut self, e: &LiteralExpr) -> EvalResult {
     Ok(e.value.clone())
   }
 
-  fn visit_unary_expr(&mut self, e: &Unary<'a, EvalResult>) -> EvalResult {
+  fn visit_unary_expr(&mut self, e: &UnaryExpr) -> EvalResult {
     let right = self.eval(&e.right)?;
 
     match e.operator.token_type {
@@ -404,9 +402,9 @@ impl<'a> expr::Visitor<'a, EvalResult> for Evaluator<'a> {
     }
   }
 
-  fn visit_variable_expr(&mut self, e: &Variable<EvalResult>) -> EvalResult {
-    match e.name.lexeme {
-      Some(l) => match self.globals.lookup(&l) {
+  fn visit_variable_expr(&mut self, e: &VariableExpr) -> EvalResult {
+    match &e.name.lexeme {
+      Some(l) => match self.globals.borrow().lookup(&l) {
         Some(v) => Ok(v.clone()),
         None => Err(String::from("used uninitialized variable")),
       },
@@ -428,6 +426,6 @@ mod tests {
   #[test]
   fn analyze_basic() {
     let (lines, tokens) = lex::analyze(BASIC_MATH_SRC).unwrap();
-    let ast = parse::<()>(&tokens).unwrap();
+    let ast = parse(&tokens).unwrap();
   }
 }

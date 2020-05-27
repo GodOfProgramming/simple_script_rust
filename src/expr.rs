@@ -1,178 +1,86 @@
 use crate::lex::{Token, Value};
-use std::marker::PhantomData;
 
-pub trait Expr<'a, R> {
-    fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R;
+pub enum Expr {
+    Binary(Box<BinaryExpr>),
+    Grouping(Box<GroupingExpr>),
+    Literal(Box<LiteralExpr>),
+    Unary(Box<UnaryExpr>),
+    Variable(Box<VariableExpr>),
 }
 
-pub struct Binary<'a, V>
-where
-    V: 'a,
-{
-    pub left: Box<dyn Expr<'a, V>>,
+impl Expr {
+    pub fn accept<R>(&self, visitor: &mut dyn Visitor<R>) -> R {
+        match self {
+            Expr::Binary(x) => visitor.visit_binary_expr(x),
+            Expr::Grouping(x) => visitor.visit_grouping_expr(x),
+            Expr::Literal(x) => visitor.visit_literal_expr(x),
+            Expr::Unary(x) => visitor.visit_unary_expr(x),
+            Expr::Variable(x) => visitor.visit_variable_expr(x),
+        }
+    }
+}
+
+pub struct BinaryExpr {
+    pub left: Expr,
     pub operator: Token,
-    pub right: Box<dyn Expr<'a, V>>,
-    _phantom_data: PhantomData<&'a V>,
+    pub right: Expr,
 }
 
-impl<'a, V> Binary<'a, V>
-where
-    V: 'a,
-{
-    pub fn new(
-        left: Box<dyn Expr<'a, V>>,
-
-        operator: Token,
-
-        right: Box<dyn Expr<'a, V>>,
-    ) -> Binary<'a, V> {
-        Binary {
+impl BinaryExpr {
+    pub fn new(left: Expr, operator: Token, right: Expr) -> BinaryExpr {
+        BinaryExpr {
             left,
             operator,
             right,
-            _phantom_data: PhantomData,
         }
     }
 }
 
-impl<'a, R> Expr<'a, R> for Binary<'a, R>
-where
-    R: 'a,
-{
-    fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R {
-        visitor.visit_binary_expr(self)
+pub struct GroupingExpr {
+    pub expression: Expr,
+}
+
+impl GroupingExpr {
+    pub fn new(expression: Expr) -> GroupingExpr {
+        GroupingExpr { expression }
     }
 }
 
-pub struct Grouping<'a, V>
-where
-    V: 'a,
-{
-    pub expression: Box<dyn Expr<'a, V>>,
-    _phantom_data: PhantomData<&'a V>,
-}
-
-impl<'a, V> Grouping<'a, V>
-where
-    V: 'a,
-{
-    pub fn new(expression: Box<dyn Expr<'a, V>>) -> Grouping<'a, V> {
-        Grouping {
-            expression,
-            _phantom_data: PhantomData,
-        }
-    }
-}
-
-impl<'a, R> Expr<'a, R> for Grouping<'a, R>
-where
-    R: 'a,
-{
-    fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R {
-        visitor.visit_grouping_expr(self)
-    }
-}
-
-pub struct Literal<'a, V>
-where
-    V: 'a,
-{
+pub struct LiteralExpr {
     pub value: Value,
-    _phantom_data: PhantomData<&'a V>,
 }
 
-impl<'a, V> Literal<'a, V>
-where
-    V: 'a,
-{
-    pub fn new(value: Value) -> Literal<'a, V> {
-        Literal {
-            value,
-            _phantom_data: PhantomData,
-        }
+impl LiteralExpr {
+    pub fn new(value: Value) -> LiteralExpr {
+        LiteralExpr { value }
     }
 }
 
-impl<'a, R> Expr<'a, R> for Literal<'a, R>
-where
-    R: 'a,
-{
-    fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R {
-        visitor.visit_literal_expr(self)
-    }
-}
-
-pub struct Unary<'a, V>
-where
-    V: 'a,
-{
+pub struct UnaryExpr {
     pub operator: Token,
-    pub right: Box<dyn Expr<'a, V>>,
-    _phantom_data: PhantomData<&'a V>,
+    pub right: Expr,
 }
 
-impl<'a, V> Unary<'a, V>
-where
-    V: 'a,
-{
-    pub fn new(operator: Token, right: Box<dyn Expr<'a, V>>) -> Unary<'a, V> {
-        Unary {
-            operator,
-            right,
-            _phantom_data: PhantomData,
-        }
+impl UnaryExpr {
+    pub fn new(operator: Token, right: Expr) -> UnaryExpr {
+        UnaryExpr { operator, right }
     }
 }
 
-impl<'a, R> Expr<'a, R> for Unary<'a, R>
-where
-    R: 'a,
-{
-    fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R {
-        visitor.visit_unary_expr(self)
-    }
-}
-
-pub struct Variable<'a, V>
-where
-    V: 'a,
-{
+pub struct VariableExpr {
     pub name: Token,
-    _phantom_data: PhantomData<&'a V>,
 }
 
-impl<'a, V> Variable<'a, V>
-where
-    V: 'a,
-{
-    pub fn new(name: Token) -> Variable<'a, V> {
-        Variable {
-            name,
-            _phantom_data: PhantomData,
-        }
+impl VariableExpr {
+    pub fn new(name: Token) -> VariableExpr {
+        VariableExpr { name }
     }
 }
 
-impl<'a, R> Expr<'a, R> for Variable<'a, R>
-where
-    R: 'a,
-{
-    fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R {
-        visitor.visit_variable_expr(self)
-    }
-}
-
-pub trait Visitor<'a, R>
-where
-    R: 'a,
-{
-    fn visit_binary_expr(&mut self, e: &Binary<'a, R>) -> R;
-
-    fn visit_grouping_expr(&mut self, e: &Grouping<'a, R>) -> R;
-
-    fn visit_literal_expr(&mut self, e: &Literal<'a, R>) -> R;
-
-    fn visit_unary_expr(&mut self, e: &Unary<'a, R>) -> R;
-
-    fn visit_variable_expr(&mut self, e: &Variable<'a, R>) -> R;
+pub trait Visitor<R> {
+    fn visit_binary_expr(&mut self, e: &BinaryExpr) -> R;
+    fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> R;
+    fn visit_literal_expr(&mut self, e: &LiteralExpr) -> R;
+    fn visit_unary_expr(&mut self, e: &UnaryExpr) -> R;
+    fn visit_variable_expr(&mut self, e: &VariableExpr) -> R;
 }

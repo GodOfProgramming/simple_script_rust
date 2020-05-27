@@ -1,19 +1,18 @@
 use crate::ast;
-use crate::env::Environment;
+use crate::env::{Env, EnvRef};
 use crate::lex;
+use std::cell::RefCell;
 use std::io::{self, Write};
-use std::marker::PhantomData;
+use std::rc::Rc;
 
-pub struct Interpreter<'a> {
-  globals: Environment,
-  _phantom_lifetime: PhantomData<&'a i32>,
+pub struct Interpreter {
+  globals: EnvRef,
 }
 
-impl<'a> Interpreter<'a> {
-  pub fn new() -> Interpreter<'a> {
+impl Interpreter {
+  pub fn new() -> Interpreter {
     Interpreter {
-      globals: Environment::new(),
-      _phantom_lifetime: PhantomData,
+      globals: Rc::new(RefCell::new(Env::new())),
     }
   }
 
@@ -49,7 +48,7 @@ impl<'a> Interpreter<'a> {
       Err(msg) => return Err((0, format!("parse error: {}", msg))),
     };
 
-    let value = match ast::exec(&self.globals, prgm) {
+    let value = match ast::exec(Rc::clone(&self.globals), prgm) {
       Ok(v) => v,
       Err(msg) => return Err((0, msg)),
     };
