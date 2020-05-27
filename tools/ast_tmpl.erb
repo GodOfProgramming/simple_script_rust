@@ -1,0 +1,44 @@
+<%- for use in config.uses -%>
+use <%= use %>;
+<%- end -%>
+
+pub trait <%= config.name %><'a, R> {
+  fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R;
+}
+
+<% for impl in config.impl %>
+pub struct <%= impl.name %><'a, V> where V: 'a {
+<%- for m in impl.members -%>
+  pub <%= m.name %>: <%= m.type %>,  
+<%- end -%>
+  _phantom_data: PhantomData<&'a V>,
+}
+
+impl<'a, V> <%= impl.name %><'a, V> where V: 'a {
+  pub fn new(
+  <% for m in impl.members %>
+    <%= m.name %>: <%= m.type %>,  
+  <%- end -%>
+  ) -> <%= impl.name %><'a, V> {
+    <%= impl.name %> {
+    <%- for m in impl.members -%>
+      <%= m.name %>,  
+    <%- end -%>
+      _phantom_data: PhantomData,
+    }
+  }
+} 
+
+impl <'a, R> <%= config.name %><'a, R> for <%= impl.name %><'a, R> where R: 'a {
+  fn accept(&self, visitor: &mut dyn Visitor<'a, R>) -> R {
+    visitor.visit_<%= impl.name.underscore %>_<%= config.name.underscore %>(self)
+  }
+}
+<% end %>
+
+pub trait Visitor<'a, R> where R: 'a {
+<% for impl in config.impl %>
+  fn visit_<%= impl.name.underscore %>_<%= config.name.underscore %>(&mut self, e: &<%= impl.name %><'a, R>) -> R;
+<% end %>
+}
+
