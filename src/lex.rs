@@ -340,6 +340,9 @@ fn create_token(
       Ok(n) => Some(Value::Num(n)),
       Err(_) => return Err(()),
     },
+    TokenType::True => Some(Value::Bool(true)),
+    TokenType::False => Some(Value::Bool(false)),
+    TokenType::Nil => Some(Value::Nil),
     _ => None,
   };
 

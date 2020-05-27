@@ -1,3 +1,8 @@
+program     		→ declaration* EOF ;
+declaration 		→ var_decl | statement ;
+statement   		→ expr_stmt | print_stmt ;
+expr_stmt 			→ expression ";" ;
+print_stmt 			→ "print" expression ";" ;
 expression 			→ literal | unary | binary | grouping ;
 list 						→ expression ( ( "," ) expression )* ;
 equality       	→ comparison ( ( "!=" | "==" ) comparison )* ;
@@ -6,10 +11,6 @@ addition       	→ multiplication ( ( "-" | "+" ) multiplication )* ;
 multiplication 	→ unary ( ( "/" | "*" ) unary )* ;
 unary          	→ ( "!" | "-" ) unary | primary ;
 primary        	→ NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" ;
-program   			→ statement* EOF ;
-statement 			→ expr_stmt | print_stmt ;
-expr_stmt 			→ expression ";" ;
-print_stmt 			→ "print" expression ";" ;
 
 Terminal 		- Code to match and consume a token
 Nonterminal	- Call to that rule’s function
