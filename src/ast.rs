@@ -1,22 +1,51 @@
-use crate::expr::{Binary, Expr, Grouping, Literal, Unary, Visitor};
+use crate::expr::{self, Binary, Expr, Grouping, Literal, Unary};
 use crate::lex::{Token, TokenType, Value};
+use crate::stmt::{self, Stmt, Print, Expression};
 
-type ParseResult<T> = Result<Box<dyn Expr<'static, T>>, String>;
+type ParseResult<T> = Result<Vec<Box<dyn Stmt<'static, T>>>, String>;
+type StatementResult<T> = Result<Box<dyn Stmt<'static, T>>, String>;
+type ExprResult<T> = Result<Box<dyn Expr<'static, T>>, String>;
 
-pub fn parse<T: 'static>(tokens: &Vec<Token>) -> Result<Box<dyn Expr<'static, T>>, String> {
+pub fn parse<T: 'static>(tokens: &Vec<Token>) -> ParseResult<T> {
   let mut current = 0usize;
-  expression(tokens, &mut current)
+  let mut statements = Vec::new();
+
+  while !is_at_end(tokens, &current) {
+    statements.push(statement(tokens, &mut current)?);
+  }
+
+  Ok(statements)
 }
 
-fn expression<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+fn statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
+  if match_token(tokens, current, &[TokenType::Print]) {
+    print_statement(tokens, current)
+  } else {
+    expr_statement(tokens, current)
+  }
+}
+
+fn print_statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
+  let expr = expression(tokens, current)?;
+  consume(tokens, current, &TokenType::Semicolon, "expected ';' after value")?;
+  Ok(Box::new(Print::new(expr)))
+}
+
+fn expr_statement<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> StatementResult<T> {
+  let expr = expression(tokens, current)?;
+  consume(tokens, current, &TokenType::Semicolon, "expected ';' after value")?;
+  Ok(Box::new(Expression::new(expr)))
+}
+
+fn expression<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
   list(tokens, current)
 }
 
-fn list<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+fn list<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
   left_associative_binary(tokens, current, equality, &[TokenType::Comma])
 }
 
-fn equality<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+fn equality<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
   left_associative_binary(
     tokens,
     current,
@@ -25,7 +54,7 @@ fn equality<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult
   )
 }
 
-fn comparison<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+fn comparison<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
   left_associative_binary(
     tokens,
     current,
@@ -39,7 +68,7 @@ fn comparison<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResu
   )
 }
 
-fn addition<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+fn addition<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
   left_associative_binary(
     tokens,
     current,
@@ -48,7 +77,7 @@ fn addition<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult
   )
 }
 
-fn multiplication<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+fn multiplication<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
   left_associative_binary(
     tokens,
     current,
@@ -57,7 +86,7 @@ fn multiplication<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> Parse
   )
 }
 
-fn unary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+fn unary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
   right_associateive_unary(
     tokens,
     current,
@@ -66,7 +95,7 @@ fn unary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T>
   )
 }
 
-fn primary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<T> {
+fn primary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ExprResult<T> {
   if match_token(
     tokens,
     current,
@@ -103,9 +132,9 @@ fn primary<T: 'static>(tokens: &Vec<Token>, current: &mut usize) -> ParseResult<
 fn left_associative_binary<T: 'static>(
   tokens: &Vec<Token>,
   current: &mut usize,
-  next: fn(&Vec<Token>, &mut usize) -> ParseResult<T>,
+  next: fn(&Vec<Token>, &mut usize) -> ExprResult<T>,
   types: &[TokenType],
-) -> ParseResult<T> {
+) -> ExprResult<T> {
   let mut expr = next(tokens, current)?;
 
   while match_token(tokens, current, types) {
@@ -120,9 +149,9 @@ fn left_associative_binary<T: 'static>(
 fn right_associateive_unary<T: 'static>(
   tokens: &Vec<Token>,
   current: &mut usize,
-  next: fn(&Vec<Token>, &mut usize) -> ParseResult<T>,
+  next: fn(&Vec<Token>, &mut usize) -> ExprResult<T>,
   types: &[TokenType],
-) -> ParseResult<T> {
+) -> ExprResult<T> {
   if match_token(tokens, current, types) {
     let op = previous(tokens, current);
     let right = unary(tokens, current)?;
@@ -206,9 +235,15 @@ fn sync(tokens: &Vec<Token>, current: &mut usize) {
 
 type EvalResult = Result<Value, String>;
 
-pub fn eval(expr: Box<dyn Expr<EvalResult>>) -> EvalResult {
+pub fn exec(prgm: Vec<Box<dyn Stmt<EvalResult>>>) -> EvalResult {
   let mut e = Evaluator::new();
-  e.eval(&expr)
+  let mut res = Value::Nil;
+
+  for stmt in prgm.iter() {
+    res = e.exec(stmt)?;
+  }
+
+  Ok(res)
 }
 
 struct Evaluator;
@@ -216,6 +251,10 @@ struct Evaluator;
 impl Evaluator {
   fn new() -> Evaluator {
     Evaluator {}
+  }
+
+  pub fn exec(&mut self, stmt: &Box<dyn Stmt<EvalResult>>) -> EvalResult {
+    stmt.accept(self)
   }
 
   pub fn eval(&mut self, expr: &Box<dyn Expr<EvalResult>>) -> EvalResult {
@@ -235,7 +274,19 @@ impl Evaluator {
   }
 }
 
-impl Visitor<'_, EvalResult> for Evaluator {
+impl stmt::Visitor<'_, EvalResult> for Evaluator {
+    fn visit_expression_stmt(&mut self, e: &Expression<EvalResult>) -> EvalResult {
+      self.eval(&e.expr)
+    }
+
+    fn visit_print_stmt(&mut self, e: &Print<EvalResult>) -> EvalResult {
+      let value = self.eval(&e.expr)?;
+      println!("{}", value);
+      Ok(Value::Nil)
+    }
+}
+
+impl expr::Visitor<'_, EvalResult> for Evaluator {
   fn visit_binary_expr(&mut self, e: &Binary<EvalResult>) -> EvalResult {
     let left = self.eval(&e.left)?;
     let right = self.eval(&e.right)?;
@@ -346,7 +397,7 @@ impl Printer {
   }
 }
 
-impl Visitor<'_, String> for Printer {
+impl expr::Visitor<'_, String> for Printer {
   fn visit_binary_expr(&mut self, e: &Binary<String>) -> String {
     if let Some(lexeme) = &e.operator.lexeme {
       self.parenthesize(&lexeme, &[&e.left, &e.right])

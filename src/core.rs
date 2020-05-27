@@ -36,17 +36,17 @@ impl Interpreter {
       }
     };
 
-    let expr = match ast::parse(&tokens) {
+    let prgm = match ast::parse(&tokens) {
       Ok(ast) => ast,
       Err(msg) => return Err((0, format!("parse error: {}", msg))),
     };
 
-    let value = match ast::eval(expr) {
+    let value = match ast::exec(prgm) {
       Ok(v) => v,
       Err(msg) => return Err((0, msg)),
     };
 
-    println!("{}", value);
+    println!("=> {}", value);
 
     Ok(lines_executed)
   }
