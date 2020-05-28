@@ -454,13 +454,13 @@ mod tests {
   use super::*;
   use crate::lex;
 
-  const BASIC_MATH_SRC: &str = r#"1 / 2 * (3 + 4) + 1"#;
+  const BASIC_MATH_SRC: &str = r#"1 / 2 * (3 + 4) + 1;"#;
 
   // todo, define a visitor type that is configured to use a list
   // of expected tokens. then when visiting it iterates through that
   // list of tokens checking each node of the ast while traversing
   #[test]
-  fn analyze_basic() {
+  fn parse_basic() {
     let (lines, tokens) = lex::analyze(BASIC_MATH_SRC).unwrap();
     let ast = parse(&tokens).unwrap();
   }
