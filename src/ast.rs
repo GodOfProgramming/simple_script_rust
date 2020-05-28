@@ -1,8 +1,9 @@
 use crate::env::EnvRef;
-use crate::expr::{self, BinaryExpr, Expr, GroupingExpr, LiteralExpr, UnaryExpr, VariableExpr};
+use crate::expr::{
+  self, AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, UnaryExpr, VariableExpr,
+};
 use crate::lex::{Token, TokenType, Value};
 use crate::stmt::{self, ExpressionStmt, PrintStmt, Stmt, VarStmt};
-use std::marker::PhantomData;
 
 type ParseResult = Result<Vec<Stmt>, String>;
 type StatementResult = Result<Stmt, String>;
@@ -79,11 +80,37 @@ impl<'a> Parser<'a> {
   }
 
   fn expression(&mut self) -> ExprResult {
-    self.list()
+    self.assignment()
   }
 
-  fn list(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::equality, &[TokenType::Comma])
+  fn _list(&mut self) -> ExprResult {
+    let mut expr = self.assignment()?;
+
+    while self.match_token(&[TokenType::Comma]) {
+      let op = self.previous();
+      let right = self._list()?;
+      expr = Expr::Binary(Box::new(BinaryExpr::new(expr, op.clone(), right)));
+    }
+
+    Ok(expr)
+  }
+
+  fn assignment(&mut self) -> ExprResult {
+    let expr = self.equality()?;
+
+    if self.match_token(&[TokenType::Equal]) {
+      let equals = self.previous();
+      let value = self.assignment()?;
+
+      if let Expr::Variable(v) = expr {
+        let name = v.name;
+        return Ok(Expr::Assign(Box::new(AssignExpr::new(name, value))));
+      }
+
+      return Err(format!("invalid assignment target '{:?}'", equals));
+    }
+
+    Ok(expr)
   }
 
   fn equality(&mut self) -> ExprResult {
@@ -308,7 +335,7 @@ impl stmt::Visitor<EvalResult> for Evaluator {
     }
 
     match &e.name.lexeme {
-      Some(l) => self.globals.borrow_mut().define(&l, value),
+      Some(l) => self.globals.borrow_mut().define(l.clone(), value),
       None => return Err(String::from("missing variable name")),
     }
 
@@ -410,6 +437,15 @@ impl expr::Visitor<EvalResult> for Evaluator {
       },
       None => Err(String::from("cannot declare var with token")),
     }
+  }
+
+  fn visit_assign_expr(&mut self, e: &AssignExpr) -> EvalResult {
+    let value = self.eval(&e.value)?;
+    match &e.name.lexeme {
+      Some(l) => self.globals.borrow_mut().assign(l.clone(), value.clone())?,
+      None => return Err(format!("assignment error {:?}", e.name)),
+    }
+    Ok(value)
   }
 }
 

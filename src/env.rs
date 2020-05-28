@@ -16,11 +16,20 @@ impl Env {
     }
   }
 
-  pub fn define(&mut self, name: &String, value: Value) {
-    self.values.insert(name.clone(), value);
+  pub fn define(&mut self, name: String, value: Value) {
+    self.values.insert(name, value);
   }
 
   pub fn lookup(&self, name: &String) -> Option<&Value> {
     self.values.get(name)
+  }
+
+  pub fn assign(&mut self, name: String, value: Value) -> Result<(), String> {
+    if self.values.contains_key(&name) {
+      self.values.insert(name, value);
+      Ok(())
+    } else {
+      Err(format!("assignment of undefined variable '{}'", name))
+    }
   }
 }

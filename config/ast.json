@@ -6,6 +6,19 @@
     ],
     "impl": [
       {
+        "name": "Assign",
+        "members": [
+          {
+            "name": "name",
+            "type": "Token"
+          },
+          {
+            "name": "value",
+            "type": "Expr"
+          }
+        ]
+      },
+      {
         "name": "Binary",
         "members": [
           {

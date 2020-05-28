@@ -1,10 +1,17 @@
 program     		→ declaration* EOF ;
+
+### Statements ###
+
 declaration 		→ var_decl | statement ;
 statement   		→ expr_stmt | print_stmt ;
 expr_stmt 			→ expression ";" ;
 print_stmt 			→ "print" expression ";" ;
+
+### Expressions ###
+
 expression 			→ literal | unary | binary | grouping ;
-list 						→ expression ( ( "," ) expression )* ;
+list 						→ assignment ( ( "," ) list )* ;
+assignment      → IDENTIFIER "=" assignment | equality ;
 equality       	→ comparison ( ( "!=" | "==" ) comparison )* ;
 comparison     	→ addition ( ( ">" | ">=" | "<" | "<=" ) addition )* ;
 addition       	→ multiplication ( ( "-" | "+" ) multiplication )* ;
@@ -12,8 +19,10 @@ multiplication 	→ unary ( ( "/" | "*" ) unary )* ;
 unary          	→ ( "!" | "-" ) unary | primary ;
 primary        	→ NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" | IDENTIFIER ;
 
-Terminal 		- Code to match and consume a token
-Nonterminal	- Call to that rule’s function
-|						- If or switch statement
-* or + 			- While or for loop
-?						- If statement
+### Glossary ###
+
+Terminal 	    - Code to match and consume a token
+Non-terminal	- Call to that rule’s function
+|						  - If or switch statement
+* or +  			- While or for loop
+?	            - If statement
