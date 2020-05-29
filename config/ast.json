@@ -6,6 +6,23 @@
     ],
     "impl": [
       {
+        "name": "Logical",
+        "members": [
+          {
+            "name": "left",
+            "type": "Expr"
+          },
+          {
+            "name": "operator",
+            "type": "Token"
+          },
+          {
+            "name": "right",
+            "type": "Expr"
+          }
+        ]
+      },
+      {
         "name": "Assign",
         "members": [
           {

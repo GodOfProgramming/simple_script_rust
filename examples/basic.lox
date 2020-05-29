@@ -34,3 +34,14 @@ if one == 1 {
 } else {
   print "something is wrong";
 }
+
+var false_type = false;
+var true_type = true;
+
+if true_type or false_type {
+  print "passed";
+}
+
+if true_type and false_type {
+  print "shoudn't pass";
+}

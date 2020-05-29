@@ -1,7 +1,7 @@
 use crate::env::{Env, EnvRef};
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, TernaryExpr, UnaryExpr,
-  VariableExpr,
+  self, AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, TernaryExpr,
+  UnaryExpr, VariableExpr,
 };
 use crate::lex::{Token, TokenType, Value};
 use crate::stmt::{self, BlockStmt, ExpressionStmt, IfStmt, PrintStmt, Stmt, VarStmt};
@@ -132,7 +132,7 @@ impl<'a> Parser<'a> {
   }
 
   fn ternary(&mut self) -> ExprResult {
-    let mut expr = self.assignment()?;
+    let mut expr = self.or()?;
 
     if self.match_token(&[TokenType::Conditional]) {
       let if_true = self.expression()?;
@@ -142,6 +142,14 @@ impl<'a> Parser<'a> {
     }
 
     Ok(expr)
+  }
+
+  fn or(&mut self) -> ExprResult {
+    self.left_associative_logical(Parser::and, &[TokenType::Or])
+  }
+
+  fn and(&mut self) -> ExprResult {
+    self.left_associative_logical(Parser::equality, &[TokenType::And])
   }
 
   fn assignment(&mut self) -> ExprResult {
@@ -228,6 +236,22 @@ impl<'a> Parser<'a> {
       msg: String::from("could not find valid primary token"),
       line: self.peek().line,
     })
+  }
+
+  fn left_associative_logical(
+    &mut self,
+    next: fn(&mut Self) -> ExprResult,
+    types: &[TokenType],
+  ) -> ExprResult {
+    let mut expr = next(self)?;
+
+    while self.match_token(types) {
+      let op = self.previous();
+      let right = next(self)?;
+      expr = Expr::Logical(Box::new(LogicalExpr::new(expr, op.clone(), right)));
+    }
+
+    Ok(expr)
   }
 
   fn left_associative_binary(
@@ -395,12 +419,12 @@ impl<'a> Evaluator {
     result
   }
 
-  fn is_truthy(&mut self, v: Value) -> bool {
-    if v == Value::Nil {
+  fn is_truthy(&mut self, v: &Value) -> bool {
+    if *v == Value::Nil {
       return false;
     }
 
-    if let Value::Bool(b) = v {
+    if let Value::Bool(b) = *v {
       return b;
     }
 
@@ -450,7 +474,7 @@ impl stmt::Visitor<EvalResult> for Evaluator {
 
   fn visit_if_stmt(&mut self, e: &IfStmt) -> EvalResult {
     let result = self.eval_expr(&e.condition)?;
-    if self.is_truthy(result) {
+    if self.is_truthy(&result) {
       self.eval_stmt(&e.if_true)
     } else if let Some(if_false) = &e.if_false {
       self.eval_stmt(&if_false)
@@ -521,7 +545,7 @@ impl expr::Visitor<EvalResult> for Evaluator {
   fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> EvalResult {
     let result = self.eval_expr(&e.condition)?;
 
-    if self.is_truthy(result) {
+    if self.is_truthy(&result) {
       self.eval_expr(&e.if_true)
     } else {
       self.eval_expr(&e.if_false)
@@ -540,7 +564,7 @@ impl expr::Visitor<EvalResult> for Evaluator {
     let right = self.eval_expr(&e.right)?;
 
     match e.operator.token_type {
-      TokenType::Exclamation => Ok(Value::Bool(!self.is_truthy(right))),
+      TokenType::Exclamation => Ok(Value::Bool(!self.is_truthy(&right))),
       TokenType::Minus => {
         if let Value::Num(n) = right {
           Ok(Value::Num(-n))
@@ -615,6 +639,29 @@ impl expr::Visitor<EvalResult> for Evaluator {
       }
     }
     Ok(value)
+  }
+
+  fn visit_logical_expr(&mut self, e: &LogicalExpr) -> EvalResult {
+    let left = self.eval_expr(&e.left)?;
+
+    match e.operator.token_type {
+      TokenType::Or => {
+        if self.is_truthy(&left) {
+          return Ok(left);
+        }
+      }
+      TokenType::And => {
+        if !self.is_truthy(&left) {
+          return Ok(left);
+        }
+      }
+      _ => return Err(AstErr {
+        msg: String::from("invalid attempt for logical comparison"),
+        line: e.operator.line,
+      })
+    }
+
+    self.eval_expr(&e.right)
   }
 }
 

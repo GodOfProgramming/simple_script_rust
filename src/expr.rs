@@ -1,6 +1,7 @@
 use crate::lex::{Token, Value};
 
 pub enum Expr {
+    Logical(Box<LogicalExpr>),
     Assign(Box<AssignExpr>),
     Binary(Box<BinaryExpr>),
     Ternary(Box<TernaryExpr>),
@@ -13,6 +14,7 @@ pub enum Expr {
 impl Expr {
     pub fn accept<R>(&self, visitor: &mut dyn Visitor<R>) -> R {
         match self {
+            Expr::Logical(x) => visitor.visit_logical_expr(x),
             Expr::Assign(x) => visitor.visit_assign_expr(x),
             Expr::Binary(x) => visitor.visit_binary_expr(x),
             Expr::Ternary(x) => visitor.visit_ternary_expr(x),
@@ -20,6 +22,22 @@ impl Expr {
             Expr::Literal(x) => visitor.visit_literal_expr(x),
             Expr::Unary(x) => visitor.visit_unary_expr(x),
             Expr::Variable(x) => visitor.visit_variable_expr(x),
+        }
+    }
+}
+
+pub struct LogicalExpr {
+    pub left: Expr,
+    pub operator: Token,
+    pub right: Expr,
+}
+
+impl LogicalExpr {
+    pub fn new(left: Expr, operator: Token, right: Expr) -> LogicalExpr {
+        LogicalExpr {
+            left,
+            operator,
+            right,
         }
     }
 }
@@ -109,6 +127,7 @@ impl VariableExpr {
 }
 
 pub trait Visitor<R> {
+    fn visit_logical_expr(&mut self, e: &LogicalExpr) -> R;
     fn visit_assign_expr(&mut self, e: &AssignExpr) -> R;
     fn visit_binary_expr(&mut self, e: &BinaryExpr) -> R;
     fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> R;
