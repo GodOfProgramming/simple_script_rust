@@ -17,7 +17,7 @@ configs = JSON.parse(contents, symbolize_names: true).map do |file, cfg|
     impl: cfg[:impl].map do |impl|
       OpenStruct.new(
         name: impl[:name],
-        members: impl[:members].map do |m| 
+        members: impl[:members].map do |m|
           OpenStruct.new(name: m[:name], type: m[:type])
         end
       )
@@ -37,12 +37,10 @@ for config in configs do
 
   contents = renderer.result
 
-  contents = 
+  contents =
 `rustfmt --emit stdout <<EOF
 #{contents}
 EOF`
-
-  puts contents
 
   File.open("src/#{config.filename}.rs", 'w') do |f|
     f.write(contents)
@@ -50,4 +48,3 @@ EOF`
 
   puts 'done'
 end
-

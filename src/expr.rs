@@ -3,6 +3,7 @@ use crate::lex::{Token, Value};
 pub enum Expr {
     Assign(Box<AssignExpr>),
     Binary(Box<BinaryExpr>),
+    Ternary(Box<TernaryExpr>),
     Grouping(Box<GroupingExpr>),
     Literal(Box<LiteralExpr>),
     Unary(Box<UnaryExpr>),
@@ -14,6 +15,7 @@ impl Expr {
         match self {
             Expr::Assign(x) => visitor.visit_assign_expr(x),
             Expr::Binary(x) => visitor.visit_binary_expr(x),
+            Expr::Ternary(x) => visitor.visit_ternary_expr(x),
             Expr::Grouping(x) => visitor.visit_grouping_expr(x),
             Expr::Literal(x) => visitor.visit_literal_expr(x),
             Expr::Unary(x) => visitor.visit_unary_expr(x),
@@ -45,6 +47,22 @@ impl BinaryExpr {
             left,
             operator,
             right,
+        }
+    }
+}
+
+pub struct TernaryExpr {
+    pub condition: Expr,
+    pub if_true: Expr,
+    pub if_false: Expr,
+}
+
+impl TernaryExpr {
+    pub fn new(condition: Expr, if_true: Expr, if_false: Expr) -> TernaryExpr {
+        TernaryExpr {
+            condition,
+            if_true,
+            if_false,
         }
     }
 }
@@ -93,6 +111,7 @@ impl VariableExpr {
 pub trait Visitor<R> {
     fn visit_assign_expr(&mut self, e: &AssignExpr) -> R;
     fn visit_binary_expr(&mut self, e: &BinaryExpr) -> R;
+    fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> R;
     fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> R;
     fn visit_literal_expr(&mut self, e: &LiteralExpr) -> R;
     fn visit_unary_expr(&mut self, e: &UnaryExpr) -> R;

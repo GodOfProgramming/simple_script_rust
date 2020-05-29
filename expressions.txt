@@ -3,7 +3,8 @@ program     		→ declaration* EOF ;
 ### Statements ###
 
 declaration 		→ var_decl | statement ;
-statement   		→ expr_stmt | print_stmt | block ;
+statement   		→ expr_stmt | if_stmt | print_stmt | block ;
+if_stmt         → "if" "(" expression ")" statement ( "else" statement )? ;
 block           → "{" declaration* "}"
 expr_stmt 			→ expression ";" ;
 print_stmt 			→ "print" expression ";" ;
@@ -11,7 +12,8 @@ print_stmt 			→ "print" expression ";" ;
 ### Expressions ###
 
 expression 			→ literal | unary | binary | grouping ;
-list 						→ assignment ( ( "," ) list )* ;
+- list 					→ assignment ( ( "," ) list )* ;
+- ternary       → expression "?" expression ":" expression ;
 assignment      → IDENTIFIER "=" assignment | equality ;
 equality       	→ comparison ( ( "!=" | "==" ) comparison )* ;
 comparison     	→ addition ( ( ">" | ">=" | "<" | "<=" ) addition )* ;

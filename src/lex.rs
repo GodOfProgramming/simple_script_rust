@@ -46,6 +46,8 @@ pub enum TokenType {
   Semicolon,
   Slash,
   Asterisk,
+  Conditional,
+  Colon,
 
   // One or two character tokens.
   Exclamation,
@@ -172,6 +174,8 @@ pub fn analyze(src: &str) -> Result<(usize, Vec<Token>), usize> {
       '+' => TokenResult::Valid(TokenType::Plus),
       ';' => TokenResult::Valid(TokenType::Semicolon),
       '*' => TokenResult::Valid(TokenType::Asterisk),
+      '?' => TokenResult::Valid(TokenType::Conditional),
+      ':' => TokenResult::Valid(TokenType::Colon),
       '!' => {
         if next_is(&bytes, current_pos, '=') {
           current_pos += 1;

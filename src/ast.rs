@@ -1,6 +1,7 @@
 use crate::env::{Env, EnvRef};
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, UnaryExpr, VariableExpr,
+  self, AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, TernaryExpr, UnaryExpr,
+  VariableExpr,
 };
 use crate::lex::{Token, TokenType, Value};
 use crate::stmt::{self, BlockStmt, ExpressionStmt, PrintStmt, Stmt, VarStmt};
@@ -84,16 +85,29 @@ impl<'a> Parser<'a> {
   }
 
   fn expression(&mut self) -> ExprResult {
-    self.assignment()
+    self.ternary()
   }
 
   fn _list(&mut self) -> ExprResult {
     let mut expr = self.assignment()?;
 
-    while self.match_token(&[TokenType::Comma]) {
+    if self.match_token(&[TokenType::Comma]) {
       let op = self.previous();
       let right = self._list()?;
       expr = Expr::Binary(Box::new(BinaryExpr::new(expr, op.clone(), right)));
+    }
+
+    Ok(expr)
+  }
+
+  fn ternary(&mut self) -> ExprResult {
+    let mut expr = self.assignment()?;
+
+    if self.match_token(&[TokenType::Conditional]) {
+      let if_true = self.expression()?;
+      self.consume(&TokenType::Colon, "expected ':' for conditional operator")?;
+      let if_false = self.expression()?;
+      expr = Expr::Ternary(Box::new(TernaryExpr::new(expr, if_true, if_false)));
     }
 
     Ok(expr)
@@ -341,16 +355,16 @@ impl<'a> Evaluator {
     result
   }
 
-  fn is_truthy(&mut self, v: Value) -> Value {
+  fn is_truthy(&mut self, v: Value) -> bool {
     if v == Value::Nil {
-      return Value::Bool(false);
+      return false;
     }
 
-    if let Value::Bool(_) = v {
-      return v;
+    if let Value::Bool(b) = v {
+      return b;
     }
 
-    Value::Bool(true)
+    true
   }
 }
 
@@ -445,6 +459,16 @@ impl expr::Visitor<EvalResult> for Evaluator {
     ))
   }
 
+  fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> EvalResult {
+    let result = self.eval_expr(&e.condition)?;
+
+    if self.is_truthy(result) {
+      self.eval_expr(&e.if_true)
+    } else {
+      self.eval_expr(&e.if_false)
+    }
+  }
+
   fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> EvalResult {
     self.eval_expr(&e.expression)
   }
@@ -457,7 +481,7 @@ impl expr::Visitor<EvalResult> for Evaluator {
     let right = self.eval_expr(&e.right)?;
 
     match e.operator.token_type {
-      TokenType::Exclamation => Ok(self.is_truthy(right)),
+      TokenType::Exclamation => Ok(Value::Bool(!self.is_truthy(right))),
       TokenType::Minus => {
         if let Value::Num(n) = right {
           Ok(Value::Num(-n))
@@ -489,7 +513,10 @@ impl expr::Visitor<EvalResult> for Evaluator {
   fn visit_assign_expr(&mut self, e: &AssignExpr) -> EvalResult {
     let value = self.eval_expr(&e.value)?;
     match &e.name.lexeme {
-      Some(l) => self.current_env.borrow_mut().assign(l.clone(), value.clone())?,
+      Some(l) => self
+        .current_env
+        .borrow_mut()
+        .assign(l.clone(), value.clone())?,
       None => return Err(format!("assignment error {:?}", e.name)),
     }
     Ok(value)

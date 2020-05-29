@@ -36,6 +36,23 @@
         ]
       },
       {
+        "name": "Ternary",
+        "members": [
+          {
+            "name": "condition",
+            "type": "Expr"
+          },
+          {
+            "name": "if_true",
+            "type": "Expr"
+          },
+          {
+            "name": "if_false",
+            "type": "Expr"
+          }
+        ]
+      },
+      {
         "name": "Grouping",
         "members": [
           {
