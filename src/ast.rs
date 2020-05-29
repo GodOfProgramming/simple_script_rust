@@ -1,10 +1,12 @@
 use crate::env::{Env, EnvRef};
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, TernaryExpr,
-  UnaryExpr, VariableExpr,
+  AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, TernaryExpr, UnaryExpr,
+  VariableExpr, Visitor as ExprVisitor,
 };
 use crate::lex::{Token, TokenType, Value};
-use crate::stmt::{self, BlockStmt, ExpressionStmt, IfStmt, PrintStmt, Stmt, VarStmt};
+use crate::stmt::{
+  BlockStmt, ExpressionStmt, IfStmt, PrintStmt, Stmt, VarStmt, Visitor as StmtVisitor,
+};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -431,7 +433,7 @@ impl<'a> Evaluator {
   }
 }
 
-impl stmt::Visitor<EvalResult> for Evaluator {
+impl StmtVisitor<EvalResult> for Evaluator {
   fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> EvalResult {
     self.eval_expr(&e.expr)
   }
@@ -483,7 +485,7 @@ impl stmt::Visitor<EvalResult> for Evaluator {
   }
 }
 
-impl expr::Visitor<EvalResult> for Evaluator {
+impl ExprVisitor<EvalResult> for Evaluator {
   fn visit_binary_expr(&mut self, e: &BinaryExpr) -> EvalResult {
     let left = self.eval_expr(&e.left)?;
     let right = self.eval_expr(&e.right)?;
