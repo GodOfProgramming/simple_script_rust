@@ -1,9 +1,11 @@
-use crate::env::EnvRef;
+use crate::env::{Env, EnvRef};
 use crate::expr::{
   self, AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, UnaryExpr, VariableExpr,
 };
 use crate::lex::{Token, TokenType, Value};
-use crate::stmt::{self, ExpressionStmt, PrintStmt, Stmt, VarStmt};
+use crate::stmt::{self, BlockStmt, ExpressionStmt, PrintStmt, Stmt, VarStmt};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 type ParseResult = Result<Vec<Stmt>, String>;
 type StatementResult = Result<Stmt, String>;
@@ -62,6 +64,8 @@ impl<'a> Parser<'a> {
   fn statement(&mut self) -> StatementResult {
     if self.match_token(&[TokenType::Print]) {
       self.print_statement()
+    } else if self.match_token(&[TokenType::LeftBrace]) {
+      Ok(Stmt::Block(Box::new(BlockStmt::new(self.block()?))))
     } else {
       self.expr_statement()
     }
@@ -205,6 +209,18 @@ impl<'a> Parser<'a> {
     }
   }
 
+  fn block(&mut self) -> Result<Vec<Stmt>, String> {
+    let mut v = Vec::new();
+
+    while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+      v.push(self.decl()?);
+    }
+
+    self.consume(&TokenType::RightBrace, "Expect '}' after block")?;
+
+    Ok(v)
+  }
+
   fn match_token(&mut self, types: &[TokenType]) -> bool {
     for token_type in types.iter() {
       if self.check(token_type) {
@@ -280,27 +296,49 @@ pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> EvalResult {
   let mut res = Value::Nil;
 
   for stmt in prgm.iter() {
-    res = e.exec(stmt)?;
+    res = e.eval_stmt(stmt)?;
   }
 
   Ok(res)
 }
 
 struct Evaluator {
-  globals: EnvRef,
+  current_env: EnvRef,
 }
 
 impl<'a> Evaluator {
   fn new(globals: EnvRef) -> Evaluator {
-    Evaluator { globals }
+    Evaluator {
+      current_env: globals,
+    }
   }
 
-  fn exec(&mut self, stmt: &'a Stmt) -> EvalResult {
+  fn eval_stmt(&mut self, stmt: &'a Stmt) -> EvalResult {
     stmt.accept(self)
   }
 
-  fn eval(&mut self, expr: &'a Expr) -> EvalResult {
+  fn eval_expr(&mut self, expr: &'a Expr) -> EvalResult {
     expr.accept(self)
+  }
+
+  fn eval_block(&mut self, statements: &Vec<Stmt>, env: EnvRef) -> EvalResult {
+    let prev_env = Rc::clone(&self.current_env);
+    self.current_env = env;
+    let mut result = Ok(Value::Nil);
+
+    for stmt in statements.iter() {
+      match self.eval_stmt(&stmt) {
+        Ok(v) => result = Ok(v),
+        Err(s) => {
+          result = Err(s);
+          break;
+        }
+      };
+    }
+
+    self.current_env = prev_env;
+
+    result
   }
 
   fn is_truthy(&mut self, v: Value) -> Value {
@@ -318,11 +356,11 @@ impl<'a> Evaluator {
 
 impl stmt::Visitor<EvalResult> for Evaluator {
   fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> EvalResult {
-    self.eval(&e.expr)
+    self.eval_expr(&e.expr)
   }
 
   fn visit_print_stmt(&mut self, e: &PrintStmt) -> EvalResult {
-    let value = self.eval(&e.expr)?;
+    let value = self.eval_expr(&e.expr)?;
     println!("{}", value);
     Ok(Value::Nil)
   }
@@ -331,22 +369,31 @@ impl stmt::Visitor<EvalResult> for Evaluator {
     let mut value = Value::Nil;
 
     if let Some(i) = &e.initializer {
-      value = self.eval(&i)?;
+      value = self.eval_expr(&i)?;
     }
 
     match &e.name.lexeme {
-      Some(l) => self.globals.borrow_mut().define(l.clone(), value),
+      Some(l) => self.current_env.borrow_mut().define(l.clone(), value),
       None => return Err(String::from("missing variable name")),
     }
 
     Ok(Value::Nil)
   }
+
+  fn visit_block_stmt(&mut self, e: &BlockStmt) -> EvalResult {
+    self.eval_block(
+      &e.statements,
+      Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
+        &self.current_env,
+      )))),
+    )
+  }
 }
 
 impl expr::Visitor<EvalResult> for Evaluator {
   fn visit_binary_expr(&mut self, e: &BinaryExpr) -> EvalResult {
-    let left = self.eval(&e.left)?;
-    let right = self.eval(&e.right)?;
+    let left = self.eval_expr(&e.left)?;
+    let right = self.eval_expr(&e.right)?;
 
     // value comparison
     if e.operator.token_type == TokenType::EqEq {
@@ -399,7 +446,7 @@ impl expr::Visitor<EvalResult> for Evaluator {
   }
 
   fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> EvalResult {
-    self.eval(&e.expression)
+    self.eval_expr(&e.expression)
   }
 
   fn visit_literal_expr(&mut self, e: &LiteralExpr) -> EvalResult {
@@ -407,7 +454,7 @@ impl expr::Visitor<EvalResult> for Evaluator {
   }
 
   fn visit_unary_expr(&mut self, e: &UnaryExpr) -> EvalResult {
-    let right = self.eval(&e.right)?;
+    let right = self.eval_expr(&e.right)?;
 
     match e.operator.token_type {
       TokenType::Exclamation => Ok(self.is_truthy(right)),
@@ -431,7 +478,7 @@ impl expr::Visitor<EvalResult> for Evaluator {
 
   fn visit_variable_expr(&mut self, e: &VariableExpr) -> EvalResult {
     match &e.name.lexeme {
-      Some(l) => match self.globals.borrow().lookup(&l) {
+      Some(l) => match self.current_env.borrow().lookup(&l) {
         Some(v) => Ok(v.clone()),
         None => Err(String::from("used uninitialized variable")),
       },
@@ -440,9 +487,9 @@ impl expr::Visitor<EvalResult> for Evaluator {
   }
 
   fn visit_assign_expr(&mut self, e: &AssignExpr) -> EvalResult {
-    let value = self.eval(&e.value)?;
+    let value = self.eval_expr(&e.value)?;
     match &e.name.lexeme {
-      Some(l) => self.globals.borrow_mut().assign(l.clone(), value.clone())?,
+      Some(l) => self.current_env.borrow_mut().assign(l.clone(), value.clone())?,
       None => return Err(format!("assignment error {:?}", e.name)),
     }
     Ok(value)

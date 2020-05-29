@@ -85,6 +85,15 @@
     ],
     "impl": [
       {
+        "name": "Block",
+        "members": [
+          {
+            "name": "statements",
+            "type": "Vec<Stmt>"
+          }
+        ]
+      },
+      {
         "name": "Expression",
         "members": [
           {

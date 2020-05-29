@@ -1,6 +1,11 @@
-fun print_num(num) {
-	print "num = " + num;
+var foo = 1;
+{
+  var foo = "some string";
+  {
+    var foo = true;
+
+    print foo;
+  }
+  print foo;
 }
-
-print_num(1.22 + 3);
-
+print foo;
