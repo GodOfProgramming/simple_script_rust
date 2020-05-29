@@ -160,17 +160,16 @@ impl<'a> Parser<'a> {
       let value = self.assignment()?;
 
       if let Expr::Variable(v) = expr {
-        let name = v.name;
-        return Ok(Expr::Assign(Box::new(AssignExpr::new(name, value))));
+        Ok(Expr::Assign(Box::new(AssignExpr::new(v.name, value))))
+      } else {
+        Err(AstErr {
+          msg: String::from("invalid assignment target"),
+          line: equals.line,
+        })
       }
-
-      return Err(AstErr {
-        msg: String::from("invalid assignment target"),
-        line: equals.line,
-      });
+    } else {
+      Ok(expr)
     }
-
-    Ok(expr)
   }
 
   fn equality(&mut self) -> ExprResult {
@@ -655,10 +654,12 @@ impl expr::Visitor<EvalResult> for Evaluator {
           return Ok(left);
         }
       }
-      _ => return Err(AstErr {
-        msg: String::from("invalid attempt for logical comparison"),
-        line: e.operator.line,
-      })
+      _ => {
+        return Err(AstErr {
+          msg: String::from("invalid attempt for logical comparison"),
+          line: e.operator.line,
+        })
+      }
     }
 
     self.eval_expr(&e.right)

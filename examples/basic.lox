@@ -42,8 +42,9 @@ if true_type or false_type {
   print "passed";
 }
 
-@
-
 if true_type and false_type {
   print "shoudn't pass";
 }
+
+print true ? one + one : two + two;
+
