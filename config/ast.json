@@ -102,6 +102,23 @@
     ],
     "impl": [
       {
+        "name": "If",
+        "members": [
+          {
+            "name": "condition",
+            "type": "Expr"
+          },
+          {
+            "name": "if_true",
+            "type": "Stmt"
+          },
+          {
+            "name": "if_false",
+            "type": "Option<Stmt>"
+          }
+        ]
+      },
+      {
         "name": "Block",
         "members": [
           {

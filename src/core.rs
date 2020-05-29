@@ -27,7 +27,7 @@ impl Interpreter {
       io::stdin().read_line(&mut input)?;
       match self.run(&input) {
         Ok(lines_executed) => line_number += lines_executed,
-        Err((err_line, msg)) => println!("{}: {}", msg, line_number + err_line),
+        Err((msg, err_line)) => println!("{}: {}", msg, line_number + err_line),
       }
       input.clear();
     }
@@ -35,22 +35,22 @@ impl Interpreter {
     Ok(())
   }
 
-  pub fn run(&self, src: &str) -> Result<usize, (usize, String)> {
+  pub fn run(&self, src: &str) -> Result<usize, (String, usize)> {
     let (lines_executed, tokens) = match lex::analyze(src) {
       Ok(tuple) => tuple,
       Err(line) => {
-        return Err((line, String::from("analyze error")));
+        return Err((String::from("analyze error"), line));
       }
     };
 
     let prgm = match ast::parse(&tokens) {
       Ok(ast) => ast,
-      Err(msg) => return Err((0, format!("parse error: {}", msg))),
+      Err(err) => return Err((format!("parse error: {}", err.msg), err.line)),
     };
 
     let value = match ast::exec(Rc::clone(&self.globals), prgm) {
       Ok(v) => v,
-      Err(msg) => return Err((0, msg)),
+      Err(err) => return Err((err.msg, err.line)),
     };
 
     println!("=> {}", value);

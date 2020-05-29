@@ -4,13 +4,18 @@ use crate::expr::{
   VariableExpr,
 };
 use crate::lex::{Token, TokenType, Value};
-use crate::stmt::{self, BlockStmt, ExpressionStmt, PrintStmt, Stmt, VarStmt};
+use crate::stmt::{self, BlockStmt, ExpressionStmt, IfStmt, PrintStmt, Stmt, VarStmt};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-type ParseResult = Result<Vec<Stmt>, String>;
-type StatementResult = Result<Stmt, String>;
-type ExprResult = Result<Expr, String>;
+pub struct AstErr {
+  pub msg: String,
+  pub line: usize,
+}
+
+type ParseResult = Result<Vec<Stmt>, AstErr>;
+type StatementResult = Result<Stmt, AstErr>;
+type ExprResult = Result<Expr, AstErr>;
 
 pub fn parse<'a>(tokens: &'a Vec<Token>) -> ParseResult {
   let mut parser = Parser::<'a>::new(tokens);
@@ -63,13 +68,39 @@ impl<'a> Parser<'a> {
   }
 
   fn statement(&mut self) -> StatementResult {
-    if self.match_token(&[TokenType::Print]) {
+    if self.match_token(&[TokenType::If]) {
+      self.if_statement()
+    } else if self.match_token(&[TokenType::Print]) {
       self.print_statement()
     } else if self.match_token(&[TokenType::LeftBrace]) {
       Ok(Stmt::Block(Box::new(BlockStmt::new(self.block()?))))
     } else {
       self.expr_statement()
     }
+  }
+
+  fn if_statement(&mut self) -> StatementResult {
+    let condition = self.expression()?;
+    self.consume(&TokenType::LeftBrace, "missing '{' after if condition")?;
+    let if_true = Stmt::Block(Box::new(BlockStmt::new(self.block()?)));
+    let mut if_false = None;
+
+    if self.match_token(&[TokenType::Else]) {
+      if_false = if self.match_token(&[TokenType::LeftBrace]) {
+        Some(Stmt::Block(Box::new(BlockStmt::new(self.block()?))))
+      } else if self.match_token(&[TokenType::If]) {
+        Some(self.if_statement()?)
+      } else {
+        return Err(AstErr {
+          msg: format!("invalid token after token {}", self.peek()),
+          line: self.peek().line,
+        });
+      };
+    }
+
+    Ok(Stmt::If(Box::new(IfStmt::new(
+      condition, if_true, if_false,
+    ))))
   }
 
   fn print_statement(&mut self) -> StatementResult {
@@ -125,7 +156,10 @@ impl<'a> Parser<'a> {
         return Ok(Expr::Assign(Box::new(AssignExpr::new(name, value))));
       }
 
-      return Err(format!("invalid assignment target '{:?}'", equals));
+      return Err(AstErr {
+        msg: String::from("invalid assignment target"),
+        line: equals.line,
+      });
     }
 
     Ok(expr)
@@ -190,7 +224,10 @@ impl<'a> Parser<'a> {
     }
 
     // TODO proper error handling
-    Err(format!(""))
+    Err(AstErr {
+      msg: String::from("could not find valid primary token"),
+      line: self.peek().line,
+    })
   }
 
   fn left_associative_binary(
@@ -223,7 +260,7 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn block(&mut self) -> Result<Vec<Stmt>, String> {
+  fn block(&mut self) -> Result<Vec<Stmt>, AstErr> {
     let mut v = Vec::new();
 
     while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
@@ -270,11 +307,14 @@ impl<'a> Parser<'a> {
     &self.tokens[self.current - 1]
   }
 
-  fn consume(&mut self, token_type: &TokenType, msg: &'static str) -> Result<&'a Token, String> {
+  fn consume(&mut self, token_type: &TokenType, msg: &'static str) -> Result<&'a Token, AstErr> {
     if self.check(token_type) {
       Ok(self.advance())
     } else {
-      Err(format!("{}", msg))
+      Err(AstErr {
+        msg: String::from(msg),
+        line: self.peek().line,
+      })
     }
   }
 
@@ -303,7 +343,7 @@ impl<'a> Parser<'a> {
   }
 }
 
-type EvalResult = Result<Value, String>;
+type EvalResult = Result<Value, AstErr>;
 
 pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> EvalResult {
   let mut e = Evaluator::new(globals);
@@ -388,7 +428,12 @@ impl stmt::Visitor<EvalResult> for Evaluator {
 
     match &e.name.lexeme {
       Some(l) => self.current_env.borrow_mut().define(l.clone(), value),
-      None => return Err(String::from("missing variable name")),
+      None => {
+        return Err(AstErr {
+          msg: String::from("missing variable name"),
+          line: e.name.line,
+        })
+      }
     }
 
     Ok(Value::Nil)
@@ -401,6 +446,17 @@ impl stmt::Visitor<EvalResult> for Evaluator {
         &self.current_env,
       )))),
     )
+  }
+
+  fn visit_if_stmt(&mut self, e: &IfStmt) -> EvalResult {
+    let result = self.eval_expr(&e.condition)?;
+    if self.is_truthy(result) {
+      self.eval_stmt(&e.if_true)
+    } else if let Some(if_false) = &e.if_false {
+      self.eval_stmt(&if_false)
+    } else {
+      Ok(Value::Nil)
+    }
   }
 }
 
@@ -430,10 +486,10 @@ impl expr::Visitor<EvalResult> for Evaluator {
           TokenType::GreaterEq => Ok(Value::Bool(l >= r)),
           TokenType::LessThan => Ok(Value::Bool(l < r)),
           TokenType::LessEq => Ok(Value::Bool(l <= r)),
-          _ => Err(format!(
-            "Invalid operator ({:?}) for {} and {}",
-            e.operator, l, r
-          )),
+          _ => Err(AstErr {
+            msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
+            line: e.operator.line,
+          }),
         };
       }
     }
@@ -453,10 +509,13 @@ impl expr::Visitor<EvalResult> for Evaluator {
       }
     }
 
-    Err(format!(
-      "Combination of {:?} and {:?} not allowed with {:?}",
-      left, right, e.operator
-    ))
+    Err(AstErr {
+      msg: format!(
+        "Combination of {:?} and {:?} not allowed with {:?}",
+        left, right, e.operator
+      ),
+      line: e.operator.line,
+    })
   }
 
   fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> EvalResult {
@@ -486,17 +545,34 @@ impl expr::Visitor<EvalResult> for Evaluator {
         if let Value::Num(n) = right {
           Ok(Value::Num(-n))
         } else {
-          Err(format!(""))
+          Err(AstErr {
+            msg: format!("invalid negation on type {}", right),
+            line: e.operator.line,
+          })
         }
       }
       TokenType::Plus => {
         if let Value::Num(n) = right {
           Ok(Value::Num(n.abs()))
+        } else if let Value::Str(s) = right {
+          match s.parse() {
+            Ok(n) => Ok(Value::Num(n)),
+            Err(err) => Err(AstErr {
+              msg: format!("string parse error: {}", err),
+              line: e.operator.line,
+            }),
+          }
         } else {
-          Err(format!(""))
+          Err(AstErr {
+            msg: format!("invalid absolution on type {}", right),
+            line: e.operator.line,
+          })
         }
       }
-      _ => Err(format!("")),
+      _ => Err(AstErr {
+        msg: format!("invalid unary operator {}", e.operator),
+        line: e.operator.line,
+      }),
     }
   }
 
@@ -504,20 +580,39 @@ impl expr::Visitor<EvalResult> for Evaluator {
     match &e.name.lexeme {
       Some(l) => match self.current_env.borrow().lookup(&l) {
         Some(v) => Ok(v.clone()),
-        None => Err(String::from("used uninitialized variable")),
+        None => Err(AstErr {
+          msg: format!("used uninitialized variable '{}'", l),
+          line: e.name.line,
+        }),
       },
-      None => Err(String::from("cannot declare var with token")),
+      None => Err(AstErr {
+        msg: String::from("cannot declare unnamed var"),
+        line: e.name.line,
+      }),
     }
   }
 
   fn visit_assign_expr(&mut self, e: &AssignExpr) -> EvalResult {
     let value = self.eval_expr(&e.value)?;
     match &e.name.lexeme {
-      Some(l) => self
-        .current_env
-        .borrow_mut()
-        .assign(l.clone(), value.clone())?,
-      None => return Err(format!("assignment error {:?}", e.name)),
+      Some(l) => {
+        if let Err(msg) = self
+          .current_env
+          .borrow_mut()
+          .assign(l.clone(), value.clone())
+        {
+          return Err(AstErr {
+            msg: format!("assignment error: {}", msg),
+            line: e.name.line,
+          });
+        }
+      }
+      None => {
+        return Err(AstErr {
+          msg: format!("cannot assign unnamed var"),
+          line: e.name.line,
+        })
+      }
     }
     Ok(value)
   }
@@ -536,6 +631,5 @@ mod tests {
   #[test]
   fn parse_basic() {
     let (lines, tokens) = lex::analyze(BASIC_MATH_SRC).unwrap();
-    let ast = parse(&tokens).unwrap();
   }
 }
