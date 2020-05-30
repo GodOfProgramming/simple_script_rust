@@ -4,24 +4,47 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-fn help() -> String {
-  format!("{}\n", "Usage: iss [optional script]")
-}
-
 fn main() -> Result<(), String> {
   let inter = Interpreter::new();
   let args: Vec<String> = env::args().collect();
 
   if args.contains(&String::from("-h")) {
-    println!("{}", help());
-  } else if args.len() == 2 {
-    // from file
+    help(inter)?;
+  } else if args.len() >= 2 {
+    run_file(inter, args)?;
+  } else {
+    run_interactive(inter)?;
+  }
+
+  Ok(())
+}
+
+fn help(inter: Interpreter) -> Result<(), String> {
+  const HELP_SCRIPT: &str =
+  r#"
+  print "Simple Script Interpreter";
+  print "";
+  print "Usage: ss [optional_script]";
+  print "";
+  print "Running without the script will start interactive mode.";
+  print "Here you can execute a series of statements line by line for real time feedback.";
+  print "";
+  "#;
+  if let Err(err) = inter.exec(HELP_SCRIPT) {
+    return Err(format!("this shouldn't happen, please report it: {}", err.msg));
+  } else {
+    Ok(())
+  }
+}
+
+fn run_file(inter: Interpreter, args: Vec<String>) -> Result<(), String> {
     let p = Path::new(&args[1]);
     if p.exists() {
       match fs::read_to_string(p) {
         Ok(contents) => {
           if let Err(err) = inter.exec(&contents) {
-            println!("Fatal: could not run script: {}: {}", err.msg, err.line + 1);
+            println!("Fatal: could not run script: {}: line {}", err.msg, err.line + 1);
+            return Err(err.msg);
           }
         }
         Err(err) => {
@@ -31,7 +54,11 @@ fn main() -> Result<(), String> {
     } else {
       println!("Fatal: could not find source file '{}'", p.display());
     }
-  } else {
+
+    Ok(())
+}
+
+fn run_interactive(inter: Interpreter) -> Result<(), String> {
     let mut input = String::new();
     let exit = false;
     let mut line_number = 1;
@@ -51,12 +78,11 @@ fn main() -> Result<(), String> {
           println!("=> {}", res.value);
           line_number += res.lines;
         }
-        Err(err) => println!("{}: {}", err.msg, line_number + err.line),
+        Err(err) => println!("{}: line {}", err.msg, line_number + err.line),
       }
 
       input.clear();
     }
-  }
 
-  Ok(())
+    Ok(())
 }

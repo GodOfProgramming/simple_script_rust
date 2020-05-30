@@ -151,7 +151,7 @@ impl<'a> Parser<'a> {
   }
 
   fn and(&mut self) -> ExprResult {
-    self.left_associative_logical(Parser::equality, &[TokenType::And])
+    self.left_associative_logical(Parser::assignment, &[TokenType::And])
   }
 
   fn assignment(&mut self) -> ExprResult {
