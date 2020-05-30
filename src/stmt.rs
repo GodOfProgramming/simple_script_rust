@@ -2,6 +2,7 @@ use crate::expr::Expr;
 use crate::lex::Token;
 
 pub enum Stmt {
+    While(Box<WhileStmt>),
     If(Box<IfStmt>),
     Block(Box<BlockStmt>),
     Expression(Box<ExpressionStmt>),
@@ -12,11 +13,28 @@ pub enum Stmt {
 impl Stmt {
     pub fn accept<R>(&self, visitor: &mut dyn Visitor<R>) -> R {
         match self {
+            Stmt::While(x) => visitor.visit_while_stmt(x),
             Stmt::If(x) => visitor.visit_if_stmt(x),
             Stmt::Block(x) => visitor.visit_block_stmt(x),
             Stmt::Expression(x) => visitor.visit_expression_stmt(x),
             Stmt::Print(x) => visitor.visit_print_stmt(x),
             Stmt::Var(x) => visitor.visit_var_stmt(x),
+        }
+    }
+}
+
+pub struct WhileStmt {
+    pub token: Token,
+    pub condition: Expr,
+    pub body: Stmt,
+}
+
+impl WhileStmt {
+    pub fn new(token: Token, condition: Expr, body: Stmt) -> WhileStmt {
+        WhileStmt {
+            token,
+            condition,
+            body,
         }
     }
 }
@@ -79,6 +97,7 @@ impl VarStmt {
 }
 
 pub trait Visitor<R> {
+    fn visit_while_stmt(&mut self, e: &WhileStmt) -> R;
     fn visit_if_stmt(&mut self, e: &IfStmt) -> R;
     fn visit_block_stmt(&mut self, e: &BlockStmt) -> R;
     fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> R;

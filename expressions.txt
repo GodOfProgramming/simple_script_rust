@@ -4,7 +4,8 @@ program     		→ declaration* EOF ;
 
 declaration 		→ var_decl | statement ;
 statement   		→ expr_stmt | if_stmt | print_stmt | block ;
-if_stmt         → "if" "(" expression ")" statement ( "else" statement )? ;
+while_stmt      → "while" expression block ;
+if_stmt         → "if" expression block ( "else" block )? ;
 block           → "{" declaration* "}"
 expr_stmt 			→ expression ";" ;
 print_stmt 			→ "print" expression ";" ;

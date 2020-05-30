@@ -55,3 +55,8 @@ xyz = 1 +
       3;
 
 print xyz;
+
+while xyz != 0 {
+  print xyz;
+  xyz = xyz - 1;
+}

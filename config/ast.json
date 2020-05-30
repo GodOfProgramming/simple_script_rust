@@ -119,6 +119,23 @@
     ],
     "impl": [
       {
+        "name": "While",
+        "members": [
+          {
+            "name": "token",
+            "type": "Token"
+          },
+          {
+            "name": "condition",
+            "type": "Expr"
+          },
+          {
+            "name": "body",
+            "type": "Stmt"
+          }
+        ]
+      },
+      {
         "name": "If",
         "members": [
           {

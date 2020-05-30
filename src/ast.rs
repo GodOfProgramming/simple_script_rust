@@ -5,7 +5,7 @@ use crate::expr::{
 };
 use crate::lex::{Token, TokenType, Value};
 use crate::stmt::{
-  BlockStmt, ExpressionStmt, IfStmt, PrintStmt, Stmt, VarStmt, Visitor as StmtVisitor,
+  BlockStmt, ExpressionStmt, IfStmt, PrintStmt, Stmt, VarStmt, Visitor as StmtVisitor, WhileStmt,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -70,15 +70,35 @@ impl<'a> Parser<'a> {
   }
 
   fn statement(&mut self) -> StatementResult {
-    if self.match_token(&[TokenType::If]) {
-      self.if_statement()
-    } else if self.match_token(&[TokenType::Print]) {
+    if self.match_token(&[TokenType::Print]) {
       self.print_statement()
+    } else if self.match_token(&[TokenType::While]) {
+      self.while_statement()
+    } else if self.match_token(&[TokenType::If]) {
+      self.if_statement()
     } else if self.match_token(&[TokenType::LeftBrace]) {
       Ok(Stmt::Block(Box::new(BlockStmt::new(self.block()?))))
     } else {
       self.expr_statement()
     }
+  }
+
+  fn print_statement(&mut self) -> StatementResult {
+    let expr = self.expression()?;
+    self.consume(&TokenType::Semicolon, "expected ';' after value")?;
+    Ok(Stmt::Print(Box::new(PrintStmt::new(expr))))
+  }
+
+  fn while_statement(&mut self) -> StatementResult {
+    let token = self.previous();
+    let condition = self.expression()?;
+    self.consume(&TokenType::LeftBrace, "missing '{' after if condition")?;
+    let body = Stmt::Block(Box::new(BlockStmt::new(self.block()?)));
+    Ok(Stmt::While(Box::new(WhileStmt::new(
+      token.clone(),
+      condition,
+      body,
+    ))))
   }
 
   fn if_statement(&mut self) -> StatementResult {
@@ -103,12 +123,6 @@ impl<'a> Parser<'a> {
     Ok(Stmt::If(Box::new(IfStmt::new(
       condition, if_true, if_false,
     ))))
-  }
-
-  fn print_statement(&mut self) -> StatementResult {
-    let expr = self.expression()?;
-    self.consume(&TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::Print(Box::new(PrintStmt::new(expr))))
   }
 
   fn expr_statement(&mut self) -> StatementResult {
@@ -482,6 +496,26 @@ impl StmtVisitor<EvalResult> for Evaluator {
     } else {
       Ok(Value::Nil)
     }
+  }
+
+  fn visit_while_stmt(&mut self, e: &WhileStmt) -> EvalResult {
+    let mut conclusion = Value::Nil;
+    if let Stmt::Block(blk) = &e.body {
+      loop {
+        let result = self.eval_expr(&e.condition)?;
+        if !self.is_truthy(&result) {
+          break;
+        }
+        conclusion = self.visit_block_stmt(blk)?;
+      }
+    } else {
+      return Err(AstErr {
+        msg: String::from("body of while loop is not block statement"),
+        line: e.token.line,
+      });
+    }
+
+    Ok(conclusion)
   }
 }
 
