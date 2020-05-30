@@ -145,7 +145,18 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
   map
 }
 
-pub fn analyze(src: &str) -> Result<(usize, Vec<Token>), usize> {
+#[derive(Debug)]
+pub struct LexicalErr {
+  pub msg: String,
+  pub line: usize,
+}
+
+pub struct AnalyzeResult {
+  pub tokens: Vec<Token>,
+  pub lines: usize,
+}
+
+pub fn analyze(src: &str) -> Result<AnalyzeResult, LexicalErr> {
   enum TokenResult {
     Valid(TokenType),
     Skip,
@@ -226,7 +237,7 @@ pub fn analyze(src: &str) -> Result<(usize, Vec<Token>), usize> {
       }
       '"' => {
         // TODO clean this up/make more efficient
-        loop {
+        if let Err(line) = loop {
           match peek(&bytes, current_pos) {
             Some(next) => {
               if next != '"' {
@@ -240,7 +251,12 @@ pub fn analyze(src: &str) -> Result<(usize, Vec<Token>), usize> {
             None => break Err(line),
           }
           current_pos += 1;
-        }?;
+        } {
+          return Err(LexicalErr {
+            msg: String::from(r#"missing closing " for string"#),
+            line,
+          });
+        }
 
         current_pos += 1;
 
@@ -304,17 +320,26 @@ pub fn analyze(src: &str) -> Result<(usize, Vec<Token>), usize> {
       match create_token(&bytes, start_pos, current_pos, token_type) {
         Ok(token) => tokens.push(Token::new(token.0, Some(token.1), token.2, line)),
         Err(_) => {
-          return Err(line);
+          return Err(LexicalErr {
+            msg: String::from(""),
+            line,
+          });
         }
       }
     } else if let TokenResult::Error(line) = token {
-      return Err(line);
+      return Err(LexicalErr {
+        msg: String::from(""),
+        line,
+      });
     }
   }
 
   tokens.push(Token::new(TokenType::Eof, None, None, line));
 
-  Ok((line, tokens))
+  Ok(AnalyzeResult {
+    tokens: tokens,
+    lines: line,
+  })
 }
 
 fn peek(buff: &[u8], current_pos: usize) -> Option<char> {
@@ -330,10 +355,10 @@ fn create_token(
   start: usize,
   end: usize,
   token_type: TokenType,
-) -> Result<(TokenType, String, Option<Value>), ()> {
+) -> Result<(TokenType, String, Option<Value>), String> {
   let lexeme = match str::from_utf8(&buff[start..end]) {
     Ok(string) => string,
-    Err(_) => return Err(()),
+    Err(err) => return Err(format!("{}", err)),
   };
 
   let lexeme = String::from(lexeme);
@@ -342,7 +367,7 @@ fn create_token(
     TokenType::StringLiteral => Some(Value::Str(String::from(&lexeme[1..lexeme.len() - 1]))),
     TokenType::NumberLiteral => match lexeme.parse() {
       Ok(n) => Some(Value::Num(n)),
-      Err(_) => return Err(()),
+      Err(err) => return Err(format!("{}", err)),
     },
     TokenType::True => Some(Value::Bool(true)),
     TokenType::False => Some(Value::Bool(false)),
@@ -400,9 +425,9 @@ mod tests {
     ];
 
     match result {
-      Ok((line, tokens)) => {
-        assert_eq!(line, 0);
-        assert_eq!(tokens, expected_tokens);
+      Ok(res) => {
+        assert_eq!(res.lines, 0);
+        assert_eq!(res.tokens, expected_tokens);
       }
       Err(_) => assert!(false),
     }

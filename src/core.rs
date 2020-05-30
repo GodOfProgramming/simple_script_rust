@@ -1,60 +1,66 @@
-use crate::ast;
+use crate::ast::{self, AstErr};
 use crate::env::{Env, EnvRef};
-use crate::lex;
+use crate::lex::{self, LexicalErr, Value};
 use std::cell::RefCell;
-use std::io::{self, Write};
 use std::rc::Rc;
+use std::sync::Mutex;
+
+pub struct ExecResult {
+  pub value: Value,
+  pub lines: usize,
+}
+
+pub struct ExecErr {
+  pub msg: String,
+  pub line: usize,
+}
+
+impl From<AstErr> for ExecErr {
+  fn from(err: AstErr) -> Self {
+    Self {
+      msg: err.msg,
+      line: err.line,
+    }
+  }
+}
+
+impl From<LexicalErr> for ExecErr {
+  fn from(err: LexicalErr) -> Self {
+    Self {
+      msg: err.msg,
+      line: err.line,
+    }
+  }
+}
 
 pub struct Interpreter {
-  globals: EnvRef,
+  globals: Mutex<EnvRef>,
 }
 
 impl Interpreter {
   pub fn new() -> Interpreter {
     Interpreter {
-      globals: Rc::new(RefCell::new(Env::new())),
+      globals: Mutex::new(Rc::new(RefCell::new(Env::new()))),
     }
   }
 
-  pub fn run_interactive(&self) -> io::Result<()> {
-    let mut input = String::new();
-    let exit = false;
-    let mut line_number = 0;
+  pub fn exec(&self, src: &str) -> Result<ExecResult, ExecErr> {
+    let res = lex::analyze(src)?;
+    let program = ast::parse(&res.tokens)?;
+    let value = ast::exec(Rc::clone(&self.globals.lock().unwrap()), program)?;
 
-    while !exit {
-      print!("ss(main):{}> ", line_number);
-      io::stdout().flush()?;
-      io::stdin().read_line(&mut input)?;
-      match self.run(&input) {
-        Ok(lines_executed) => line_number += lines_executed,
-        Err((msg, err_line)) => println!("{}: {}", msg, line_number + err_line),
-      }
-      input.clear();
-    }
-
-    Ok(())
+    Ok(ExecResult {
+      value,
+      lines: res.lines,
+    })
   }
 
-  pub fn run(&self, src: &str) -> Result<usize, (String, usize)> {
-    let (lines_executed, tokens) = match lex::analyze(src) {
-      Ok(tuple) => tuple,
-      Err(line) => {
-        return Err((String::from("analyze error"), line));
-      }
-    };
-
-    let prgm = match ast::parse(&tokens) {
-      Ok(ast) => ast,
-      Err(err) => return Err((format!("parse error: {}", err.msg), err.line)),
-    };
-
-    let value = match ast::exec(Rc::clone(&self.globals), prgm) {
-      Ok(v) => v,
-      Err(err) => return Err((err.msg, err.line)),
-    };
-
-    println!("=> {}", value);
-
-    Ok(lines_executed)
+  pub fn set_var(&mut self, name: &String, value: Value) {
+    self
+      .globals
+      .lock()
+      .unwrap()
+      .borrow_mut()
+      .define(name.clone(), value);
   }
 }

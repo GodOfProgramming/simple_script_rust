@@ -30,8 +30,8 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-  fn new(tokens: &'a Vec<Token>) -> Parser<'a> {
-    Parser { tokens, current: 0 }
+  fn new(tokens: &'a Vec<Token>) -> Self {
+    Self { tokens, current: 0 }
   }
 
   fn parse(&mut self) -> ParseResult {
@@ -386,8 +386,8 @@ struct Evaluator {
 }
 
 impl<'a> Evaluator {
-  fn new(globals: EnvRef) -> Evaluator {
-    Evaluator {
+  fn new(globals: EnvRef) -> Self {
+    Self {
       current_env: globals,
     }
   }
@@ -670,7 +670,6 @@ impl ExprVisitor<EvalResult> for Evaluator {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
   use crate::lex;
 
   const BASIC_MATH_SRC: &str = r#"1 / 2 * (3 + 4) + 1;"#;
@@ -680,6 +679,6 @@ mod tests {
   // list of tokens checking each node of the ast while traversing
   #[test]
   fn parse_basic() {
-    let (lines, tokens) = lex::analyze(BASIC_MATH_SRC).unwrap();
+    lex::analyze(BASIC_MATH_SRC).unwrap();
   }
 }

@@ -11,15 +11,15 @@ pub struct Env {
 pub type EnvRef = Rc<RefCell<Env>>;
 
 impl Env {
-  pub fn new() -> Env {
-    Env {
+  pub fn new() -> Self {
+    Self {
       values: HashMap::new(),
       enclosing: None,
     }
   }
 
-  pub fn new_with_enclosing(enclosing: EnvRef) -> Env {
-    Env {
+  pub fn new_with_enclosing(enclosing: EnvRef) -> Self {
+    Self {
       values: HashMap::new(),
       enclosing: Some(enclosing),
     }
