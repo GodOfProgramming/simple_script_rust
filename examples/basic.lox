@@ -48,8 +48,10 @@ if true_type and false_type {
 
 print true ? one + one : two + two;
 
-if true {
-  var z = 1;
-}
+var xyz;
 
-print z;
+xyz = 1 +
+      2 +
+      3;
+
+print xyz;

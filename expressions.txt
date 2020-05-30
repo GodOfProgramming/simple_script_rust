@@ -12,7 +12,6 @@ print_stmt 			→ "print" expression ";" ;
 ### Expressions ###
 
 expression 			→ literal | unary | binary | grouping ;
-- list 					→ ternary ( "," list )* ;
 ternary         → assignment "?" expression ":" expression ;
 assignment      → IDENTIFIER "=" assignment | logical_or ;
 logical_or      → logic_and ( "or" logic_and )* ;

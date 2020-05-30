@@ -45,6 +45,7 @@ pub enum TokenType {
   Plus,
   Semicolon,
   Slash,
+  BackSlash,
   Asterisk,
   Conditional,
   Colon,
