@@ -72,6 +72,8 @@ impl<'a> Parser<'a> {
   fn statement(&mut self) -> StatementResult {
     if self.match_token(&[TokenType::Print]) {
       self.print_statement()
+    } else if self.match_token(&[TokenType::For]) {
+      self.for_statement()
     } else if self.match_token(&[TokenType::While]) {
       self.while_statement()
     } else if self.match_token(&[TokenType::If]) {
@@ -87,6 +89,59 @@ impl<'a> Parser<'a> {
     let expr = self.expression()?;
     self.consume(&TokenType::Semicolon, "expected ';' after value")?;
     Ok(Stmt::Print(Box::new(PrintStmt::new(expr))))
+  }
+
+  fn for_statement(&mut self) -> StatementResult {
+    let token = self.previous();
+
+    let initializer = if self.match_token(&[TokenType::Semicolon]) {
+      None
+    } else if self.match_token(&[TokenType::Var]) {
+      Some(self.var_decl()?)
+    } else {
+      Some(self.expr_statement()?)
+    };
+
+    let mut condition = if self.check(&TokenType::Semicolon) {
+      None
+    } else {
+      Some(self.expression()?)
+    };
+
+    self.consume(&TokenType::Semicolon, "Expect ';' after loop condition")?;
+
+    let increment = if self.check(&TokenType::Semicolon) {
+      None
+    } else {
+      Some(self.expression()?)
+    };
+
+    self.consume(&TokenType::LeftBrace, "Expect '{' after increment")?;
+
+    let mut body = Stmt::Block(Box::new(BlockStmt::new(self.block()?)));
+
+    if let Some(inc) = increment {
+      body = Stmt::Block(Box::new(BlockStmt::new(vec![
+        body,
+        Stmt::Expression(Box::new(ExpressionStmt::new(inc))),
+      ])));
+    }
+
+    if let None = condition {
+      condition = Some(Expr::Literal(Box::new(LiteralExpr::new(Value::Bool(true)))));
+    }
+
+    body = Stmt::While(Box::new(WhileStmt::new(
+      token.clone(),
+      condition.unwrap(),
+      body,
+    )));
+
+    if let Some(init) = initializer {
+      body = Stmt::Block(Box::new(BlockStmt::new(vec![init, body])))
+    }
+
+    Ok(body)
   }
 
   fn while_statement(&mut self) -> StatementResult {
