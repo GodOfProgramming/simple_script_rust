@@ -13,9 +13,13 @@ expr_stmt 			→ expression ";" ;
 print_stmt 			→ "print" expression ";" ;
 
 ### Expressions ###
+
+### Lowest Precedence ###
+
 expression 			→ literal | unary | binary | grouping ;
 ternary         → assignment "?" expression ":" expression ;
-assignment      → IDENTIFIER "=" assignment | logical_or ;
+assignment      → IDENTIFIER "=" assignment | range ;
+range           → logical_or ".." logical_or ;
 logical_or      → logic_and ( "or" logic_and )* ;
 logic_and       → equality ( "and" equality )* ;
 equality       	→ comparison ( ( "!=" | "==" ) comparison )* ;
@@ -24,6 +28,8 @@ addition       	→ multiplication ( ( "-" | "+" ) multiplication )* ;
 multiplication 	→ unary ( ( "/" | "*" ) unary )* ;
 unary          	→ ( "!" | "-" ) unary | primary ;
 primary        	→ NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" | IDENTIFIER ;
+
+### Highest Precedence ###
 
 ### Glossary ###
 

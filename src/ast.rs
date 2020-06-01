@@ -1,7 +1,7 @@
 use crate::env::{Env, EnvRef};
 use crate::expr::{
-  AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, TernaryExpr, UnaryExpr,
-  VariableExpr, Visitor as ExprVisitor,
+  AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, RangeExpr, TernaryExpr,
+  UnaryExpr, VariableExpr, Visitor as ExprVisitor,
 };
 use crate::lex::{Token, TokenType, Value};
 use crate::stmt::{
@@ -203,7 +203,7 @@ impl<'a> Parser<'a> {
   }
 
   fn ternary(&mut self) -> ExprResult {
-    let mut expr = self.or()?;
+    let mut expr = self.assignment()?;
 
     if self.match_token(&[TokenType::Conditional]) {
       let if_true = self.expression()?;
@@ -215,16 +215,8 @@ impl<'a> Parser<'a> {
     Ok(expr)
   }
 
-  fn or(&mut self) -> ExprResult {
-    self.left_associative_logical(Parser::and, &[TokenType::Or])
-  }
-
-  fn and(&mut self) -> ExprResult {
-    self.left_associative_logical(Parser::assignment, &[TokenType::And])
-  }
-
   fn assignment(&mut self) -> ExprResult {
-    let expr = self.equality()?;
+    let expr = self.range()?;
 
     if self.match_token(&[TokenType::Equal]) {
       let equals = self.previous();
@@ -241,6 +233,26 @@ impl<'a> Parser<'a> {
     } else {
       Ok(expr)
     }
+  }
+
+  fn range(&mut self) -> ExprResult {
+    let mut begin = self.or()?;
+
+    if self.match_token(&[TokenType::Range]) {
+      let token = self.previous();
+      let end = self.or()?;
+      begin = Expr::Range(Box::new(RangeExpr::new(begin, token.clone(), end)));
+    }
+
+    Ok(begin)
+  }
+
+  fn or(&mut self) -> ExprResult {
+    self.left_associative_logical(Parser::and, &[TokenType::Or])
+  }
+
+  fn and(&mut self) -> ExprResult {
+    self.left_associative_logical(Parser::equality, &[TokenType::And])
   }
 
   fn equality(&mut self) -> ExprResult {
@@ -302,6 +314,7 @@ impl<'a> Parser<'a> {
     }
 
     // TODO proper error handling
+
     Err(AstErr {
       msg: String::from("could not find valid primary token"),
       line: self.peek().line,
@@ -754,6 +767,22 @@ impl ExprVisitor<EvalResult> for Evaluator {
     }
 
     self.eval_expr(&e.right)
+  }
+
+  fn visit_range_expr(&mut self, e: &RangeExpr) -> EvalResult {
+    let begin = self.eval_expr(&e.begin)?;
+    let end = self.eval_expr(&e.end)?;
+
+    if let Value::Num(begin) = begin {
+      if let Value::Num(end) = end {
+        return Ok(Value::List(((begin.round() as i64)..(end.round() as i64)).map(|n| Value::Num(n as f64)).collect()))
+      }
+    }
+
+    Err(AstErr {
+      msg: String::from("expected number with range expression"),
+      line: e.token.line,
+    })
   }
 }
 

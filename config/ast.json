@@ -6,6 +6,23 @@
     ],
     "impl": [
       {
+        "name": "Range",
+        "members": [
+          {
+            "name": "begin",
+            "type": "Expr"
+          },
+          {
+            "name": "token",
+            "type": "Token"
+          },
+          {
+            "name": "end",
+            "type": "Expr"
+          }
+        ]
+      },
+      {
         "name": "Logical",
         "members": [
           {

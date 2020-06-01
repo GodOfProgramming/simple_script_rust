@@ -8,6 +8,7 @@ pub enum Value {
   Bool(bool),
   Str(String),
   Num(f64),
+  List(Vec<Value>),
 }
 
 impl Value {
@@ -17,6 +18,7 @@ impl Value {
       Value::Bool(b) => Value::Bool(b.clone()),
       Value::Str(s) => Value::Str(s.clone()),
       Value::Num(n) => Value::Num(n.clone()),
+      Value::List(l) => Value::List(l.clone()),
     }
   }
 }
@@ -28,6 +30,7 @@ impl Display for Value {
       Value::Bool(b) => write!(f, "{}", b),
       Value::Num(n) => write!(f, "{}", n),
       Value::Str(s) => write!(f, "{}", s),
+      Value::List(l) => write!(f, "{:#?}", l),
     }
   }
 }
@@ -40,7 +43,6 @@ pub enum TokenType {
   LeftBrace,
   RightBrace,
   Comma,
-  Dot,
   Minus,
   Plus,
   Semicolon,
@@ -59,6 +61,8 @@ pub enum TokenType {
   GreaterEq,
   LessThan,
   LessEq,
+  Dot,
+  Range,
 
   // Literals.
   Identifier,
@@ -181,13 +185,20 @@ pub fn analyze(src: &str) -> Result<AnalyzeResult, LexicalErr> {
       '{' => TokenResult::Valid(TokenType::LeftBrace),
       '}' => TokenResult::Valid(TokenType::RightBrace),
       ',' => TokenResult::Valid(TokenType::Comma),
-      '.' => TokenResult::Valid(TokenType::Dot),
       '-' => TokenResult::Valid(TokenType::Minus),
       '+' => TokenResult::Valid(TokenType::Plus),
       ';' => TokenResult::Valid(TokenType::Semicolon),
       '*' => TokenResult::Valid(TokenType::Asterisk),
       '?' => TokenResult::Valid(TokenType::Conditional),
       ':' => TokenResult::Valid(TokenType::Colon),
+      '.' => {
+        if next_is(&bytes, current_pos, '.') {
+          current_pos += 1;
+          TokenResult::Valid(TokenType::Range)
+        } else {
+          TokenResult::Valid(TokenType::Dot)
+        }
+      }
       '!' => {
         if next_is(&bytes, current_pos, '=') {
           current_pos += 1;
@@ -263,13 +274,11 @@ pub fn analyze(src: &str) -> Result<AnalyzeResult, LexicalErr> {
 
         TokenResult::Valid(TokenType::StringLiteral)
       }
-      ' ' => TokenResult::Skip,
-      '\r' => TokenResult::Skip,
-      '\t' => TokenResult::Skip,
       '\n' => {
         line += 1;
         TokenResult::Skip
       }
+      ' ' | '\r' | '\t' => TokenResult::Skip,
       c => {
         if is_digit(c) {
           let mut dot_found = false;

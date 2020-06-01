@@ -1,6 +1,7 @@
 use crate::lex::{Token, Value};
 
 pub enum Expr {
+    Range(Box<RangeExpr>),
     Logical(Box<LogicalExpr>),
     Assign(Box<AssignExpr>),
     Binary(Box<BinaryExpr>),
@@ -14,6 +15,7 @@ pub enum Expr {
 impl Expr {
     pub fn accept<R>(&self, visitor: &mut dyn Visitor<R>) -> R {
         match self {
+            Expr::Range(x) => visitor.visit_range_expr(x),
             Expr::Logical(x) => visitor.visit_logical_expr(x),
             Expr::Assign(x) => visitor.visit_assign_expr(x),
             Expr::Binary(x) => visitor.visit_binary_expr(x),
@@ -23,6 +25,18 @@ impl Expr {
             Expr::Unary(x) => visitor.visit_unary_expr(x),
             Expr::Variable(x) => visitor.visit_variable_expr(x),
         }
+    }
+}
+
+pub struct RangeExpr {
+    pub begin: Expr,
+    pub token: Token,
+    pub end: Expr,
+}
+
+impl RangeExpr {
+    pub fn new(begin: Expr, token: Token, end: Expr) -> RangeExpr {
+        RangeExpr { begin, token, end }
     }
 }
 
@@ -127,6 +141,7 @@ impl VariableExpr {
 }
 
 pub trait Visitor<R> {
+    fn visit_range_expr(&mut self, e: &RangeExpr) -> R;
     fn visit_logical_expr(&mut self, e: &LogicalExpr) -> R;
     fn visit_assign_expr(&mut self, e: &AssignExpr) -> R;
     fn visit_binary_expr(&mut self, e: &BinaryExpr) -> R;
