@@ -87,6 +87,23 @@
         ]
       },
       {
+        "name": "Call",
+        "members": [
+          {
+            "name": "callee",
+            "type": "Expr"
+          },
+          {
+            "name": "paren",
+            "type": "Token"
+          },
+          {
+            "name": "args",
+            "type": "Vec<Expr>"
+          }
+        ]
+      },
+      {
         "name": "Grouping",
         "members": [
           {

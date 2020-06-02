@@ -6,6 +6,7 @@ pub enum Expr {
     Assign(Box<AssignExpr>),
     Binary(Box<BinaryExpr>),
     Ternary(Box<TernaryExpr>),
+    Call(Box<CallExpr>),
     Grouping(Box<GroupingExpr>),
     Literal(Box<LiteralExpr>),
     Unary(Box<UnaryExpr>),
@@ -20,6 +21,7 @@ impl Expr {
             Expr::Assign(x) => visitor.visit_assign_expr(x),
             Expr::Binary(x) => visitor.visit_binary_expr(x),
             Expr::Ternary(x) => visitor.visit_ternary_expr(x),
+            Expr::Call(x) => visitor.visit_call_expr(x),
             Expr::Grouping(x) => visitor.visit_grouping_expr(x),
             Expr::Literal(x) => visitor.visit_literal_expr(x),
             Expr::Unary(x) => visitor.visit_unary_expr(x),
@@ -99,6 +101,22 @@ impl TernaryExpr {
     }
 }
 
+pub struct CallExpr {
+    pub callee: Expr,
+    pub paren: Token,
+    pub args: Vec<Expr>,
+}
+
+impl CallExpr {
+    pub fn new(callee: Expr, paren: Token, args: Vec<Expr>) -> CallExpr {
+        CallExpr {
+            callee,
+            paren,
+            args,
+        }
+    }
+}
+
 pub struct GroupingExpr {
     pub expression: Expr,
 }
@@ -146,6 +164,7 @@ pub trait Visitor<R> {
     fn visit_assign_expr(&mut self, e: &AssignExpr) -> R;
     fn visit_binary_expr(&mut self, e: &BinaryExpr) -> R;
     fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> R;
+    fn visit_call_expr(&mut self, e: &CallExpr) -> R;
     fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> R;
     fn visit_literal_expr(&mut self, e: &LiteralExpr) -> R;
     fn visit_unary_expr(&mut self, e: &UnaryExpr) -> R;

@@ -17,6 +17,7 @@ print_stmt 			→ "print" expression ";" ;
 ### Lowest Precedence ###
 
 expression 			→ literal | unary | binary | grouping ;
+arguments       → expression ( "," expression )* ;
 ternary         → assignment "?" expression ":" expression ;
 assignment      → IDENTIFIER "=" assignment | range ;
 range           → logical_or ".." logical_or ;
@@ -27,6 +28,7 @@ comparison     	→ addition ( ( ">" | ">=" | "<" | "<=" ) addition )* ;
 addition       	→ multiplication ( ( "-" | "+" ) multiplication )* ;
 multiplication 	→ unary ( ( "/" | "*" ) unary )* ;
 unary          	→ ( "!" | "-" ) unary | primary ;
+call            → primary ( "(" arguments? ")" )* ;
 primary        	→ NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" | IDENTIFIER ;
 
 ### Highest Precedence ###

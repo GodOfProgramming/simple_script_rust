@@ -281,9 +281,19 @@ impl<'a> Parser<'a> {
 
   fn unary(&mut self) -> ExprResult {
     self.right_associateive_unary(
-      Parser::primary,
+      Parser::call,
       &[TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
     )
+  }
+
+  fn call(&mut self) -> ExprResult {
+    let mut expr = self.primary()?;
+
+    while self.match_token(&[TokenType::LeftParen]) {
+      expr = finishCall(expr);
+    }
+
+    Ok(expr)
   }
 
   fn primary(&mut self) -> ExprResult {
