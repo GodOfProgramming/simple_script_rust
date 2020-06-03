@@ -1,4 +1,5 @@
-use crate::lex::{Token, Value};
+use crate::lex::Token;
+use crate::types::Value;
 
 pub enum Expr {
     Range(Box<RangeExpr>),

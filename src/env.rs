@@ -1,4 +1,4 @@
-use crate::lex::Value;
+use crate::types::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

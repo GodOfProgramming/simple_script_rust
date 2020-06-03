@@ -1,18 +1,29 @@
+use crate::complex::CallErr;
 use crate::env::{Env, EnvRef};
 use crate::expr::{
-  AssignExpr, BinaryExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, RangeExpr, TernaryExpr,
-  UnaryExpr, VariableExpr, Visitor as ExprVisitor,
+  AssignExpr, BinaryExpr, CallExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, RangeExpr,
+  TernaryExpr, UnaryExpr, VariableExpr, Visitor as ExprVisitor,
 };
-use crate::lex::{Token, TokenType, Value};
+use crate::lex::{Token, TokenType};
 use crate::stmt::{
   BlockStmt, ExpressionStmt, IfStmt, PrintStmt, Stmt, VarStmt, Visitor as StmtVisitor, WhileStmt,
 };
+use crate::types::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct AstErr {
   pub msg: String,
   pub line: usize,
+}
+
+impl From<CallErr> for AstErr {
+  fn from(err: CallErr) -> Self {
+    Self {
+      msg: err.msg,
+      line: err.line,
+    }
+  }
 }
 
 type ParseResult = Result<Vec<Stmt>, AstErr>;
@@ -290,7 +301,7 @@ impl<'a> Parser<'a> {
     let mut expr = self.primary()?;
 
     while self.match_token(&[TokenType::LeftParen]) {
-      expr = finishCall(expr);
+      expr = self.finish_call(expr)?;
     }
 
     Ok(expr)
@@ -458,6 +469,28 @@ impl<'a> Parser<'a> {
       self.advance();
     }
   }
+
+  fn finish_call(&mut self, callee: Expr) -> ExprResult {
+    let mut args = Vec::new();
+
+    if !self.check(&TokenType::RightParen) {
+      loop {
+        args.push(self.expression()?);
+
+        if !self.match_token(&[TokenType::Comma]) {
+          break;
+        }
+      }
+    }
+
+    let paren = self.consume(&TokenType::RightParen, "Expect ')' after arguments")?;
+
+    Ok(Expr::Call(Box::new(CallExpr::new(
+      callee,
+      paren.clone(),
+      args,
+    ))))
+  }
 }
 
 type EvalResult = Result<Value, AstErr>;
@@ -473,7 +506,7 @@ pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> EvalResult {
   Ok(res)
 }
 
-struct Evaluator {
+pub struct Evaluator {
   current_env: EnvRef,
 }
 
@@ -785,7 +818,11 @@ impl ExprVisitor<EvalResult> for Evaluator {
 
     if let Value::Num(begin) = begin {
       if let Value::Num(end) = end {
-        return Ok(Value::List(((begin.round() as i64)..(end.round() as i64)).map(|n| Value::Num(n as f64)).collect()))
+        return Ok(Value::List(
+          ((begin.round() as i64)..(end.round() as i64))
+            .map(|n| Value::Num(n as f64))
+            .collect(),
+        ));
       }
     }
 
@@ -793,6 +830,23 @@ impl ExprVisitor<EvalResult> for Evaluator {
       msg: String::from("expected number with range expression"),
       line: e.token.line,
     })
+  }
+
+  fn visit_call_expr(&mut self, e: &CallExpr) -> EvalResult {
+    let callee = self.eval_expr(&e.callee)?;
+
+    if let Value::Callee(func) = callee {
+      let mut args = Vec::new();
+      for arg in e.args.iter() {
+        args.push(self.eval_expr(arg)?);
+      }
+      Ok(func.call(self, args)?)
+    } else {
+      Err(AstErr {
+        msg: format!("can't call type {}", callee),
+        line: e.paren.line,
+      })
+    }
   }
 }
 

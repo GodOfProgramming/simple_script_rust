@@ -1,6 +1,7 @@
 use crate::ast::{self, AstErr};
 use crate::env::{Env, EnvRef};
-use crate::lex::{self, LexicalErr, Value};
+use crate::lex::{self, LexicalErr};
+use crate::types::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Mutex;

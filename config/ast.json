@@ -2,7 +2,8 @@
   "expr": {
     "name": "Expr",
     "uses": [
-      "crate::lex::{Token, Value}"
+      "crate::lex::Token",
+      "crate::types::Value"
     ],
     "impl": [
       {
