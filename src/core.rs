@@ -1,10 +1,12 @@
 use crate::ast::{self, AstErr};
+use crate::complex::{CallErr, NativeFunction};
 use crate::env::{Env, EnvRef};
 use crate::lex::{self, LexicalErr};
 use crate::types::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 pub struct ExecResult {
   pub value: Value,
@@ -40,8 +42,23 @@ pub struct Interpreter {
 
 impl Interpreter {
   pub fn new() -> Interpreter {
+    let mut globals = Env::new();
+
+    globals.define(
+      String::from("clock"),
+      Value::Callee(Rc::new(NativeFunction::new(0, |_| {
+        match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+          Ok(n) => Ok(Value::Num(n.as_nanos() as f64)),
+          Err(_) => Err(CallErr {
+            msg: String::from(""),
+            line: 0, // TODO
+          }),
+        }
+      }))),
+    );
+
     Interpreter {
-      globals: Mutex::new(Rc::new(RefCell::new(Env::new()))),
+      globals: Mutex::new(Rc::new(RefCell::new(globals))),
     }
   }
 

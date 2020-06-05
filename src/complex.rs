@@ -12,18 +12,27 @@ pub trait Callable {
   fn call(&self, evaluator: &Evaluator, args: Vec<Value>) -> CallResult;
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Function {
+pub struct NativeFunction<T>
+where
+  T: Fn(Vec<Value>) -> CallResult,
+{
   airity: usize,
+  func: T,
 }
 
-impl Function {
-  pub fn new(airity: usize) -> Function {
-    Function { airity }
+impl<T> NativeFunction<T>
+where
+  T: Fn(Vec<Value>) -> CallResult,
+{
+  pub fn new(airity: usize, func: T) -> NativeFunction<T> {
+    NativeFunction { airity, func }
   }
 }
 
-impl Callable for Function {
+impl<T> Callable for NativeFunction<T>
+where
+  T: Fn(Vec<Value>) -> CallResult,
+{
   fn call(&self, evaluator: &Evaluator, args: Vec<Value>) -> CallResult {
     if self.airity < args.len() {
       return Err(CallErr {
@@ -47,6 +56,44 @@ impl Callable for Function {
       });
     }
 
+    (self.func)(args)
+  }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserFunction {
+  airity: usize,
+}
+
+impl UserFunction {
+  pub fn new(airity: usize) -> UserFunction {
+    UserFunction { airity }
+  }
+}
+
+impl Callable for UserFunction {
+  fn call(&self, evaluator: &Evaluator, args: Vec<Value>) -> CallResult {
+    if self.airity < args.len() {
+      return Err(CallErr {
+        msg: format!(
+          "too many arguments, expected {}, got {}",
+          self.airity,
+          args.len()
+        ),
+        line: 0, // TODO
+      });
+    }
+
+    if self.airity > args.len() {
+      return Err(CallErr {
+        msg: format!(
+          "too few arguments, expected {}, got {}",
+          self.airity,
+          args.len(),
+        ),
+        line: 0, // TODO
+      });
+    }
 
     Ok(Value::Nil)
   }
