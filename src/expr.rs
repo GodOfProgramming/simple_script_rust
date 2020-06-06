@@ -14,20 +14,33 @@ pub enum Expr {
     Variable(Box<VariableExpr>),
 }
 
-impl Expr {
-    pub fn accept<R>(&self, visitor: &mut dyn Visitor<R>) -> R {
-        match self {
-            Expr::Range(x) => visitor.visit_range_expr(x),
-            Expr::Logical(x) => visitor.visit_logical_expr(x),
-            Expr::Assign(x) => visitor.visit_assign_expr(x),
-            Expr::Binary(x) => visitor.visit_binary_expr(x),
-            Expr::Ternary(x) => visitor.visit_ternary_expr(x),
-            Expr::Call(x) => visitor.visit_call_expr(x),
-            Expr::Grouping(x) => visitor.visit_grouping_expr(x),
-            Expr::Literal(x) => visitor.visit_literal_expr(x),
-            Expr::Unary(x) => visitor.visit_unary_expr(x),
-            Expr::Variable(x) => visitor.visit_variable_expr(x),
-        }
+pub fn accept<R>(e: Expr, visitor: &mut dyn Visitor<R>) -> R {
+    match e {
+        Expr::Range(x) => visitor.visit_range_expr(x),
+        Expr::Logical(x) => visitor.visit_logical_expr(x),
+        Expr::Assign(x) => visitor.visit_assign_expr(x),
+        Expr::Binary(x) => visitor.visit_binary_expr(x),
+        Expr::Ternary(x) => visitor.visit_ternary_expr(x),
+        Expr::Call(x) => visitor.visit_call_expr(x),
+        Expr::Grouping(x) => visitor.visit_grouping_expr(x),
+        Expr::Literal(x) => visitor.visit_literal_expr(x),
+        Expr::Unary(x) => visitor.visit_unary_expr(x),
+        Expr::Variable(x) => visitor.visit_variable_expr(x),
+    }
+}
+
+pub fn accept_ref<R>(e: &Expr, visitor: &mut dyn Visitor<R>) -> R {
+    match e {
+        Expr::Range(x) => visitor.visit_range_expr_ref(x),
+        Expr::Logical(x) => visitor.visit_logical_expr_ref(x),
+        Expr::Assign(x) => visitor.visit_assign_expr_ref(x),
+        Expr::Binary(x) => visitor.visit_binary_expr_ref(x),
+        Expr::Ternary(x) => visitor.visit_ternary_expr_ref(x),
+        Expr::Call(x) => visitor.visit_call_expr_ref(x),
+        Expr::Grouping(x) => visitor.visit_grouping_expr_ref(x),
+        Expr::Literal(x) => visitor.visit_literal_expr_ref(x),
+        Expr::Unary(x) => visitor.visit_unary_expr_ref(x),
+        Expr::Variable(x) => visitor.visit_variable_expr_ref(x),
     }
 }
 
@@ -160,14 +173,24 @@ impl VariableExpr {
 }
 
 pub trait Visitor<R> {
-    fn visit_range_expr(&mut self, e: &RangeExpr) -> R;
-    fn visit_logical_expr(&mut self, e: &LogicalExpr) -> R;
-    fn visit_assign_expr(&mut self, e: &AssignExpr) -> R;
-    fn visit_binary_expr(&mut self, e: &BinaryExpr) -> R;
-    fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> R;
-    fn visit_call_expr(&mut self, e: &CallExpr) -> R;
-    fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> R;
-    fn visit_literal_expr(&mut self, e: &LiteralExpr) -> R;
-    fn visit_unary_expr(&mut self, e: &UnaryExpr) -> R;
-    fn visit_variable_expr(&mut self, e: &VariableExpr) -> R;
+    fn visit_range_expr(&mut self, e: Box<RangeExpr>) -> R;
+    fn visit_range_expr_ref(&mut self, e: &RangeExpr) -> R;
+    fn visit_logical_expr(&mut self, e: Box<LogicalExpr>) -> R;
+    fn visit_logical_expr_ref(&mut self, e: &LogicalExpr) -> R;
+    fn visit_assign_expr(&mut self, e: Box<AssignExpr>) -> R;
+    fn visit_assign_expr_ref(&mut self, e: &AssignExpr) -> R;
+    fn visit_binary_expr(&mut self, e: Box<BinaryExpr>) -> R;
+    fn visit_binary_expr_ref(&mut self, e: &BinaryExpr) -> R;
+    fn visit_ternary_expr(&mut self, e: Box<TernaryExpr>) -> R;
+    fn visit_ternary_expr_ref(&mut self, e: &TernaryExpr) -> R;
+    fn visit_call_expr(&mut self, e: Box<CallExpr>) -> R;
+    fn visit_call_expr_ref(&mut self, e: &CallExpr) -> R;
+    fn visit_grouping_expr(&mut self, e: Box<GroupingExpr>) -> R;
+    fn visit_grouping_expr_ref(&mut self, e: &GroupingExpr) -> R;
+    fn visit_literal_expr(&mut self, e: Box<LiteralExpr>) -> R;
+    fn visit_literal_expr_ref(&mut self, e: &LiteralExpr) -> R;
+    fn visit_unary_expr(&mut self, e: Box<UnaryExpr>) -> R;
+    fn visit_unary_expr_ref(&mut self, e: &UnaryExpr) -> R;
+    fn visit_variable_expr(&mut self, e: Box<VariableExpr>) -> R;
+    fn visit_variable_expr_ref(&mut self, e: &VariableExpr) -> R;
 }

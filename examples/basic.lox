@@ -1,3 +1,10 @@
+fun first_function() {
+  print "it's a function";
+  print "time is " + clock();
+}
+
+first_function();
+
 var foo = 1;
 {
   var foo = "some string";

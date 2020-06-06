@@ -140,6 +140,6 @@ impl Callable for UserFunction {
       }
     }
 
-    Ok(evaluator.eval_block(fun.body, env)?)
+    Ok(evaluator.eval_block_ref(&fun.body, env)?)
   }
 }

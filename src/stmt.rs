@@ -11,17 +11,27 @@ pub enum Stmt {
     Var(Box<VarStmt>),
 }
 
-impl Stmt {
-    pub fn accept<R>(&self, visitor: &mut dyn Visitor<R>) -> R {
-        match self {
-            Stmt::Function(x) => visitor.visit_function_stmt(x),
-            Stmt::While(x) => visitor.visit_while_stmt(x),
-            Stmt::If(x) => visitor.visit_if_stmt(x),
-            Stmt::Block(x) => visitor.visit_block_stmt(x),
-            Stmt::Expression(x) => visitor.visit_expression_stmt(x),
-            Stmt::Print(x) => visitor.visit_print_stmt(x),
-            Stmt::Var(x) => visitor.visit_var_stmt(x),
-        }
+pub fn accept<R>(e: Stmt, visitor: &mut dyn Visitor<R>) -> R {
+    match e {
+        Stmt::Function(x) => visitor.visit_function_stmt(x),
+        Stmt::While(x) => visitor.visit_while_stmt(x),
+        Stmt::If(x) => visitor.visit_if_stmt(x),
+        Stmt::Block(x) => visitor.visit_block_stmt(x),
+        Stmt::Expression(x) => visitor.visit_expression_stmt(x),
+        Stmt::Print(x) => visitor.visit_print_stmt(x),
+        Stmt::Var(x) => visitor.visit_var_stmt(x),
+    }
+}
+
+pub fn accept_ref<R>(e: &Stmt, visitor: &mut dyn Visitor<R>) -> R {
+    match e {
+        Stmt::Function(x) => visitor.visit_function_stmt_ref(x),
+        Stmt::While(x) => visitor.visit_while_stmt_ref(x),
+        Stmt::If(x) => visitor.visit_if_stmt_ref(x),
+        Stmt::Block(x) => visitor.visit_block_stmt_ref(x),
+        Stmt::Expression(x) => visitor.visit_expression_stmt_ref(x),
+        Stmt::Print(x) => visitor.visit_print_stmt_ref(x),
+        Stmt::Var(x) => visitor.visit_var_stmt_ref(x),
     }
 }
 
@@ -111,11 +121,18 @@ impl VarStmt {
 }
 
 pub trait Visitor<R> {
-    fn visit_function_stmt(&mut self, e: &FunctionStmt) -> R;
-    fn visit_while_stmt(&mut self, e: &WhileStmt) -> R;
-    fn visit_if_stmt(&mut self, e: &IfStmt) -> R;
-    fn visit_block_stmt(&mut self, e: &BlockStmt) -> R;
-    fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> R;
-    fn visit_print_stmt(&mut self, e: &PrintStmt) -> R;
-    fn visit_var_stmt(&mut self, e: &VarStmt) -> R;
+    fn visit_function_stmt(&mut self, e: Box<FunctionStmt>) -> R;
+    fn visit_function_stmt_ref(&mut self, e: &FunctionStmt) -> R;
+    fn visit_while_stmt(&mut self, e: Box<WhileStmt>) -> R;
+    fn visit_while_stmt_ref(&mut self, e: &WhileStmt) -> R;
+    fn visit_if_stmt(&mut self, e: Box<IfStmt>) -> R;
+    fn visit_if_stmt_ref(&mut self, e: &IfStmt) -> R;
+    fn visit_block_stmt(&mut self, e: Box<BlockStmt>) -> R;
+    fn visit_block_stmt_ref(&mut self, e: &BlockStmt) -> R;
+    fn visit_expression_stmt(&mut self, e: Box<ExpressionStmt>) -> R;
+    fn visit_expression_stmt_ref(&mut self, e: &ExpressionStmt) -> R;
+    fn visit_print_stmt(&mut self, e: Box<PrintStmt>) -> R;
+    fn visit_print_stmt_ref(&mut self, e: &PrintStmt) -> R;
+    fn visit_var_stmt(&mut self, e: Box<VarStmt>) -> R;
+    fn visit_var_stmt_ref(&mut self, e: &VarStmt) -> R;
 }
