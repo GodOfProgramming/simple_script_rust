@@ -22,6 +22,19 @@ fun third_function() {
 
 print third_function();
 
+fun fourth_function(x) {
+  if x * 2 == 10 {
+    return "number * 2 is 10";
+  } else {
+    return "number * 2 is not 10";
+  }
+
+  "impossible";
+}
+
+print fourth_function(1);
+print fourth_function(5);
+
 var foo = 1;
 {
   var foo = "some string";

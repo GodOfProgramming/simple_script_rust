@@ -1,5 +1,5 @@
 use crate::ast::AstErr;
-use crate::ast::Evaluator;
+use crate::ast::{Evaluator, StatementType};
 use crate::env::Env;
 use crate::stmt::FunctionStmt;
 use crate::types::Value;
@@ -85,7 +85,7 @@ where
 }
 
 pub struct UserFunction {
-  fun: Box<FunctionStmt>,
+  pub fun: Box<FunctionStmt>,
 }
 
 impl UserFunction {
@@ -139,7 +139,9 @@ impl Callable for UserFunction {
         });
       }
     }
-
-    Ok(evaluator.eval_block_ref(&fun.body, env)?)
+    Ok(match evaluator.eval_block_ref(&fun.body, env)? {
+      StatementType::Regular(v) => v,
+      StatementType::Return(v) => v,
+    })
   }
 }

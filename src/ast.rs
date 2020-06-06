@@ -140,9 +140,9 @@ impl<'a> Parser<'a> {
 
   fn return_statement(&mut self) -> StatementResult {
     let keyword = self.previous();
-    let mut value = Expr::Literal(Box::new(LiteralExpr::new(Value::Nil)));
+    let mut value = None;
     if !self.check(TokenType::Semicolon) {
-      value = self.expression()?;
+      value = Some(self.expression()?);
     }
 
     self.consume(TokenType::Semicolon, "expected ';' after return value")?;
@@ -533,17 +533,26 @@ impl<'a> Parser<'a> {
   }
 }
 
-type EvalResult = Result<Value, AstErr>;
+pub enum StatementType {
+  Regular(Value),
+  Return(Value),
+}
 
-pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> EvalResult {
+type ExprEvalResult = Result<Value, AstErr>;
+pub type StmtEvalResult = Result<StatementType, AstErr>;
+
+pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
   let mut e = Evaluator::new(globals);
-  let mut res = Value::Nil;
+  let mut res = StatementType::Regular(Value::Nil);
 
   for stmt in prgm.into_iter() {
     res = e.eval_stmt(stmt)?;
   }
 
-  Ok(res)
+  match res {
+    StatementType::Regular(v) => Ok(v),
+    StatementType::Return(v) => Ok(v),
+  }
 }
 
 pub struct Evaluator {
@@ -557,30 +566,36 @@ impl<'a> Evaluator {
     }
   }
 
-  fn eval_expr(&mut self, e: Expr) -> EvalResult {
+  fn eval_expr(&mut self, e: Expr) -> ExprEvalResult {
     expr::accept(e, self)
   }
 
-  fn eval_expr_ref(&mut self, e: &Expr) -> EvalResult {
+  fn eval_expr_ref(&mut self, e: &Expr) -> ExprEvalResult {
     expr::accept_ref(e, self)
   }
 
-  fn eval_stmt(&mut self, s: Stmt) -> EvalResult {
+  fn eval_stmt(&mut self, s: Stmt) -> StmtEvalResult {
     stmt::accept(s, self)
   }
 
-  fn eval_stmt_ref(&mut self, s: &Stmt) -> EvalResult {
+  fn eval_stmt_ref(&mut self, s: &Stmt) -> StmtEvalResult {
     stmt::accept_ref(s, self)
   }
 
-  fn eval_block(&mut self, statements: Vec<Stmt>, env: EnvRef) -> EvalResult {
+  fn eval_block(&mut self, statements: Vec<Stmt>, env: EnvRef) -> StmtEvalResult {
     let prev_env = Rc::clone(&self.current_env);
     self.current_env = env;
-    let mut result = Ok(Value::Nil);
+    let mut result = Ok(StatementType::Regular(Value::Nil));
 
     for stmt in statements.into_iter() {
       match self.eval_stmt(stmt) {
-        Ok(v) => result = Ok(v),
+        Ok(v) => match v {
+          StatementType::Regular(v) => result = Ok(StatementType::Regular(v)),
+          StatementType::Return(v) => {
+            result = Ok(StatementType::Return(v));
+            break;
+          }
+        },
         Err(s) => {
           result = Err(s);
           break;
@@ -593,14 +608,20 @@ impl<'a> Evaluator {
     result
   }
 
-  pub fn eval_block_ref(&mut self, statements: &Vec<Stmt>, env: EnvRef) -> EvalResult {
+  pub fn eval_block_ref(&mut self, statements: &Vec<Stmt>, env: EnvRef) -> StmtEvalResult {
     let prev_env = Rc::clone(&self.current_env);
     self.current_env = env;
-    let mut result = Ok(Value::Nil);
+    let mut result = Ok(StatementType::Regular(Value::Nil));
 
     for stmt in statements.iter() {
       match self.eval_stmt_ref(stmt) {
-        Ok(v) => result = Ok(v),
+        Ok(v) => match v {
+          StatementType::Regular(v) => result = Ok(StatementType::Regular(v)),
+          StatementType::Return(v) => {
+            result = Ok(StatementType::Return(v));
+            break;
+          }
+        },
         Err(s) => {
           result = Err(s);
           break;
@@ -626,26 +647,26 @@ impl<'a> Evaluator {
   }
 }
 
-impl StmtVisitor<EvalResult> for Evaluator {
-  fn visit_expression_stmt(&mut self, e: Box<ExpressionStmt>) -> EvalResult {
-    self.eval_expr(e.expr)
+impl StmtVisitor<StmtEvalResult> for Evaluator {
+  fn visit_expression_stmt(&mut self, e: Box<ExpressionStmt>) -> StmtEvalResult {
+    Ok(StatementType::Regular(self.eval_expr(e.expr)?))
   }
 
-  fn visit_expression_stmt_ref(&mut self, e: &ExpressionStmt) -> EvalResult {
-    self.eval_expr_ref(&e.expr)
+  fn visit_expression_stmt_ref(&mut self, e: &ExpressionStmt) -> StmtEvalResult {
+    Ok(StatementType::Regular(self.eval_expr_ref(&e.expr)?))
   }
 
-  fn visit_print_stmt(&mut self, e: Box<PrintStmt>) -> EvalResult {
+  fn visit_print_stmt(&mut self, e: Box<PrintStmt>) -> StmtEvalResult {
     println!("{}", self.eval_expr(e.expr)?);
-    Ok(Value::Nil)
+    Ok(StatementType::Regular(Value::Nil))
   }
 
-  fn visit_print_stmt_ref(&mut self, e: &PrintStmt) -> EvalResult {
+  fn visit_print_stmt_ref(&mut self, e: &PrintStmt) -> StmtEvalResult {
     println!("{}", self.eval_expr_ref(&e.expr)?);
-    Ok(Value::Nil)
+    Ok(StatementType::Regular(Value::Nil))
   }
 
-  fn visit_var_stmt(&mut self, e: Box<VarStmt>) -> EvalResult {
+  fn visit_var_stmt(&mut self, e: Box<VarStmt>) -> StmtEvalResult {
     let mut value = Value::Nil;
 
     if let Some(i) = e.initializer {
@@ -662,10 +683,10 @@ impl StmtVisitor<EvalResult> for Evaluator {
       }
     }
 
-    Ok(Value::Nil)
+    Ok(StatementType::Regular(Value::Nil))
   }
 
-  fn visit_var_stmt_ref(&mut self, e: &VarStmt) -> EvalResult {
+  fn visit_var_stmt_ref(&mut self, e: &VarStmt) -> StmtEvalResult {
     let mut value = Value::Nil;
 
     if let Some(i) = &e.initializer {
@@ -682,10 +703,10 @@ impl StmtVisitor<EvalResult> for Evaluator {
       }
     }
 
-    Ok(Value::Nil)
+    Ok(StatementType::Regular(Value::Nil))
   }
 
-  fn visit_block_stmt(&mut self, e: Box<BlockStmt>) -> EvalResult {
+  fn visit_block_stmt(&mut self, e: Box<BlockStmt>) -> StmtEvalResult {
     self.eval_block(
       e.statements,
       Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
@@ -694,7 +715,7 @@ impl StmtVisitor<EvalResult> for Evaluator {
     )
   }
 
-  fn visit_block_stmt_ref(&mut self, e: &BlockStmt) -> EvalResult {
+  fn visit_block_stmt_ref(&mut self, e: &BlockStmt) -> StmtEvalResult {
     self.eval_block_ref(
       &e.statements,
       Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
@@ -703,37 +724,43 @@ impl StmtVisitor<EvalResult> for Evaluator {
     )
   }
 
-  fn visit_if_stmt(&mut self, e: Box<IfStmt>) -> EvalResult {
+  fn visit_if_stmt(&mut self, e: Box<IfStmt>) -> StmtEvalResult {
     let result = self.eval_expr(e.condition)?;
     if self.is_truthy(&result) {
       self.eval_stmt(e.if_true)
     } else if let Some(if_false) = e.if_false {
       self.eval_stmt(if_false)
     } else {
-      Ok(Value::Nil)
+      Ok(StatementType::Regular(Value::Nil))
     }
   }
 
-  fn visit_if_stmt_ref(&mut self, e: &IfStmt) -> EvalResult {
+  fn visit_if_stmt_ref(&mut self, e: &IfStmt) -> StmtEvalResult {
     let result = self.eval_expr_ref(&e.condition)?;
     if self.is_truthy(&result) {
       self.eval_stmt_ref(&e.if_true)
     } else if let Some(if_false) = &e.if_false {
       self.eval_stmt_ref(&if_false)
     } else {
-      Ok(Value::Nil)
+      Ok(StatementType::Regular(Value::Nil))
     }
   }
 
-  fn visit_while_stmt(&mut self, e: Box<WhileStmt>) -> EvalResult {
-    let mut result = Value::Nil;
+  fn visit_while_stmt(&mut self, e: Box<WhileStmt>) -> StmtEvalResult {
+    let mut result = StatementType::Regular(Value::Nil);
     if let Stmt::Block(blk) = e.body {
       loop {
         let res = self.eval_expr_ref(&e.condition)?;
         if !self.is_truthy(&res) {
           break;
         }
-        result = self.visit_block_stmt_ref(&blk)?;
+        match self.visit_block_stmt_ref(&blk)? {
+          StatementType::Regular(v) => result = StatementType::Regular(v),
+          StatementType::Return(v) => {
+            result = StatementType::Return(v);
+            break;
+          }
+        }
       }
     } else {
       return Err(AstErr {
@@ -745,15 +772,21 @@ impl StmtVisitor<EvalResult> for Evaluator {
     Ok(result)
   }
 
-  fn visit_while_stmt_ref(&mut self, e: &WhileStmt) -> EvalResult {
-    let mut conclusion = Value::Nil;
+  fn visit_while_stmt_ref(&mut self, e: &WhileStmt) -> StmtEvalResult {
+    let mut result = StatementType::Regular(Value::Nil);
     if let Stmt::Block(blk) = &e.body {
       loop {
-        let result = self.eval_expr_ref(&e.condition)?;
-        if !self.is_truthy(&result) {
+        let res = self.eval_expr_ref(&e.condition)?;
+        if !self.is_truthy(&res) {
           break;
         }
-        conclusion = self.visit_block_stmt_ref(blk)?;
+        match self.visit_block_stmt_ref(blk)? {
+          StatementType::Regular(v) => result = StatementType::Regular(v),
+          StatementType::Return(v) => {
+            result = StatementType::Return(v);
+            break;
+          }
+        }
       }
     } else {
       return Err(AstErr {
@@ -762,29 +795,47 @@ impl StmtVisitor<EvalResult> for Evaluator {
       });
     }
 
-    Ok(conclusion)
+    Ok(result)
   }
 
-  fn visit_function_stmt(&mut self, e: Box<FunctionStmt>) -> EvalResult {
+  fn visit_function_stmt(&mut self, e: Box<FunctionStmt>) -> StmtEvalResult {
     let name = e.name.lexeme.as_ref().unwrap().clone();
     let func = UserFunction::new(e);
     self
       .current_env
       .borrow_mut()
       .define(name, Value::Callee(Rc::new(func)));
-    Ok(Value::Nil)
+    Ok(StatementType::Regular(Value::Nil))
   }
 
-  fn visit_function_stmt_ref(&mut self, e: &FunctionStmt) -> EvalResult {
+  fn visit_function_stmt_ref(&mut self, e: &FunctionStmt) -> StmtEvalResult {
     Err(AstErr {
       msg: String::from("declaring a function within a function is not supported"),
       line: e.name.line,
     })
   }
+
+  fn visit_return_stmt(&mut self, s: Box<ReturnStmt>) -> StmtEvalResult {
+    let mut value = Value::Nil;
+    if let Some(e) = s.value {
+      value = self.eval_expr(e)?;
+    }
+
+    Ok(StatementType::Return(value))
+  }
+
+  fn visit_return_stmt_ref(&mut self, s: &ReturnStmt) -> StmtEvalResult {
+    let mut value = Value::Nil;
+    if let Some(e) = &s.value {
+      value = self.eval_expr_ref(e)?;
+    }
+
+    Ok(StatementType::Return(value))
+  }
 }
 
-impl ExprVisitor<EvalResult> for Evaluator {
-  fn visit_binary_expr(&mut self, e: Box<BinaryExpr>) -> EvalResult {
+impl ExprVisitor<ExprEvalResult> for Evaluator {
+  fn visit_binary_expr(&mut self, e: Box<BinaryExpr>) -> ExprEvalResult {
     let left = self.eval_expr(e.left)?;
     let right = self.eval_expr(e.right)?;
 
@@ -841,7 +892,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     })
   }
 
-  fn visit_binary_expr_ref(&mut self, e: &BinaryExpr) -> EvalResult {
+  fn visit_binary_expr_ref(&mut self, e: &BinaryExpr) -> ExprEvalResult {
     let left = self.eval_expr_ref(&e.left)?;
     let right = self.eval_expr_ref(&e.right)?;
 
@@ -898,7 +949,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     })
   }
 
-  fn visit_ternary_expr(&mut self, e: Box<TernaryExpr>) -> EvalResult {
+  fn visit_ternary_expr(&mut self, e: Box<TernaryExpr>) -> ExprEvalResult {
     let result = self.eval_expr(e.condition)?;
 
     if self.is_truthy(&result) {
@@ -908,7 +959,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     }
   }
 
-  fn visit_ternary_expr_ref(&mut self, e: &TernaryExpr) -> EvalResult {
+  fn visit_ternary_expr_ref(&mut self, e: &TernaryExpr) -> ExprEvalResult {
     let result = self.eval_expr_ref(&e.condition)?;
 
     if self.is_truthy(&result) {
@@ -918,23 +969,23 @@ impl ExprVisitor<EvalResult> for Evaluator {
     }
   }
 
-  fn visit_grouping_expr(&mut self, e: Box<GroupingExpr>) -> EvalResult {
+  fn visit_grouping_expr(&mut self, e: Box<GroupingExpr>) -> ExprEvalResult {
     self.eval_expr(e.expression)
   }
 
-  fn visit_grouping_expr_ref(&mut self, e: &GroupingExpr) -> EvalResult {
+  fn visit_grouping_expr_ref(&mut self, e: &GroupingExpr) -> ExprEvalResult {
     self.eval_expr_ref(&e.expression)
   }
 
-  fn visit_literal_expr(&mut self, e: Box<LiteralExpr>) -> EvalResult {
+  fn visit_literal_expr(&mut self, e: Box<LiteralExpr>) -> ExprEvalResult {
     Ok(e.value)
   }
 
-  fn visit_literal_expr_ref(&mut self, e: &LiteralExpr) -> EvalResult {
+  fn visit_literal_expr_ref(&mut self, e: &LiteralExpr) -> ExprEvalResult {
     Ok(e.value.clone())
   }
 
-  fn visit_unary_expr(&mut self, e: Box<UnaryExpr>) -> EvalResult {
+  fn visit_unary_expr(&mut self, e: Box<UnaryExpr>) -> ExprEvalResult {
     let right = self.eval_expr(e.right)?;
 
     match e.operator.token_type {
@@ -974,7 +1025,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     }
   }
 
-  fn visit_unary_expr_ref(&mut self, e: &UnaryExpr) -> EvalResult {
+  fn visit_unary_expr_ref(&mut self, e: &UnaryExpr) -> ExprEvalResult {
     let right = self.eval_expr_ref(&e.right)?;
 
     match e.operator.token_type {
@@ -1014,7 +1065,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     }
   }
 
-  fn visit_variable_expr(&mut self, e: Box<VariableExpr>) -> EvalResult {
+  fn visit_variable_expr(&mut self, e: Box<VariableExpr>) -> ExprEvalResult {
     match e.name.lexeme {
       Some(l) => match self.current_env.borrow().lookup(&l) {
         Some(v) => Ok(v.clone()),
@@ -1030,7 +1081,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     }
   }
 
-  fn visit_variable_expr_ref(&mut self, e: &VariableExpr) -> EvalResult {
+  fn visit_variable_expr_ref(&mut self, e: &VariableExpr) -> ExprEvalResult {
     match &e.name.lexeme {
       Some(l) => match self.current_env.borrow().lookup(&l) {
         Some(v) => Ok(v.clone()),
@@ -1046,7 +1097,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     }
   }
 
-  fn visit_assign_expr(&mut self, e: Box<AssignExpr>) -> EvalResult {
+  fn visit_assign_expr(&mut self, e: Box<AssignExpr>) -> ExprEvalResult {
     let value = self.eval_expr(e.value)?;
     match e.name.lexeme {
       Some(l) => {
@@ -1071,7 +1122,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     Ok(value)
   }
 
-  fn visit_assign_expr_ref(&mut self, e: &AssignExpr) -> EvalResult {
+  fn visit_assign_expr_ref(&mut self, e: &AssignExpr) -> ExprEvalResult {
     let value = self.eval_expr_ref(&e.value)?;
     match &e.name.lexeme {
       Some(l) => {
@@ -1096,7 +1147,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     Ok(value)
   }
 
-  fn visit_logical_expr(&mut self, e: Box<LogicalExpr>) -> EvalResult {
+  fn visit_logical_expr(&mut self, e: Box<LogicalExpr>) -> ExprEvalResult {
     let left = self.eval_expr(e.left)?;
 
     match e.operator.token_type {
@@ -1121,7 +1172,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     self.eval_expr(e.right)
   }
 
-  fn visit_logical_expr_ref(&mut self, e: &LogicalExpr) -> EvalResult {
+  fn visit_logical_expr_ref(&mut self, e: &LogicalExpr) -> ExprEvalResult {
     let left = self.eval_expr_ref(&e.left)?;
 
     match e.operator.token_type {
@@ -1146,7 +1197,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     self.eval_expr_ref(&e.right)
   }
 
-  fn visit_range_expr(&mut self, e: Box<RangeExpr>) -> EvalResult {
+  fn visit_range_expr(&mut self, e: Box<RangeExpr>) -> ExprEvalResult {
     let begin = self.eval_expr(e.begin)?;
     let end = self.eval_expr(e.end)?;
 
@@ -1166,7 +1217,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     })
   }
 
-  fn visit_range_expr_ref(&mut self, e: &RangeExpr) -> EvalResult {
+  fn visit_range_expr_ref(&mut self, e: &RangeExpr) -> ExprEvalResult {
     let begin = self.eval_expr_ref(&e.begin)?;
     let end = self.eval_expr_ref(&e.end)?;
 
@@ -1186,7 +1237,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     })
   }
 
-  fn visit_call_expr(&mut self, e: Box<CallExpr>) -> EvalResult {
+  fn visit_call_expr(&mut self, e: Box<CallExpr>) -> ExprEvalResult {
     let callee = self.eval_expr(e.callee)?;
 
     if let Value::Callee(func) = callee {
@@ -1203,7 +1254,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
     }
   }
 
-  fn visit_call_expr_ref(&mut self, e: &CallExpr) -> EvalResult {
+  fn visit_call_expr_ref(&mut self, e: &CallExpr) -> ExprEvalResult {
     let callee = self.eval_expr_ref(&e.callee)?;
 
     if let Value::Callee(func) = callee {

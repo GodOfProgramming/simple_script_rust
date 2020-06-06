@@ -40,11 +40,11 @@ pub fn accept_ref<R>(e: &Stmt, visitor: &mut dyn Visitor<R>) -> R {
 
 pub struct ReturnStmt {
     pub keyword: Token,
-    pub value: Expr,
+    pub value: Option<Expr>,
 }
 
 impl ReturnStmt {
-    pub fn new(keyword: Token, value: Expr) -> Self {
+    pub fn new(keyword: Token, value: Option<Expr>) -> Self {
         Self { keyword, value }
     }
 }
