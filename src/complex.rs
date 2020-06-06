@@ -85,11 +85,11 @@ where
 }
 
 pub struct UserFunction {
-  fun: FunctionStmt,
+  fun: Box<FunctionStmt>,
 }
 
 impl UserFunction {
-  pub fn new(fun: FunctionStmt) -> UserFunction {
+  pub fn new(fun: Box<FunctionStmt>) -> UserFunction {
     UserFunction { fun }
   }
 }
@@ -140,6 +140,6 @@ impl Callable for UserFunction {
       }
     }
 
-    Ok(evaluator.eval_block(&fun.body, env)?)
+    Ok(evaluator.eval_block(fun.body, env)?)
   }
 }

@@ -57,9 +57,9 @@ impl<'a> Parser<'a> {
   }
 
   fn decl(&mut self) -> StatementResult {
-    match if self.match_token(&[TokenType::Var]) {
+    match if self.match_token(vec![TokenType::Var]) {
       self.var_decl()
-    } else if self.match_token(&[TokenType::Fun]) {
+    } else if self.match_token(vec![TokenType::Fun]) {
       self.fun_decl("function")
     } else {
       self.statement()
@@ -75,7 +75,7 @@ impl<'a> Parser<'a> {
   fn var_decl(&mut self) -> StatementResult {
     let name = self.consume(TokenType::Identifier, "Expected variable name")?;
     let mut expr = None;
-    if self.match_token(&[TokenType::Equal]) {
+    if self.match_token(vec![TokenType::Equal]) {
       expr = Some(self.expression()?);
     }
 
@@ -94,7 +94,7 @@ impl<'a> Parser<'a> {
       loop {
         params.push(self.consume(TokenType::Identifier, "expect parameter name")?);
 
-        if !self.match_token(&[TokenType::Comma]) {
+        if !self.match_token(vec![TokenType::Comma]) {
           break;
         }
       }
@@ -115,15 +115,15 @@ impl<'a> Parser<'a> {
   }
 
   fn statement(&mut self) -> StatementResult {
-    if self.match_token(&[TokenType::Print]) {
+    if self.match_token(vec![TokenType::Print]) {
       self.print_statement()
-    } else if self.match_token(&[TokenType::For]) {
+    } else if self.match_token(vec![TokenType::For]) {
       self.for_statement()
-    } else if self.match_token(&[TokenType::While]) {
+    } else if self.match_token(vec![TokenType::While]) {
       self.while_statement()
-    } else if self.match_token(&[TokenType::If]) {
+    } else if self.match_token(vec![TokenType::If]) {
       self.if_statement()
-    } else if self.match_token(&[TokenType::LeftBrace]) {
+    } else if self.match_token(vec![TokenType::LeftBrace]) {
       Ok(Stmt::Block(Box::new(BlockStmt::new(self.block()?))))
     } else {
       self.expr_statement()
@@ -139,9 +139,9 @@ impl<'a> Parser<'a> {
   fn for_statement(&mut self) -> StatementResult {
     let token = self.previous();
 
-    let initializer = if self.match_token(&[TokenType::Semicolon]) {
+    let initializer = if self.match_token(vec![TokenType::Semicolon]) {
       None
-    } else if self.match_token(&[TokenType::Var]) {
+    } else if self.match_token(vec![TokenType::Var]) {
       Some(self.var_decl()?)
     } else {
       Some(self.expr_statement()?)
@@ -201,10 +201,10 @@ impl<'a> Parser<'a> {
     let if_true = Stmt::Block(Box::new(BlockStmt::new(self.block()?)));
     let mut if_false = None;
 
-    if self.match_token(&[TokenType::Else]) {
-      if_false = if self.match_token(&[TokenType::LeftBrace]) {
+    if self.match_token(vec![TokenType::Else]) {
+      if_false = if self.match_token(vec![TokenType::LeftBrace]) {
         Some(Stmt::Block(Box::new(BlockStmt::new(self.block()?))))
-      } else if self.match_token(&[TokenType::If]) {
+      } else if self.match_token(vec![TokenType::If]) {
         Some(self.if_statement()?)
       } else {
         return Err(AstErr {
@@ -232,7 +232,7 @@ impl<'a> Parser<'a> {
   fn _list(&mut self) -> ExprResult {
     let mut expr = self.assignment()?;
 
-    if self.match_token(&[TokenType::Comma]) {
+    if self.match_token(vec![TokenType::Comma]) {
       let op = self.previous();
       let right = self._list()?;
       expr = Expr::Binary(Box::new(BinaryExpr::new(expr, op, right)));
@@ -244,7 +244,7 @@ impl<'a> Parser<'a> {
   fn ternary(&mut self) -> ExprResult {
     let mut expr = self.assignment()?;
 
-    if self.match_token(&[TokenType::Conditional]) {
+    if self.match_token(vec![TokenType::Conditional]) {
       let if_true = self.expression()?;
       self.consume(TokenType::Colon, "expected ':' for conditional operator")?;
       let if_false = self.expression()?;
@@ -257,7 +257,7 @@ impl<'a> Parser<'a> {
   fn assignment(&mut self) -> ExprResult {
     let expr = self.range()?;
 
-    if self.match_token(&[TokenType::Equal]) {
+    if self.match_token(vec![TokenType::Equal]) {
       let equals = self.previous();
       let value = self.assignment()?;
 
@@ -277,7 +277,7 @@ impl<'a> Parser<'a> {
   fn range(&mut self) -> ExprResult {
     let mut begin = self.or()?;
 
-    if self.match_token(&[TokenType::Range]) {
+    if self.match_token(vec![TokenType::Range]) {
       let token = self.previous();
       let end = self.or()?;
       begin = Expr::Range(Box::new(RangeExpr::new(begin, token, end)));
@@ -287,21 +287,21 @@ impl<'a> Parser<'a> {
   }
 
   fn or(&mut self) -> ExprResult {
-    self.left_associative_logical(Parser::and, &[TokenType::Or])
+    self.left_associative_logical(Parser::and, vec![TokenType::Or])
   }
 
   fn and(&mut self) -> ExprResult {
-    self.left_associative_logical(Parser::equality, &[TokenType::And])
+    self.left_associative_logical(Parser::equality, vec![TokenType::And])
   }
 
   fn equality(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::comparison, &[TokenType::ExEq, TokenType::EqEq])
+    self.left_associative_binary(Parser::comparison, vec![TokenType::ExEq, TokenType::EqEq])
   }
 
   fn comparison(&mut self) -> ExprResult {
     self.left_associative_binary(
       Parser::addition,
-      &[
+      vec![
         TokenType::GreaterThan,
         TokenType::GreaterEq,
         TokenType::LessThan,
@@ -311,24 +311,27 @@ impl<'a> Parser<'a> {
   }
 
   fn addition(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::multiplication, &[TokenType::Plus, TokenType::Minus])
+    self.left_associative_binary(
+      Parser::multiplication,
+      vec![TokenType::Plus, TokenType::Minus],
+    )
   }
 
   fn multiplication(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::unary, &[TokenType::Slash, TokenType::Asterisk])
+    self.left_associative_binary(Parser::unary, vec![TokenType::Slash, TokenType::Asterisk])
   }
 
   fn unary(&mut self) -> ExprResult {
     self.right_associative_unary(
       Parser::call,
-      &[TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
+      vec![TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
     )
   }
 
   fn call(&mut self) -> ExprResult {
     let mut expr = self.primary()?;
 
-    while self.match_token(&[TokenType::LeftParen]) {
+    while self.match_token(vec![TokenType::LeftParen]) {
       expr = self.finish_call(expr)?;
     }
 
@@ -336,7 +339,7 @@ impl<'a> Parser<'a> {
   }
 
   fn primary(&mut self) -> ExprResult {
-    if self.match_token(&[
+    if self.match_token(vec![
       TokenType::False,
       TokenType::True,
       TokenType::Nil,
@@ -350,11 +353,11 @@ impl<'a> Parser<'a> {
       }
     }
 
-    if self.match_token(&[TokenType::Identifier]) {
+    if self.match_token(vec![TokenType::Identifier]) {
       return Ok(Expr::Variable(Box::new(VariableExpr::new(self.previous()))));
     }
 
-    if self.match_token(&[TokenType::LeftParen]) {
+    if self.match_token(vec![TokenType::LeftParen]) {
       let expr = self.expression()?;
       self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
       return Ok(Expr::Grouping(Box::new(GroupingExpr::new(expr))));
@@ -371,11 +374,12 @@ impl<'a> Parser<'a> {
   fn left_associative_logical(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
-    types: &[TokenType],
+    types: Vec<TokenType>,
   ) -> ExprResult {
     let mut expr = next(self)?;
 
-    while self.match_token(types) {
+    // TODO stop cloning
+    while self.match_token(types.clone()) {
       let op = self.previous();
       let right = next(self)?;
       expr = Expr::Logical(Box::new(LogicalExpr::new(expr, op, right)));
@@ -387,11 +391,12 @@ impl<'a> Parser<'a> {
   fn left_associative_binary(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
-    types: &[TokenType],
+    types: Vec<TokenType>,
   ) -> ExprResult {
     let mut expr = next(self)?;
 
-    while self.match_token(types) {
+    // TODO stop cloning
+    while self.match_token(types.clone()) {
       let op = self.previous();
       let right = next(self)?;
       expr = Expr::Binary(Box::new(BinaryExpr::new(expr, op, right)));
@@ -403,7 +408,7 @@ impl<'a> Parser<'a> {
   fn right_associative_unary(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
-    types: &[TokenType],
+    types: Vec<TokenType>,
   ) -> ExprResult {
     if self.match_token(types) {
       let op = self.previous();
@@ -426,9 +431,9 @@ impl<'a> Parser<'a> {
     Ok(v)
   }
 
-  fn match_token(&mut self, types: &[TokenType]) -> bool {
-    for token_type in types.iter() {
-      if self.check(*token_type) {
+  fn match_token(&mut self, types: Vec<TokenType>) -> bool {
+    for token_type in types.into_iter() {
+      if self.check(token_type) {
         self.advance();
         return true;
       }
@@ -503,7 +508,7 @@ impl<'a> Parser<'a> {
       loop {
         args.push(self.expression()?);
 
-        if !self.match_token(&[TokenType::Comma]) {
+        if !self.match_token(vec![TokenType::Comma]) {
           break;
         }
       }
@@ -521,7 +526,7 @@ pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> EvalResult {
   let mut e = Evaluator::new(globals);
   let mut res = Value::Nil;
 
-  for stmt in prgm.iter() {
+  for stmt in prgm.into_iter() {
     res = e.eval_stmt(stmt)?;
   }
 
@@ -653,7 +658,10 @@ impl StmtVisitor<EvalResult> for Evaluator {
 
   fn visit_function_stmt(&mut self, e: &FunctionStmt) -> EvalResult {
     let func = UserFunction::new(e);
-    self.current_env.borrow_mut().define(e.name.lexeme.unwrap(), Value::Callee(Rc::new(func)));
+    self
+      .current_env
+      .borrow_mut()
+      .define(e.name.lexeme.unwrap(), Value::Callee(Rc::new(func)));
     Ok(Value::Nil)
   }
 }
