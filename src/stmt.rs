@@ -2,6 +2,7 @@ use crate::expr::Expr;
 use crate::lex::Token;
 
 pub enum Stmt {
+    Function(Box<FunctionStmt>),
     While(Box<WhileStmt>),
     If(Box<IfStmt>),
     Block(Box<BlockStmt>),
@@ -13,6 +14,7 @@ pub enum Stmt {
 impl Stmt {
     pub fn accept<R>(&self, visitor: &mut dyn Visitor<R>) -> R {
         match self {
+            Stmt::Function(x) => visitor.visit_function_stmt(x),
             Stmt::While(x) => visitor.visit_while_stmt(x),
             Stmt::If(x) => visitor.visit_if_stmt(x),
             Stmt::Block(x) => visitor.visit_block_stmt(x),
@@ -20,6 +22,18 @@ impl Stmt {
             Stmt::Print(x) => visitor.visit_print_stmt(x),
             Stmt::Var(x) => visitor.visit_var_stmt(x),
         }
+    }
+}
+
+pub struct FunctionStmt {
+    pub name: Token,
+    pub params: Vec<Token>,
+    pub body: Vec<Stmt>,
+}
+
+impl FunctionStmt {
+    pub fn new(name: Token, params: Vec<Token>, body: Vec<Stmt>) -> FunctionStmt {
+        FunctionStmt { name, params, body }
     }
 }
 
@@ -97,6 +111,7 @@ impl VarStmt {
 }
 
 pub trait Visitor<R> {
+    fn visit_function_stmt(&mut self, e: &FunctionStmt) -> R;
     fn visit_while_stmt(&mut self, e: &WhileStmt) -> R;
     fn visit_if_stmt(&mut self, e: &IfStmt) -> R;
     fn visit_block_stmt(&mut self, e: &BlockStmt) -> R;

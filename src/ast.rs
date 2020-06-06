@@ -1,4 +1,4 @@
-use crate::complex::CallErr;
+use crate::complex::{CallErr, UserFunction};
 use crate::env::{Env, EnvRef};
 use crate::expr::{
   AssignExpr, BinaryExpr, CallExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, RangeExpr,
@@ -6,7 +6,8 @@ use crate::expr::{
 };
 use crate::lex::{Token, TokenType};
 use crate::stmt::{
-  BlockStmt, ExpressionStmt, IfStmt, PrintStmt, Stmt, VarStmt, Visitor as StmtVisitor, WhileStmt,
+  BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, PrintStmt, Stmt, VarStmt,
+  Visitor as StmtVisitor, WhileStmt,
 };
 use crate::types::Value;
 use std::cell::RefCell;
@@ -58,6 +59,8 @@ impl<'a> Parser<'a> {
   fn decl(&mut self) -> StatementResult {
     match if self.match_token(&[TokenType::Var]) {
       self.var_decl()
+    } else if self.match_token(&[TokenType::Fun]) {
+      self.fun_decl("function")
     } else {
       self.statement()
     } {
@@ -70,14 +73,45 @@ impl<'a> Parser<'a> {
   }
 
   fn var_decl(&mut self) -> StatementResult {
-    let name = self.consume(&TokenType::Identifier, "Expected variable name")?;
+    let name = self.consume(TokenType::Identifier, "Expected variable name")?;
     let mut expr = None;
     if self.match_token(&[TokenType::Equal]) {
       expr = Some(self.expression()?);
     }
 
-    self.consume(&TokenType::Semicolon, "Expected ';' after variable decl")?;
-    Ok(Stmt::Var(Box::new(VarStmt::new(name.clone(), expr))))
+    self.consume(TokenType::Semicolon, "Expected ';' after variable decl")?;
+    Ok(Stmt::Var(Box::new(VarStmt::new(name, expr))))
+  }
+
+  fn fun_decl(&mut self, kind: &str) -> StatementResult {
+    let name = self.consume(TokenType::Identifier, &format!("expect {} name", kind))?;
+    self.consume(
+      TokenType::LeftParen,
+      &format!("expect '(' after {} name", kind),
+    )?;
+    let mut params = Vec::new();
+    if !self.check(TokenType::RightParen) {
+      loop {
+        params.push(self.consume(TokenType::Identifier, "expect parameter name")?);
+
+        if !self.match_token(&[TokenType::Comma]) {
+          break;
+        }
+      }
+    }
+
+    self.consume(TokenType::RightParen, "Expect ')' after parameters")?;
+
+    self.consume(
+      TokenType::LeftBrace,
+      &format!("Expect '{{' before {} body", kind),
+    )?;
+
+    let body = self.block()?;
+
+    Ok(Stmt::Function(Box::new(FunctionStmt::new(
+      name, params, body,
+    ))))
   }
 
   fn statement(&mut self) -> StatementResult {
@@ -98,7 +132,7 @@ impl<'a> Parser<'a> {
 
   fn print_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
-    self.consume(&TokenType::Semicolon, "expected ';' after value")?;
+    self.consume(TokenType::Semicolon, "expected ';' after value")?;
     Ok(Stmt::Print(Box::new(PrintStmt::new(expr))))
   }
 
@@ -113,21 +147,21 @@ impl<'a> Parser<'a> {
       Some(self.expr_statement()?)
     };
 
-    let mut condition = if self.check(&TokenType::Semicolon) {
+    let mut condition = if self.check(TokenType::Semicolon) {
       None
     } else {
       Some(self.expression()?)
     };
 
-    self.consume(&TokenType::Semicolon, "Expect ';' after loop condition")?;
+    self.consume(TokenType::Semicolon, "Expect ';' after loop condition")?;
 
-    let increment = if self.check(&TokenType::Semicolon) {
+    let increment = if self.check(TokenType::Semicolon) {
       None
     } else {
       Some(self.expression()?)
     };
 
-    self.consume(&TokenType::LeftBrace, "Expect '{' after increment")?;
+    self.consume(TokenType::LeftBrace, "Expect '{' after increment")?;
 
     let mut body = Stmt::Block(Box::new(BlockStmt::new(self.block()?)));
 
@@ -142,11 +176,7 @@ impl<'a> Parser<'a> {
       condition = Some(Expr::Literal(Box::new(LiteralExpr::new(Value::Bool(true)))));
     }
 
-    body = Stmt::While(Box::new(WhileStmt::new(
-      token.clone(),
-      condition.unwrap(),
-      body,
-    )));
+    body = Stmt::While(Box::new(WhileStmt::new(token, condition.unwrap(), body)));
 
     if let Some(init) = initializer {
       body = Stmt::Block(Box::new(BlockStmt::new(vec![init, body])))
@@ -158,18 +188,16 @@ impl<'a> Parser<'a> {
   fn while_statement(&mut self) -> StatementResult {
     let token = self.previous();
     let condition = self.expression()?;
-    self.consume(&TokenType::LeftBrace, "missing '{' after if condition")?;
+    self.consume(TokenType::LeftBrace, "missing '{' after if condition")?;
     let body = Stmt::Block(Box::new(BlockStmt::new(self.block()?)));
     Ok(Stmt::While(Box::new(WhileStmt::new(
-      token.clone(),
-      condition,
-      body,
+      token, condition, body,
     ))))
   }
 
   fn if_statement(&mut self) -> StatementResult {
     let condition = self.expression()?;
-    self.consume(&TokenType::LeftBrace, "missing '{' after if condition")?;
+    self.consume(TokenType::LeftBrace, "missing '{' after if condition")?;
     let if_true = Stmt::Block(Box::new(BlockStmt::new(self.block()?)));
     let mut if_false = None;
 
@@ -193,7 +221,7 @@ impl<'a> Parser<'a> {
 
   fn expr_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
-    self.consume(&TokenType::Semicolon, "expected ';' after value")?;
+    self.consume(TokenType::Semicolon, "expected ';' after value")?;
     Ok(Stmt::Expression(Box::new(ExpressionStmt::new(expr))))
   }
 
@@ -207,7 +235,7 @@ impl<'a> Parser<'a> {
     if self.match_token(&[TokenType::Comma]) {
       let op = self.previous();
       let right = self._list()?;
-      expr = Expr::Binary(Box::new(BinaryExpr::new(expr, op.clone(), right)));
+      expr = Expr::Binary(Box::new(BinaryExpr::new(expr, op, right)));
     }
 
     Ok(expr)
@@ -218,7 +246,7 @@ impl<'a> Parser<'a> {
 
     if self.match_token(&[TokenType::Conditional]) {
       let if_true = self.expression()?;
-      self.consume(&TokenType::Colon, "expected ':' for conditional operator")?;
+      self.consume(TokenType::Colon, "expected ':' for conditional operator")?;
       let if_false = self.expression()?;
       expr = Expr::Ternary(Box::new(TernaryExpr::new(expr, if_true, if_false)));
     }
@@ -252,7 +280,7 @@ impl<'a> Parser<'a> {
     if self.match_token(&[TokenType::Range]) {
       let token = self.previous();
       let end = self.or()?;
-      begin = Expr::Range(Box::new(RangeExpr::new(begin, token.clone(), end)));
+      begin = Expr::Range(Box::new(RangeExpr::new(begin, token, end)));
     }
 
     Ok(begin)
@@ -291,7 +319,7 @@ impl<'a> Parser<'a> {
   }
 
   fn unary(&mut self) -> ExprResult {
-    self.right_associateive_unary(
+    self.right_associative_unary(
       Parser::call,
       &[TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
     )
@@ -323,14 +351,12 @@ impl<'a> Parser<'a> {
     }
 
     if self.match_token(&[TokenType::Identifier]) {
-      return Ok(Expr::Variable(Box::new(VariableExpr::new(
-        self.previous().clone(),
-      ))));
+      return Ok(Expr::Variable(Box::new(VariableExpr::new(self.previous()))));
     }
 
     if self.match_token(&[TokenType::LeftParen]) {
       let expr = self.expression()?;
-      self.consume(&TokenType::RightParen, "Expect ')' after expression.")?;
+      self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
       return Ok(Expr::Grouping(Box::new(GroupingExpr::new(expr))));
     }
 
@@ -352,7 +378,7 @@ impl<'a> Parser<'a> {
     while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
-      expr = Expr::Logical(Box::new(LogicalExpr::new(expr, op.clone(), right)));
+      expr = Expr::Logical(Box::new(LogicalExpr::new(expr, op, right)));
     }
 
     Ok(expr)
@@ -368,13 +394,13 @@ impl<'a> Parser<'a> {
     while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
-      expr = Expr::Binary(Box::new(BinaryExpr::new(expr, op.clone(), right)));
+      expr = Expr::Binary(Box::new(BinaryExpr::new(expr, op, right)));
     }
 
     Ok(expr)
   }
 
-  fn right_associateive_unary(
+  fn right_associative_unary(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
     types: &[TokenType],
@@ -382,7 +408,7 @@ impl<'a> Parser<'a> {
     if self.match_token(types) {
       let op = self.previous();
       let right = self.unary()?;
-      Ok(Expr::Unary(Box::new(UnaryExpr::new(op.clone(), right))))
+      Ok(Expr::Unary(Box::new(UnaryExpr::new(op, right))))
     } else {
       next(self)
     }
@@ -391,18 +417,18 @@ impl<'a> Parser<'a> {
   fn block(&mut self) -> Result<Vec<Stmt>, AstErr> {
     let mut v = Vec::new();
 
-    while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+    while !self.check(TokenType::RightBrace) && !self.is_at_end() {
       v.push(self.decl()?);
     }
 
-    self.consume(&TokenType::RightBrace, "Expect '}' after block")?;
+    self.consume(TokenType::RightBrace, "Expect '}' after block")?;
 
     Ok(v)
   }
 
   fn match_token(&mut self, types: &[TokenType]) -> bool {
     for token_type in types.iter() {
-      if self.check(token_type) {
+      if self.check(*token_type) {
         self.advance();
         return true;
       }
@@ -411,11 +437,11 @@ impl<'a> Parser<'a> {
     false
   }
 
-  fn check(&self, t: &TokenType) -> bool {
-    !self.is_at_end() && self.peek().token_type == *t
+  fn check(&self, t: TokenType) -> bool {
+    !self.is_at_end() && self.peek().token_type == t
   }
 
-  fn advance(&mut self) -> &'a Token {
+  fn advance(&mut self) -> Token {
     if !self.is_at_end() {
       self.current += 1;
     }
@@ -431,11 +457,11 @@ impl<'a> Parser<'a> {
     &self.tokens[self.current]
   }
 
-  fn previous(&self) -> &'a Token {
-    &self.tokens[self.current - 1]
+  fn previous(&self) -> Token {
+    self.tokens[self.current - 1].clone()
   }
 
-  fn consume(&mut self, token_type: &TokenType, msg: &'static str) -> Result<&'a Token, AstErr> {
+  fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<Token, AstErr> {
     if self.check(token_type) {
       Ok(self.advance())
     } else {
@@ -473,7 +499,7 @@ impl<'a> Parser<'a> {
   fn finish_call(&mut self, callee: Expr) -> ExprResult {
     let mut args = Vec::new();
 
-    if !self.check(&TokenType::RightParen) {
+    if !self.check(TokenType::RightParen) {
       loop {
         args.push(self.expression()?);
 
@@ -483,13 +509,9 @@ impl<'a> Parser<'a> {
       }
     }
 
-    let paren = self.consume(&TokenType::RightParen, "Expect ')' after arguments")?;
+    let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments")?;
 
-    Ok(Expr::Call(Box::new(CallExpr::new(
-      callee,
-      paren.clone(),
-      args,
-    ))))
+    Ok(Expr::Call(Box::new(CallExpr::new(callee, paren, args))))
   }
 }
 
@@ -507,7 +529,7 @@ pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> EvalResult {
 }
 
 pub struct Evaluator {
-  current_env: EnvRef,
+  pub current_env: EnvRef,
 }
 
 impl<'a> Evaluator {
@@ -525,7 +547,7 @@ impl<'a> Evaluator {
     expr.accept(self)
   }
 
-  fn eval_block(&mut self, statements: &Vec<Stmt>, env: EnvRef) -> EvalResult {
+  pub fn eval_block(&mut self, statements: &Vec<Stmt>, env: EnvRef) -> EvalResult {
     let prev_env = Rc::clone(&self.current_env);
     self.current_env = env;
     let mut result = Ok(Value::Nil);
@@ -628,6 +650,12 @@ impl StmtVisitor<EvalResult> for Evaluator {
 
     Ok(conclusion)
   }
+
+  fn visit_function_stmt(&mut self, e: &FunctionStmt) -> EvalResult {
+    let func = UserFunction::new(e);
+    self.current_env.borrow_mut().define(e.name.lexeme.unwrap(), Value::Callee(Rc::new(func)));
+    Ok(Value::Nil)
+  }
 }
 
 impl ExprVisitor<EvalResult> for Evaluator {
@@ -666,7 +694,7 @@ impl ExprVisitor<EvalResult> for Evaluator {
 
     // string concatenation
     if e.operator.token_type == TokenType::Plus {
-      if let Value::Str(l) = left.clone() {
+      if let Value::Str(l) = &left {
         if let Value::Str(r) = right {
           return Ok(Value::Str(format!("{}{}", l, r)));
         } else if let Value::Num(r) = right {

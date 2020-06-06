@@ -154,6 +154,23 @@
     ],
     "impl": [
       {
+        "name": "Function",
+        "members": [
+          {
+            "name": "name",
+            "type": "Token"
+          },
+          {
+            "name": "params",
+            "type": "Vec<Token>"
+          },
+          {
+            "name": "body",
+            "type": "Vec<Stmt>"
+          }
+        ]
+      },
+      {
         "name": "While",
         "members": [
           {

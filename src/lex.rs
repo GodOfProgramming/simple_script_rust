@@ -88,6 +88,7 @@ impl Display for Token {
     match &self.token_type {
       TokenType::StringLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
       TokenType::NumberLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
+      TokenType::Identifier => write!(f, "{}", self.lexeme.as_ref().unwrap()),
       other => match &self.lexeme {
         Some(lex) => write!(f, "{:?}({})", other, lex),
         None => write!(f, "{:?}", other),

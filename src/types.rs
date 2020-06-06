@@ -32,7 +32,7 @@ impl Display for Value {
         }
         Ok(())
       }
-      Value::Callee(_) => write!(f, "function"),
+      Value::Callee(c) => write!(f, "{}", c),
     }
   }
 }

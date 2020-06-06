@@ -1,5 +1,11 @@
+use crate::ast::AstErr;
 use crate::ast::Evaluator;
+use crate::env::Env;
+use crate::stmt::FunctionStmt;
 use crate::types::Value;
+use std::cell::RefCell;
+use std::fmt::{self, Display};
+use std::rc::Rc;
 
 pub type CallResult = Result<Value, CallErr>;
 
@@ -8,8 +14,17 @@ pub struct CallErr {
   pub line: usize,
 }
 
-pub trait Callable {
-  fn call(&self, evaluator: &Evaluator, args: Vec<Value>) -> CallResult;
+impl From<AstErr> for CallErr {
+  fn from(err: AstErr) -> Self {
+    CallErr {
+      msg: err.msg,
+      line: err.line,
+    }
+  }
+}
+
+pub trait Callable: Display {
+  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>) -> CallResult;
 }
 
 pub struct NativeFunction<T>
@@ -29,11 +44,20 @@ where
   }
 }
 
+impl<T> Display for NativeFunction<T>
+where
+  T: Fn(Vec<Value>) -> CallResult,
+{
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "<native function>")
+  }
+}
+
 impl<T> Callable for NativeFunction<T>
 where
   T: Fn(Vec<Value>) -> CallResult,
 {
-  fn call(&self, evaluator: &Evaluator, args: Vec<Value>) -> CallResult {
+  fn call(&self, _: &mut Evaluator, args: Vec<Value>) -> CallResult {
     if self.airity < args.len() {
       return Err(CallErr {
         msg: format!(
@@ -60,41 +84,62 @@ where
   }
 }
 
-#[derive(Debug, Clone, PartialEq)]
 pub struct UserFunction {
-  airity: usize,
+  fun: FunctionStmt,
 }
 
 impl UserFunction {
-  pub fn new(airity: usize) -> UserFunction {
-    UserFunction { airity }
+  pub fn new(fun: FunctionStmt) -> UserFunction {
+    UserFunction { fun }
+  }
+}
+
+impl Display for UserFunction {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "<fun {}>", self.fun.name)
   }
 }
 
 impl Callable for UserFunction {
-  fn call(&self, evaluator: &Evaluator, args: Vec<Value>) -> CallResult {
-    if self.airity < args.len() {
+  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>) -> CallResult {
+    let fun = &self.fun;
+    if fun.params.len() < args.len() {
       return Err(CallErr {
         msg: format!(
           "too many arguments, expected {}, got {}",
-          self.airity,
+          fun.params.len(),
           args.len()
         ),
         line: 0, // TODO
       });
     }
 
-    if self.airity > args.len() {
+    if fun.params.len() > args.len() {
       return Err(CallErr {
         msg: format!(
           "too few arguments, expected {}, got {}",
-          self.airity,
+          fun.params.len(),
           args.len(),
         ),
         line: 0, // TODO
       });
     }
 
-    Ok(Value::Nil)
+    let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
+      &evaluator.current_env,
+    ))));
+
+    for (param, arg) in fun.params.iter().zip(args.iter()) {
+      if let Some(lexeme) = &param.lexeme {
+        env.borrow_mut().define(lexeme.clone(), arg.clone())
+      } else {
+        return Err(CallErr {
+          msg: String::from("no name in parameter"),
+          line: param.line,
+        });
+      }
+    }
+
+    Ok(evaluator.eval_block(&fun.body, env)?)
   }
 }

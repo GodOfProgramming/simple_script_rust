@@ -2,8 +2,11 @@ program     		→ declaration* EOF ;
 
 ### Statements ###
 
-declaration 		→ var_decl | statement ;
+declaration 		→ fun_decl | var_decl | statement ;
 var_decl        → "var" IDENTIFIER ( "=" expression )? ";" ;
+func_decl       → "fun" function ;
+function        → IDENTIFIER "(" parameters? ")" block ;
+parameters      → IDENTIFIER ( "," IDENTIFIER )* ;
 statement   		→ expr_stmt | if_stmt | print_stmt | block ;
 for_stmt        → "for" ( var_decl | expr_stmt ) ";" expression? ";" expression? block ;
 while_stmt      → "while" expression block ;
