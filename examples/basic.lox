@@ -16,6 +16,12 @@ fun second_function(val1, val2) {
 
 second_function(123, "a value");
 
+fun third_function() {
+  "a";
+}
+
+print third_function();
+
 var foo = 1;
 {
   var foo = "some string";

@@ -2,6 +2,7 @@ use crate::expr::Expr;
 use crate::lex::Token;
 
 pub enum Stmt {
+    Return(Box<ReturnStmt>),
     Function(Box<FunctionStmt>),
     While(Box<WhileStmt>),
     If(Box<IfStmt>),
@@ -13,6 +14,7 @@ pub enum Stmt {
 
 pub fn accept<R>(e: Stmt, visitor: &mut dyn Visitor<R>) -> R {
     match e {
+        Stmt::Return(x) => visitor.visit_return_stmt(x),
         Stmt::Function(x) => visitor.visit_function_stmt(x),
         Stmt::While(x) => visitor.visit_while_stmt(x),
         Stmt::If(x) => visitor.visit_if_stmt(x),
@@ -25,6 +27,7 @@ pub fn accept<R>(e: Stmt, visitor: &mut dyn Visitor<R>) -> R {
 
 pub fn accept_ref<R>(e: &Stmt, visitor: &mut dyn Visitor<R>) -> R {
     match e {
+        Stmt::Return(x) => visitor.visit_return_stmt_ref(x),
         Stmt::Function(x) => visitor.visit_function_stmt_ref(x),
         Stmt::While(x) => visitor.visit_while_stmt_ref(x),
         Stmt::If(x) => visitor.visit_if_stmt_ref(x),
@@ -32,6 +35,17 @@ pub fn accept_ref<R>(e: &Stmt, visitor: &mut dyn Visitor<R>) -> R {
         Stmt::Expression(x) => visitor.visit_expression_stmt_ref(x),
         Stmt::Print(x) => visitor.visit_print_stmt_ref(x),
         Stmt::Var(x) => visitor.visit_var_stmt_ref(x),
+    }
+}
+
+pub struct ReturnStmt {
+    pub keyword: Token,
+    pub value: Expr,
+}
+
+impl ReturnStmt {
+    pub fn new(keyword: Token, value: Expr) -> Self {
+        Self { keyword, value }
     }
 }
 
@@ -121,6 +135,8 @@ impl VarStmt {
 }
 
 pub trait Visitor<R> {
+    fn visit_return_stmt(&mut self, e: Box<ReturnStmt>) -> R;
+    fn visit_return_stmt_ref(&mut self, e: &ReturnStmt) -> R;
     fn visit_function_stmt(&mut self, e: Box<FunctionStmt>) -> R;
     fn visit_function_stmt_ref(&mut self, e: &FunctionStmt) -> R;
     fn visit_while_stmt(&mut self, e: Box<WhileStmt>) -> R;

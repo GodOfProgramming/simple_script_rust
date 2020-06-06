@@ -154,6 +154,19 @@
     ],
     "enums": [
       {
+        "name": "Return",
+        "members": [
+          {
+            "name": "keyword",
+            "type": "Token"
+          },
+          {
+            "name": "value",
+            "type": "Expr"
+          }
+        ]
+      },
+      {
         "name": "Function",
         "members": [
           {

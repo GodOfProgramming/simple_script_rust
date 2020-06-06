@@ -6,7 +6,7 @@ use crate::expr::{
 };
 use crate::lex::{Token, TokenType};
 use crate::stmt::{
-  self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, PrintStmt, Stmt, VarStmt,
+  self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, PrintStmt, ReturnStmt, Stmt, VarStmt,
   Visitor as StmtVisitor, WhileStmt,
 };
 use crate::types::Value;
@@ -117,6 +117,8 @@ impl<'a> Parser<'a> {
   fn statement(&mut self) -> StatementResult {
     if self.match_token(vec![TokenType::Print]) {
       self.print_statement()
+    } else if self.match_token(vec![TokenType::Return]) {
+      self.return_statement()
     } else if self.match_token(vec![TokenType::For]) {
       self.for_statement()
     } else if self.match_token(vec![TokenType::While]) {
@@ -134,6 +136,17 @@ impl<'a> Parser<'a> {
     let expr = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
     Ok(Stmt::Print(Box::new(PrintStmt::new(expr))))
+  }
+
+  fn return_statement(&mut self) -> StatementResult {
+    let keyword = self.previous();
+    let mut value = Expr::Literal(Box::new(LiteralExpr::new(Value::Nil)));
+    if !self.check(TokenType::Semicolon) {
+      value = self.expression()?;
+    }
+
+    self.consume(TokenType::Semicolon, "expected ';' after return value")?;
+    return Ok(Stmt::Return(Box::new(ReturnStmt::new(keyword, value))));
   }
 
   fn for_statement(&mut self) -> StatementResult {

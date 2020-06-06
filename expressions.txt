@@ -7,13 +7,14 @@ var_decl        → "var" IDENTIFIER ( "=" expression )? ";" ;
 func_decl       → "fun" function ;
 function        → IDENTIFIER "(" parameters? ")" block ;
 parameters      → IDENTIFIER ( "," IDENTIFIER )* ;
-statement   		→ expr_stmt | if_stmt | print_stmt | block ;
-for_stmt        → "for" ( var_decl | expr_stmt ) ";" expression? ";" expression? block ;
-while_stmt      → "while" expression block ;
-if_stmt         → "if" expression block ( "else" block )? ;
-block           → "{" declaration* "}"
+statement   		→ expr_stmt | for_stmt | if_stmt | print_stmt | return_stmt | while_stmt | block ;
 expr_stmt 			→ expression ";" ;
+for_stmt        → "for" ( var_decl | expr_stmt ) ";" expression? ";" expression? block ;
+if_stmt         → "if" expression block ( "else" block )? ;
 print_stmt 			→ "print" expression ";" ;
+return_stmt     → "return" expression? ";" ;
+while_stmt      → "while" expression block ;
+block           → "{" declaration* "}"
 
 ### Expressions ###
 
