@@ -1,3 +1,5 @@
+
+
 fun fib(n) {
   if n <= 1 {
     n;
@@ -6,6 +8,13 @@ fun fib(n) {
   }
 }
 
+var begin = clock();
 for var i = 0; i < 20; i = i + 1 {
   print fib(i);
 }
+var end = clock();
+
+// ruby takes 0.004484709 seconds
+// this took 0.684836864 secodns
+// slowest language in the worl oh yeah
+print "fib 0..20 took " + (end - begin) + " nanos";
