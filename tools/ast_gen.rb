@@ -14,10 +14,12 @@ configs = JSON.parse(contents, symbolize_names: true).map do |file, cfg|
     filename: file,
     name: cfg[:name],
     uses: cfg[:uses],
-    impl: cfg[:impl].map do |impl|
+    enums: cfg[:enums].map do |e|
       OpenStruct.new(
-        name: impl[:name],
-        members: impl[:members].map do |m|
+        name: e[:name],
+        struct_name: e[:name] + cfg[:name],
+        visit_fn: "visit_#{e[:name].underscore}_#{cfg[:name].underscore}",
+        members: e[:members].map do |m|
           OpenStruct.new(name: m[:name], type: m[:type])
         end
       )

@@ -5,7 +5,7 @@
       "crate::lex::Token",
       "crate::types::Value"
     ],
-    "impl": [
+    "enums": [
       {
         "name": "Range",
         "members": [
@@ -152,7 +152,7 @@
       "crate::expr::Expr",
       "crate::lex::Token"
     ],
-    "impl": [
+    "enums": [
       {
         "name": "Function",
         "members": [

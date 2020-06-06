@@ -32,8 +32,8 @@ pub struct FunctionStmt {
 }
 
 impl FunctionStmt {
-    pub fn new(name: Token, params: Vec<Token>, body: Vec<Stmt>) -> FunctionStmt {
-        FunctionStmt { name, params, body }
+    pub fn new(name: Token, params: Vec<Token>, body: Vec<Stmt>) -> Self {
+        Self { name, params, body }
     }
 }
 
@@ -44,8 +44,8 @@ pub struct WhileStmt {
 }
 
 impl WhileStmt {
-    pub fn new(token: Token, condition: Expr, body: Stmt) -> WhileStmt {
-        WhileStmt {
+    pub fn new(token: Token, condition: Expr, body: Stmt) -> Self {
+        Self {
             token,
             condition,
             body,
@@ -60,8 +60,8 @@ pub struct IfStmt {
 }
 
 impl IfStmt {
-    pub fn new(condition: Expr, if_true: Stmt, if_false: Option<Stmt>) -> IfStmt {
-        IfStmt {
+    pub fn new(condition: Expr, if_true: Stmt, if_false: Option<Stmt>) -> Self {
+        Self {
             condition,
             if_true,
             if_false,
@@ -74,8 +74,8 @@ pub struct BlockStmt {
 }
 
 impl BlockStmt {
-    pub fn new(statements: Vec<Stmt>) -> BlockStmt {
-        BlockStmt { statements }
+    pub fn new(statements: Vec<Stmt>) -> Self {
+        Self { statements }
     }
 }
 
@@ -84,8 +84,8 @@ pub struct ExpressionStmt {
 }
 
 impl ExpressionStmt {
-    pub fn new(expr: Expr) -> ExpressionStmt {
-        ExpressionStmt { expr }
+    pub fn new(expr: Expr) -> Self {
+        Self { expr }
     }
 }
 
@@ -94,8 +94,8 @@ pub struct PrintStmt {
 }
 
 impl PrintStmt {
-    pub fn new(expr: Expr) -> PrintStmt {
-        PrintStmt { expr }
+    pub fn new(expr: Expr) -> Self {
+        Self { expr }
     }
 }
 
@@ -105,8 +105,8 @@ pub struct VarStmt {
 }
 
 impl VarStmt {
-    pub fn new(name: Token, initializer: Option<Expr>) -> VarStmt {
-        VarStmt { name, initializer }
+    pub fn new(name: Token, initializer: Option<Expr>) -> Self {
+        Self { name, initializer }
     }
 }
 

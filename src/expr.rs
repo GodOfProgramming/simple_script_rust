@@ -38,8 +38,8 @@ pub struct RangeExpr {
 }
 
 impl RangeExpr {
-    pub fn new(begin: Expr, token: Token, end: Expr) -> RangeExpr {
-        RangeExpr { begin, token, end }
+    pub fn new(begin: Expr, token: Token, end: Expr) -> Self {
+        Self { begin, token, end }
     }
 }
 
@@ -50,8 +50,8 @@ pub struct LogicalExpr {
 }
 
 impl LogicalExpr {
-    pub fn new(left: Expr, operator: Token, right: Expr) -> LogicalExpr {
-        LogicalExpr {
+    pub fn new(left: Expr, operator: Token, right: Expr) -> Self {
+        Self {
             left,
             operator,
             right,
@@ -65,8 +65,8 @@ pub struct AssignExpr {
 }
 
 impl AssignExpr {
-    pub fn new(name: Token, value: Expr) -> AssignExpr {
-        AssignExpr { name, value }
+    pub fn new(name: Token, value: Expr) -> Self {
+        Self { name, value }
     }
 }
 
@@ -77,8 +77,8 @@ pub struct BinaryExpr {
 }
 
 impl BinaryExpr {
-    pub fn new(left: Expr, operator: Token, right: Expr) -> BinaryExpr {
-        BinaryExpr {
+    pub fn new(left: Expr, operator: Token, right: Expr) -> Self {
+        Self {
             left,
             operator,
             right,
@@ -93,8 +93,8 @@ pub struct TernaryExpr {
 }
 
 impl TernaryExpr {
-    pub fn new(condition: Expr, if_true: Expr, if_false: Expr) -> TernaryExpr {
-        TernaryExpr {
+    pub fn new(condition: Expr, if_true: Expr, if_false: Expr) -> Self {
+        Self {
             condition,
             if_true,
             if_false,
@@ -109,8 +109,8 @@ pub struct CallExpr {
 }
 
 impl CallExpr {
-    pub fn new(callee: Expr, paren: Token, args: Vec<Expr>) -> CallExpr {
-        CallExpr {
+    pub fn new(callee: Expr, paren: Token, args: Vec<Expr>) -> Self {
+        Self {
             callee,
             paren,
             args,
@@ -123,8 +123,8 @@ pub struct GroupingExpr {
 }
 
 impl GroupingExpr {
-    pub fn new(expression: Expr) -> GroupingExpr {
-        GroupingExpr { expression }
+    pub fn new(expression: Expr) -> Self {
+        Self { expression }
     }
 }
 
@@ -133,8 +133,8 @@ pub struct LiteralExpr {
 }
 
 impl LiteralExpr {
-    pub fn new(value: Value) -> LiteralExpr {
-        LiteralExpr { value }
+    pub fn new(value: Value) -> Self {
+        Self { value }
     }
 }
 
@@ -144,8 +144,8 @@ pub struct UnaryExpr {
 }
 
 impl UnaryExpr {
-    pub fn new(operator: Token, right: Expr) -> UnaryExpr {
-        UnaryExpr { operator, right }
+    pub fn new(operator: Token, right: Expr) -> Self {
+        Self { operator, right }
     }
 }
 
@@ -154,8 +154,8 @@ pub struct VariableExpr {
 }
 
 impl VariableExpr {
-    pub fn new(name: Token) -> VariableExpr {
-        VariableExpr { name }
+    pub fn new(name: Token) -> Self {
+        Self { name }
     }
 }
 

@@ -3,36 +3,36 @@ use <%= use %>;
 <%- end -%>
 
 pub enum <%= config.name %> {
-<%- for impl in config.impl -%>
-  <%= impl.name %>(Box<<%= impl.name %><%= config.name %>>),
+<%- for enum in config.enums -%>
+  <%= enum.name %>(Box<<%= enum.struct_name %>>),
 <%- end -%>
 }
 
 impl <%= config.name %> {
   pub fn accept<R>(&self, visitor: &mut dyn Visitor<R>) -> R {
     match self {
-    <%- for impl in config.impl -%>
-      <%= config.name %>::<%= impl.name %>(x) => visitor.visit_<%= impl.name.underscore %>_<%= config.name.underscore %>(x),
+    <%- for enum in config.enums -%>
+      <%= config.name %>::<%= enum.name %>(x) => visitor.<%= enum.visit_fn %>(x),
     <%- end -%>
     }
   }
 }
 
-<% for impl in config.impl %>
-pub struct <%= impl.name %><%= config.name %> {
-<%- for m in impl.members -%>
+<% for enum in config.enums %>
+pub struct <%= enum.struct_name %> {
+<%- for m in enum.members -%>
   pub <%= m.name %>: <%= m.type %>,
 <%- end -%>
 }
 
-impl <%= impl.name %><%= config.name %> {
+impl <%= enum.struct_name %> {
   pub fn new(
-  <% for m in impl.members %>
+  <% for m in enum.members %>
     <%= m.name %>: <%= m.type %>,
   <%- end -%>
-  ) -> <%= impl.name %><%= config.name %> {
-    <%= impl.name %><%= config.name %> {
-    <%- for m in impl.members -%>
+  ) -> Self {
+    Self {
+    <%- for m in enum.members -%>
       <%= m.name %>,
     <%- end -%>
     }
@@ -41,7 +41,7 @@ impl <%= impl.name %><%= config.name %> {
 <% end %>
 
 pub trait Visitor<R> {
-<%- for impl in config.impl -%>
-  fn visit_<%= impl.name.underscore %>_<%= config.name.underscore %>(&mut self, e: &<%= impl.name %><%= config.name %>) -> R;
+<%- for enum in config.enums -%>
+  fn <%= enum.visit_fn %>(&mut self, e: &<%= enum.struct_name %>) -> R;
 <%- end -%>
 }
