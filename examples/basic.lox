@@ -1,9 +1,20 @@
-fun first_function() {
-  print "it's a function";
-  print "time is " + clock();
+fun first_function() {}
+
+var REPS = 100000;
+var before = clock();
+for var i = 0; i < REPS; i = i + 1 {
+  first_function();
+}
+var after = clock();
+
+print "func call time is " + ((after - before) / REPS);
+
+fun second_function(val1, val2) {
+  print "val1 is " + val1;
+  print "val2 is " + val2;
 }
 
-first_function();
+second_function(123, "a value");
 
 var foo = 1;
 {
