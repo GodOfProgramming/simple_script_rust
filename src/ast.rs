@@ -1305,11 +1305,17 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
   }
 
   fn visit_closure_expr(&mut self, e: Box<ClosureExpr>) -> ExprEvalResult {
-    Ok(Value::Callee(Rc::new(Closure::new(e))))
+    Ok(Value::Callee(Rc::new(Closure::new(
+      e,
+      Rc::clone(&self.current_env),
+    ))))
   }
 
   fn visit_closure_expr_ref(&mut self, e: &ClosureExpr) -> ExprEvalResult {
-    Ok(Value::Callee(Rc::new(Closure::new(Box::new(ClosureExpr::new(Rc::clone(&e.params), Rc::clone(&e.body)))))))
+    Ok(Value::Callee(Rc::new(Closure::new(
+      Box::new(ClosureExpr::new(Rc::clone(&e.params), Rc::clone(&e.body))),
+      Rc::clone(&self.current_env),
+    ))))
   }
 }
 

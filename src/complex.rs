@@ -150,11 +150,12 @@ impl Callable for ScriptFunction {
 
 pub struct Closure {
   pub exec: Box<ClosureExpr>,
+  env: Rc<RefCell<Env>>,
 }
 
 impl Closure {
-  pub fn new(exec: Box<ClosureExpr>) -> Self {
-    Self { exec }
+  pub fn new(exec: Box<ClosureExpr>, env: Rc<RefCell<Env>>) -> Self {
+    Self { exec, env }
   }
 }
 
@@ -189,9 +190,7 @@ impl Callable for Closure {
       });
     }
 
-    let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
-      &evaluator.current_env,
-    ))));
+    let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(&self.env))));
 
     for (param, arg) in fun.params.iter().zip(args.iter()) {
       if let Some(lexeme) = &param.lexeme {

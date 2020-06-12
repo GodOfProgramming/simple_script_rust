@@ -41,3 +41,17 @@ closure_result = |a| {
 }(true);
 
 print closure_result;
+
+fun counter() {
+  var i = 0;
+  || {
+    i = i + 1;
+    i;
+  };
+}
+
+var c = counter();
+
+print c();
+print c();
+print c();
