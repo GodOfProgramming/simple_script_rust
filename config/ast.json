@@ -26,7 +26,7 @@
         "members": [
           {
             "name": "begin",
-            "type": "Expr"
+            "type": "Box<Expr>"
           },
           {
             "name": "token",
@@ -34,7 +34,7 @@
           },
           {
             "name": "end",
-            "type": "Expr"
+            "type": "Box<Expr>"
           }
         ]
       },
@@ -43,7 +43,7 @@
         "members": [
           {
             "name": "left",
-            "type": "Expr"
+            "type": "Box<Expr>"
           },
           {
             "name": "operator",
@@ -51,7 +51,7 @@
           },
           {
             "name": "right",
-            "type": "Expr"
+            "type": "Box<Expr>"
           }
         ]
       },
@@ -64,7 +64,7 @@
           },
           {
             "name": "value",
-            "type": "Expr"
+            "type": "Box<Expr>"
           }
         ]
       },
@@ -73,7 +73,7 @@
         "members": [
           {
             "name": "left",
-            "type": "Expr"
+            "type": "Box<Expr>"
           },
           {
             "name": "operator",
@@ -81,7 +81,7 @@
           },
           {
             "name": "right",
-            "type": "Expr"
+            "type": "Box<Expr>"
           }
         ]
       },
@@ -90,15 +90,15 @@
         "members": [
           {
             "name": "condition",
-            "type": "Expr"
+            "type": "Box<Expr>"
           },
           {
             "name": "if_true",
-            "type": "Expr"
+            "type": "Box<Expr>"
           },
           {
             "name": "if_false",
-            "type": "Expr"
+            "type": "Box<Expr>"
           }
         ]
       },
@@ -107,7 +107,7 @@
         "members": [
           {
             "name": "callee",
-            "type": "Expr"
+            "type": "Box<Expr>"
           },
           {
             "name": "paren",
@@ -124,7 +124,7 @@
         "members": [
           {
             "name": "expression",
-            "type": "Expr"
+            "type": "Box<Expr>"
           }
         ]
       },
@@ -146,7 +146,7 @@
           },
           {
             "name": "right",
-            "type": "Expr"
+            "type": "Box<Expr>"
           }
         ]
       },
@@ -178,7 +178,7 @@
           },
           {
             "name": "value",
-            "type": "Option<Expr>"
+            "type": "Option<Box<Expr>>"
           }
         ]
       },
@@ -208,11 +208,11 @@
           },
           {
             "name": "condition",
-            "type": "Expr"
+            "type": "Box<Expr>"
           },
           {
             "name": "body",
-            "type": "Stmt"
+            "type": "Box<Stmt>"
           }
         ]
       },
@@ -221,15 +221,15 @@
         "members": [
           {
             "name": "condition",
-            "type": "Expr"
+            "type": "Box<Expr>"
           },
           {
             "name": "if_true",
-            "type": "Stmt"
+            "type": "Box<Stmt>"
           },
           {
             "name": "if_false",
-            "type": "Option<Stmt>"
+            "type": "Option<Box<Stmt>>"
           }
         ]
       },
@@ -247,7 +247,7 @@
         "members": [
           {
             "name": "expr",
-            "type": "Expr"
+            "type": "Box<Expr>"
           }
         ]
       },
@@ -256,7 +256,7 @@
         "members": [
           {
             "name": "expr",
-            "type": "Expr"
+            "type": "Box<Expr>"
           }
         ]
       },
@@ -269,7 +269,7 @@
           },
           {
             "name": "initializer",
-            "type": "Option<Expr>"
+            "type": "Option<Box<Expr>>"
           }
         ]
       }

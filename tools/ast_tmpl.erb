@@ -4,7 +4,23 @@ use <%= use %>;
 
 pub enum <%= config.name %> {
 <%- for enum in config.enums -%>
-  <%= enum.name %>(Box<<%= enum.struct_name %>>),
+  <%= enum.name %>(<%= enum.struct_name %>),
+<%- end -%>
+}
+
+impl <%= config.name %> {
+<%- for enum in config.enums -%>
+  pub fn new_<%= enum.name.underscore %>(
+  <% for m in enum.members %>
+    <%= m.name %>: <%= m.type %>,
+  <%- end -%>
+  ) -> Self {
+    Self::<%= enum.name %>(<%= enum.struct_name %>::new(
+    <%- for m in enum.members -%>
+      <%= m.name %>,
+    <%- end -%>
+    ))
+  }
 <%- end -%>
 }
 
@@ -19,7 +35,7 @@ pub fn accept<R>(e: <%= config.name %>, visitor: &mut dyn Visitor<R>) -> R {
 pub fn accept_ref<R>(e: &<%= config.name %>, visitor: &mut dyn Visitor<R>) -> R {
   match e {
   <%- for enum in config.enums -%>
-    <%= config.name %>::<%= enum.name %>(x) => visitor.<%= enum.visit_fn %>_ref(x),
+    <%= config.name %>::<%= enum.name %>(x) => visitor.<%= enum.visit_fn %>_ref(&x),
   <%- end -%>
   }
 }
@@ -48,7 +64,7 @@ impl <%= enum.struct_name %> {
 
 pub trait Visitor<R> {
 <%- for enum in config.enums -%>
-  fn <%= enum.visit_fn %>(&mut self, e: Box<<%= enum.struct_name %>>) -> R;
+  fn <%= enum.visit_fn %>(&mut self, e: <%= enum.struct_name %>) -> R;
   fn <%= enum.visit_fn %>_ref(&mut self, e: &<%= enum.struct_name %>) -> R;
 <%- end -%>
 }

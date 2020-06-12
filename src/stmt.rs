@@ -3,14 +3,41 @@ use crate::lex::Token;
 use std::rc::Rc;
 
 pub enum Stmt {
-    Return(Box<ReturnStmt>),
-    Function(Box<FunctionStmt>),
-    While(Box<WhileStmt>),
-    If(Box<IfStmt>),
-    Block(Box<BlockStmt>),
-    Expression(Box<ExpressionStmt>),
-    Print(Box<PrintStmt>),
-    Var(Box<VarStmt>),
+    Return(ReturnStmt),
+    Function(FunctionStmt),
+    While(WhileStmt),
+    If(IfStmt),
+    Block(BlockStmt),
+    Expression(ExpressionStmt),
+    Print(PrintStmt),
+    Var(VarStmt),
+}
+
+impl Stmt {
+    pub fn new_return(keyword: Token, value: Option<Box<Expr>>) -> Self {
+        Self::Return(ReturnStmt::new(keyword, value))
+    }
+    pub fn new_function(name: Token, params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>) -> Self {
+        Self::Function(FunctionStmt::new(name, params, body))
+    }
+    pub fn new_while(token: Token, condition: Box<Expr>, body: Box<Stmt>) -> Self {
+        Self::While(WhileStmt::new(token, condition, body))
+    }
+    pub fn new_if(condition: Box<Expr>, if_true: Box<Stmt>, if_false: Option<Box<Stmt>>) -> Self {
+        Self::If(IfStmt::new(condition, if_true, if_false))
+    }
+    pub fn new_block(statements: Vec<Stmt>) -> Self {
+        Self::Block(BlockStmt::new(statements))
+    }
+    pub fn new_expression(expr: Box<Expr>) -> Self {
+        Self::Expression(ExpressionStmt::new(expr))
+    }
+    pub fn new_print(expr: Box<Expr>) -> Self {
+        Self::Print(PrintStmt::new(expr))
+    }
+    pub fn new_var(name: Token, initializer: Option<Box<Expr>>) -> Self {
+        Self::Var(VarStmt::new(name, initializer))
+    }
 }
 
 pub fn accept<R>(e: Stmt, visitor: &mut dyn Visitor<R>) -> R {
@@ -28,24 +55,24 @@ pub fn accept<R>(e: Stmt, visitor: &mut dyn Visitor<R>) -> R {
 
 pub fn accept_ref<R>(e: &Stmt, visitor: &mut dyn Visitor<R>) -> R {
     match e {
-        Stmt::Return(x) => visitor.visit_return_stmt_ref(x),
-        Stmt::Function(x) => visitor.visit_function_stmt_ref(x),
-        Stmt::While(x) => visitor.visit_while_stmt_ref(x),
-        Stmt::If(x) => visitor.visit_if_stmt_ref(x),
-        Stmt::Block(x) => visitor.visit_block_stmt_ref(x),
-        Stmt::Expression(x) => visitor.visit_expression_stmt_ref(x),
-        Stmt::Print(x) => visitor.visit_print_stmt_ref(x),
-        Stmt::Var(x) => visitor.visit_var_stmt_ref(x),
+        Stmt::Return(x) => visitor.visit_return_stmt_ref(&x),
+        Stmt::Function(x) => visitor.visit_function_stmt_ref(&x),
+        Stmt::While(x) => visitor.visit_while_stmt_ref(&x),
+        Stmt::If(x) => visitor.visit_if_stmt_ref(&x),
+        Stmt::Block(x) => visitor.visit_block_stmt_ref(&x),
+        Stmt::Expression(x) => visitor.visit_expression_stmt_ref(&x),
+        Stmt::Print(x) => visitor.visit_print_stmt_ref(&x),
+        Stmt::Var(x) => visitor.visit_var_stmt_ref(&x),
     }
 }
 
 pub struct ReturnStmt {
     pub keyword: Token,
-    pub value: Option<Expr>,
+    pub value: Option<Box<Expr>>,
 }
 
 impl ReturnStmt {
-    pub fn new(keyword: Token, value: Option<Expr>) -> Self {
+    pub fn new(keyword: Token, value: Option<Box<Expr>>) -> Self {
         Self { keyword, value }
     }
 }
@@ -64,12 +91,12 @@ impl FunctionStmt {
 
 pub struct WhileStmt {
     pub token: Token,
-    pub condition: Expr,
-    pub body: Stmt,
+    pub condition: Box<Expr>,
+    pub body: Box<Stmt>,
 }
 
 impl WhileStmt {
-    pub fn new(token: Token, condition: Expr, body: Stmt) -> Self {
+    pub fn new(token: Token, condition: Box<Expr>, body: Box<Stmt>) -> Self {
         Self {
             token,
             condition,
@@ -79,13 +106,13 @@ impl WhileStmt {
 }
 
 pub struct IfStmt {
-    pub condition: Expr,
-    pub if_true: Stmt,
-    pub if_false: Option<Stmt>,
+    pub condition: Box<Expr>,
+    pub if_true: Box<Stmt>,
+    pub if_false: Option<Box<Stmt>>,
 }
 
 impl IfStmt {
-    pub fn new(condition: Expr, if_true: Stmt, if_false: Option<Stmt>) -> Self {
+    pub fn new(condition: Box<Expr>, if_true: Box<Stmt>, if_false: Option<Box<Stmt>>) -> Self {
         Self {
             condition,
             if_true,
@@ -105,51 +132,51 @@ impl BlockStmt {
 }
 
 pub struct ExpressionStmt {
-    pub expr: Expr,
+    pub expr: Box<Expr>,
 }
 
 impl ExpressionStmt {
-    pub fn new(expr: Expr) -> Self {
+    pub fn new(expr: Box<Expr>) -> Self {
         Self { expr }
     }
 }
 
 pub struct PrintStmt {
-    pub expr: Expr,
+    pub expr: Box<Expr>,
 }
 
 impl PrintStmt {
-    pub fn new(expr: Expr) -> Self {
+    pub fn new(expr: Box<Expr>) -> Self {
         Self { expr }
     }
 }
 
 pub struct VarStmt {
     pub name: Token,
-    pub initializer: Option<Expr>,
+    pub initializer: Option<Box<Expr>>,
 }
 
 impl VarStmt {
-    pub fn new(name: Token, initializer: Option<Expr>) -> Self {
+    pub fn new(name: Token, initializer: Option<Box<Expr>>) -> Self {
         Self { name, initializer }
     }
 }
 
 pub trait Visitor<R> {
-    fn visit_return_stmt(&mut self, e: Box<ReturnStmt>) -> R;
+    fn visit_return_stmt(&mut self, e: ReturnStmt) -> R;
     fn visit_return_stmt_ref(&mut self, e: &ReturnStmt) -> R;
-    fn visit_function_stmt(&mut self, e: Box<FunctionStmt>) -> R;
+    fn visit_function_stmt(&mut self, e: FunctionStmt) -> R;
     fn visit_function_stmt_ref(&mut self, e: &FunctionStmt) -> R;
-    fn visit_while_stmt(&mut self, e: Box<WhileStmt>) -> R;
+    fn visit_while_stmt(&mut self, e: WhileStmt) -> R;
     fn visit_while_stmt_ref(&mut self, e: &WhileStmt) -> R;
-    fn visit_if_stmt(&mut self, e: Box<IfStmt>) -> R;
+    fn visit_if_stmt(&mut self, e: IfStmt) -> R;
     fn visit_if_stmt_ref(&mut self, e: &IfStmt) -> R;
-    fn visit_block_stmt(&mut self, e: Box<BlockStmt>) -> R;
+    fn visit_block_stmt(&mut self, e: BlockStmt) -> R;
     fn visit_block_stmt_ref(&mut self, e: &BlockStmt) -> R;
-    fn visit_expression_stmt(&mut self, e: Box<ExpressionStmt>) -> R;
+    fn visit_expression_stmt(&mut self, e: ExpressionStmt) -> R;
     fn visit_expression_stmt_ref(&mut self, e: &ExpressionStmt) -> R;
-    fn visit_print_stmt(&mut self, e: Box<PrintStmt>) -> R;
+    fn visit_print_stmt(&mut self, e: PrintStmt) -> R;
     fn visit_print_stmt_ref(&mut self, e: &PrintStmt) -> R;
-    fn visit_var_stmt(&mut self, e: Box<VarStmt>) -> R;
+    fn visit_var_stmt(&mut self, e: VarStmt) -> R;
     fn visit_var_stmt_ref(&mut self, e: &VarStmt) -> R;
 }

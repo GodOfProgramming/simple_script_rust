@@ -86,11 +86,11 @@ where
 }
 
 pub struct ScriptFunction {
-  pub fun: Box<FunctionStmt>,
+  pub fun: FunctionStmt,
 }
 
 impl ScriptFunction {
-  pub fn new(fun: Box<FunctionStmt>) -> ScriptFunction {
+  pub fn new(fun: FunctionStmt) -> ScriptFunction {
     ScriptFunction { fun }
   }
 }
@@ -149,12 +149,12 @@ impl Callable for ScriptFunction {
 }
 
 pub struct Closure {
-  pub exec: Box<ClosureExpr>,
+  pub exec: ClosureExpr,
   env: Rc<RefCell<Env>>,
 }
 
 impl Closure {
-  pub fn new(exec: Box<ClosureExpr>, env: Rc<RefCell<Env>>) -> Self {
+  pub fn new(exec: ClosureExpr, env: Rc<RefCell<Env>>) -> Self {
     Self { exec, env }
   }
 }
