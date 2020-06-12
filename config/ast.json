@@ -2,9 +2,25 @@
   "expr": {
     "name": "Expr",
     "uses": [
-      "crate::lex::{Token, Value}"
+      "crate::lex::Token",
+      "crate::types::Value",
+      "crate::stmt::Stmt",
+      "std::rc::Rc"
     ],
-    "impl": [
+    "enums": [
+      {
+        "name": "Closure",
+        "members": [
+          {
+            "name": "params",
+            "type": "Rc<Vec<Token>>"
+          },
+          {
+            "name": "body",
+            "type": "Rc<Vec<Stmt>>"
+          }
+        ]
+      },
       {
         "name": "Range",
         "members": [
@@ -87,6 +103,23 @@
         ]
       },
       {
+        "name": "Call",
+        "members": [
+          {
+            "name": "callee",
+            "type": "Expr"
+          },
+          {
+            "name": "paren",
+            "type": "Token"
+          },
+          {
+            "name": "args",
+            "type": "Vec<Expr>"
+          }
+        ]
+      },
+      {
         "name": "Grouping",
         "members": [
           {
@@ -132,9 +165,40 @@
     "name": "Stmt",
     "uses": [
       "crate::expr::Expr",
-      "crate::lex::Token"
+      "crate::lex::Token",
+      "std::rc::Rc"
     ],
-    "impl": [
+    "enums": [
+      {
+        "name": "Return",
+        "members": [
+          {
+            "name": "keyword",
+            "type": "Token"
+          },
+          {
+            "name": "value",
+            "type": "Option<Expr>"
+          }
+        ]
+      },
+      {
+        "name": "Function",
+        "members": [
+          {
+            "name": "name",
+            "type": "Token"
+          },
+          {
+            "name": "params",
+            "type": "Rc<Vec<Token>>"
+          },
+          {
+            "name": "body",
+            "type": "Rc<Vec<Stmt>>"
+          }
+        ]
+      },
       {
         "name": "While",
         "members": [

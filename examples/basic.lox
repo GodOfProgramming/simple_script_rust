@@ -1,3 +1,40 @@
+fun first_function() {}
+
+var REPS = 100000;
+var before = clock();
+for var i = 0; i < REPS; i = i + 1 {
+  first_function();
+}
+var after = clock();
+
+print "func call time is " + ((after - before) / REPS);
+
+fun second_function(val1, val2) {
+  print "val1 is " + val1;
+  print "val2 is " + val2;
+}
+
+second_function(123, "a value");
+
+fun third_function() {
+  "a";
+}
+
+print third_function();
+
+fun fourth_function(x) {
+  if x * 2 == 10 {
+    return "number * 2 is 10";
+  } else {
+    return "number * 2 is not 10";
+  }
+
+  "impossible";
+}
+
+print fourth_function(1);
+print fourth_function(5);
+
 var foo = 1;
 {
   var foo = "some string";

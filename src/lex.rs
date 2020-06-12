@@ -1,39 +1,7 @@
+use crate::types::Value;
 use std::collections::HashMap;
-use std::fmt::{self, Display};
+use std::fmt::{self, Debug, Display};
 use std::str;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Value {
-  Nil,
-  Bool(bool),
-  Str(String),
-  Num(f64),
-  List(Vec<Value>),
-}
-
-impl Value {
-  pub fn from(v: &Value) -> Value {
-    match v {
-      Value::Nil => Value::Nil,
-      Value::Bool(b) => Value::Bool(b.clone()),
-      Value::Str(s) => Value::Str(s.clone()),
-      Value::Num(n) => Value::Num(n.clone()),
-      Value::List(l) => Value::List(l.clone()),
-    }
-  }
-}
-
-impl Display for Value {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Value::Nil => write!(f, "nil"),
-      Value::Bool(b) => write!(f, "{}", b),
-      Value::Num(n) => write!(f, "{}", n),
-      Value::Str(s) => write!(f, "{}", s),
-      Value::List(l) => write!(f, "{:#?}", l),
-    }
-  }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenType {
@@ -51,6 +19,7 @@ pub enum TokenType {
   Asterisk,
   Conditional,
   Colon,
+  Pipe,
 
   // One or two character tokens.
   Exclamation,
@@ -91,7 +60,7 @@ pub enum TokenType {
   Eof,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Token {
   pub token_type: TokenType,
   pub lexeme: Option<String>,
@@ -120,11 +89,18 @@ impl Display for Token {
     match &self.token_type {
       TokenType::StringLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
       TokenType::NumberLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
+      TokenType::Identifier => write!(f, "{}", self.lexeme.as_ref().unwrap()),
       other => match &self.lexeme {
         Some(lex) => write!(f, "{:?}({})", other, lex),
         None => write!(f, "{:?}", other),
       },
     }
+  }
+}
+
+impl Debug for Token {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    Display::fmt(self, f)
   }
 }
 
@@ -191,6 +167,7 @@ pub fn analyze(src: &str) -> Result<AnalyzeResult, LexicalErr> {
       '*' => TokenResult::Valid(TokenType::Asterisk),
       '?' => TokenResult::Valid(TokenType::Conditional),
       ':' => TokenResult::Valid(TokenType::Colon),
+      '|' => TokenResult::Valid(TokenType::Pipe),
       '.' => {
         if next_is(&bytes, current_pos, '.') {
           current_pos += 1;

@@ -1,6 +1,8 @@
 use crate::ast::{self, AstErr};
 use crate::env::{Env, EnvRef};
-use crate::lex::{self, LexicalErr, Value};
+use crate::lex::{self, LexicalErr};
+use crate::types::Value;
+use crate::builtin;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -39,8 +41,12 @@ pub struct Interpreter {
 
 impl Interpreter {
   pub fn new() -> Interpreter {
+    let mut globals = Env::new();
+
+    builtin::time::enable(&mut globals);
+
     Interpreter {
-      globals: Mutex::new(Rc::new(RefCell::new(Env::new()))),
+      globals: Mutex::new(Rc::new(RefCell::new(globals))),
     }
   }
 

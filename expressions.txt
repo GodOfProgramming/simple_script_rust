@@ -2,21 +2,26 @@ program     		→ declaration* EOF ;
 
 ### Statements ###
 
-declaration 		→ var_decl | statement ;
+declaration 		→ fun_decl | var_decl | statement ;
 var_decl        → "var" IDENTIFIER ( "=" expression )? ";" ;
-statement   		→ expr_stmt | if_stmt | print_stmt | block ;
-for_stmt        → "for" ( var_decl | expr_stmt ) ";" expression? ";" expression? block ;
-while_stmt      → "while" expression block ;
-if_stmt         → "if" expression block ( "else" block )? ;
-block           → "{" declaration* "}"
+func_decl       → "fun" function ;
+function        → IDENTIFIER "(" parameters? ")" block ;
+parameters      → IDENTIFIER ( "," IDENTIFIER )* ;
+statement   		→ expr_stmt | for_stmt | if_stmt | print_stmt | return_stmt | while_stmt | block ;
 expr_stmt 			→ expression ";" ;
+for_stmt        → "for" ( var_decl | expr_stmt ) ";" expression? ";" expression? block ;
+if_stmt         → "if" expression block ( "else" block )? ;
 print_stmt 			→ "print" expression ";" ;
+return_stmt     → "return" expression? ";" ;
+while_stmt      → "while" expression block ;
+block           → "{" declaration* "}"
 
 ### Expressions ###
 
 ### Lowest Precedence ###
 
 expression 			→ literal | unary | binary | grouping ;
+arguments       → expression ( "," expression )* ;
 ternary         → assignment "?" expression ":" expression ;
 assignment      → IDENTIFIER "=" assignment | range ;
 range           → logical_or ".." logical_or ;
@@ -27,7 +32,11 @@ comparison     	→ addition ( ( ">" | ">=" | "<" | "<=" ) addition )* ;
 addition       	→ multiplication ( ( "-" | "+" ) multiplication )* ;
 multiplication 	→ unary ( ( "/" | "*" ) unary )* ;
 unary          	→ ( "!" | "-" ) unary | primary ;
-primary        	→ NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" | IDENTIFIER ;
+call            → primary ( "(" arguments? ")" )* ;
+primary        	→ NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" | IDENTIFIER | closure ;
+
+### Complex Primitives ###
+closure         → "|" parameters? "|" block ;
 
 ### Highest Precedence ###
 
