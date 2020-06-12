@@ -31,3 +31,13 @@ var closure_result = |a, b| {
 print closure_result;
 
 print || { print "foo"; };
+
+closure_result = |a| {
+  if a {
+    return 1;
+  } else {
+    return 0;
+  }
+}(true);
+
+print closure_result;
