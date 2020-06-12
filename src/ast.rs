@@ -1,4 +1,4 @@
-use crate::complex::{CallErr, UserFunction};
+use crate::complex::{CallErr, ScriptFunction};
 use crate::env::{Env, EnvRef};
 use crate::expr::{
   self, AssignExpr, BinaryExpr, CallExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, RangeExpr,
@@ -802,7 +802,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
 
   fn visit_function_stmt(&mut self, e: Box<FunctionStmt>) -> StmtEvalResult {
     let name = e.name.lexeme.as_ref().unwrap().clone();
-    let func = UserFunction::new(e);
+    let func = ScriptFunction::new(e);
     self
       .current_env
       .borrow_mut()
@@ -812,7 +812,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
 
   fn visit_function_stmt_ref(&mut self, e: &FunctionStmt) -> StmtEvalResult {
     let name = e.name.lexeme.as_ref().unwrap().clone();
-    let func = UserFunction::new(Box::new(FunctionStmt::new(
+    let func = ScriptFunction::new(Box::new(FunctionStmt::new(
       e.name.clone(),
       Rc::clone(&e.params),
       Rc::clone(&e.body),

@@ -84,23 +84,23 @@ where
   }
 }
 
-pub struct UserFunction {
+pub struct ScriptFunction {
   pub fun: Box<FunctionStmt>,
 }
 
-impl UserFunction {
-  pub fn new(fun: Box<FunctionStmt>) -> UserFunction {
-    UserFunction { fun }
+impl ScriptFunction {
+  pub fn new(fun: Box<FunctionStmt>) -> ScriptFunction {
+    ScriptFunction { fun }
   }
 }
 
-impl Display for UserFunction {
+impl Display for ScriptFunction {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "<fun {}>", self.fun.name)
   }
 }
 
-impl Callable for UserFunction {
+impl Callable for ScriptFunction {
   fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>) -> CallResult {
     let fun = &self.fun;
     if fun.params.len() < args.len() {
