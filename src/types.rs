@@ -86,7 +86,13 @@ impl PartialEq for Value {
         }
       }
       Value::Callee(_) => false, // TODO figure this out
-      Value::Nil => *other == Value::Nil,
+      Value::Nil => {
+        if let Value::Nil = other {
+          true
+        } else {
+          false
+        }
+      }
     }
   }
 }

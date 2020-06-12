@@ -1318,18 +1318,3 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
     ))))
   }
 }
-
-#[cfg(test)]
-mod tests {
-  use crate::lex;
-
-  const BASIC_MATH_SRC: &str = r#"1 / 2 * (3 + 4) + 1;"#;
-
-  // todo, define a visitor type that is configured to use a list
-  // of expected tokens. then when visiting it iterates through that
-  // list of tokens checking each node of the ast while traversing
-  #[test]
-  fn parse_basic() {
-    lex::analyze(BASIC_MATH_SRC).unwrap();
-  }
-}
