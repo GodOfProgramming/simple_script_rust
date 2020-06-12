@@ -110,7 +110,9 @@ impl<'a> Parser<'a> {
     let body = self.block()?;
 
     Ok(Stmt::Function(Box::new(FunctionStmt::new(
-      name, params, body,
+      name,
+      Rc::new(params),
+      Rc::new(body),
     ))))
   }
 
@@ -809,10 +811,17 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
   }
 
   fn visit_function_stmt_ref(&mut self, e: &FunctionStmt) -> StmtEvalResult {
-    Err(AstErr {
-      msg: String::from("declaring a function within a function is not supported"),
-      line: e.name.line,
-    })
+    let name = e.name.lexeme.as_ref().unwrap().clone();
+    let func = UserFunction::new(Box::new(FunctionStmt::new(
+      e.name.clone(),
+      Rc::clone(&e.params),
+      Rc::clone(&e.body),
+    )));
+    self
+      .current_env
+      .borrow_mut()
+      .define(name, Value::Callee(Rc::new(func)));
+    Ok(StatementType::Regular(Value::Nil))
   }
 
   fn visit_return_stmt(&mut self, s: Box<ReturnStmt>) -> StmtEvalResult {

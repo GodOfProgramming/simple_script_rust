@@ -1,0 +1,13 @@
+fun foobar() {
+  fun barfoo() {
+    print "in barfoo";
+  }
+
+  barfoo();
+
+  barfoo;
+}
+
+var x = foobar();
+
+x();

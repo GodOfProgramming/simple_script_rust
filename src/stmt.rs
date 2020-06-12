@@ -1,5 +1,6 @@
 use crate::expr::Expr;
 use crate::lex::Token;
+use std::rc::Rc;
 
 pub enum Stmt {
     Return(Box<ReturnStmt>),
@@ -51,12 +52,12 @@ impl ReturnStmt {
 
 pub struct FunctionStmt {
     pub name: Token,
-    pub params: Vec<Token>,
-    pub body: Vec<Stmt>,
+    pub params: Rc<Vec<Token>>,
+    pub body: Rc<Vec<Stmt>>,
 }
 
 impl FunctionStmt {
-    pub fn new(name: Token, params: Vec<Token>, body: Vec<Stmt>) -> Self {
+    pub fn new(name: Token, params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>) -> Self {
         Self { name, params, body }
     }
 }

@@ -150,7 +150,8 @@
     "name": "Stmt",
     "uses": [
       "crate::expr::Expr",
-      "crate::lex::Token"
+      "crate::lex::Token",
+      "std::rc::Rc"
     ],
     "enums": [
       {
@@ -175,11 +176,11 @@
           },
           {
             "name": "params",
-            "type": "Vec<Token>"
+            "type": "Rc<Vec<Token>>"
           },
           {
             "name": "body",
-            "type": "Vec<Stmt>"
+            "type": "Rc<Vec<Stmt>>"
           }
         ]
       },
