@@ -1,7 +1,10 @@
 use crate::lex::Token;
+use crate::stmt::Stmt;
 use crate::types::Value;
+use std::rc::Rc;
 
 pub enum Expr {
+    Closure(Box<ClosureExpr>),
     Range(Box<RangeExpr>),
     Logical(Box<LogicalExpr>),
     Assign(Box<AssignExpr>),
@@ -16,6 +19,7 @@ pub enum Expr {
 
 pub fn accept<R>(e: Expr, visitor: &mut dyn Visitor<R>) -> R {
     match e {
+        Expr::Closure(x) => visitor.visit_closure_expr(x),
         Expr::Range(x) => visitor.visit_range_expr(x),
         Expr::Logical(x) => visitor.visit_logical_expr(x),
         Expr::Assign(x) => visitor.visit_assign_expr(x),
@@ -31,6 +35,7 @@ pub fn accept<R>(e: Expr, visitor: &mut dyn Visitor<R>) -> R {
 
 pub fn accept_ref<R>(e: &Expr, visitor: &mut dyn Visitor<R>) -> R {
     match e {
+        Expr::Closure(x) => visitor.visit_closure_expr_ref(x),
         Expr::Range(x) => visitor.visit_range_expr_ref(x),
         Expr::Logical(x) => visitor.visit_logical_expr_ref(x),
         Expr::Assign(x) => visitor.visit_assign_expr_ref(x),
@@ -41,6 +46,17 @@ pub fn accept_ref<R>(e: &Expr, visitor: &mut dyn Visitor<R>) -> R {
         Expr::Literal(x) => visitor.visit_literal_expr_ref(x),
         Expr::Unary(x) => visitor.visit_unary_expr_ref(x),
         Expr::Variable(x) => visitor.visit_variable_expr_ref(x),
+    }
+}
+
+pub struct ClosureExpr {
+    pub params: Rc<Vec<Token>>,
+    pub body: Rc<Vec<Stmt>>,
+}
+
+impl ClosureExpr {
+    pub fn new(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>) -> Self {
+        Self { params, body }
     }
 }
 
@@ -173,6 +189,8 @@ impl VariableExpr {
 }
 
 pub trait Visitor<R> {
+    fn visit_closure_expr(&mut self, e: Box<ClosureExpr>) -> R;
+    fn visit_closure_expr_ref(&mut self, e: &ClosureExpr) -> R;
     fn visit_range_expr(&mut self, e: Box<RangeExpr>) -> R;
     fn visit_range_expr_ref(&mut self, e: &RangeExpr) -> R;
     fn visit_logical_expr(&mut self, e: Box<LogicalExpr>) -> R;

@@ -3,9 +3,24 @@
     "name": "Expr",
     "uses": [
       "crate::lex::Token",
-      "crate::types::Value"
+      "crate::types::Value",
+      "crate::stmt::Stmt",
+      "std::rc::Rc"
     ],
     "enums": [
+      {
+        "name": "Closure",
+        "members": [
+          {
+            "name": "params",
+            "type": "Rc<Vec<Token>>"
+          },
+          {
+            "name": "body",
+            "type": "Rc<Vec<Stmt>>"
+          }
+        ]
+      },
       {
         "name": "Range",
         "members": [

@@ -1,6 +1,7 @@
 use crate::ast::AstErr;
 use crate::ast::{Evaluator, StatementType};
 use crate::env::Env;
+use crate::expr::ClosureExpr;
 use crate::stmt::FunctionStmt;
 use crate::types::Value;
 use std::cell::RefCell;
@@ -139,6 +140,70 @@ impl Callable for ScriptFunction {
         });
       }
     }
+
+    Ok(match evaluator.eval_block_ref(&fun.body, env)? {
+      StatementType::Regular(v) => v,
+      StatementType::Return(v) => v,
+    })
+  }
+}
+
+pub struct Closure {
+  pub exec: Box<ClosureExpr>,
+}
+
+impl Closure {
+  pub fn new(exec: Box<ClosureExpr>) -> Self {
+    Self { exec }
+  }
+}
+
+impl Display for Closure {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "<closure>")
+  }
+}
+
+impl Callable for Closure {
+  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>) -> CallResult {
+    let fun = &self.exec;
+    if fun.params.len() < args.len() {
+      return Err(CallErr {
+        msg: format!(
+          "too many arguments, expected {}, got {}",
+          fun.params.len(),
+          args.len()
+        ),
+        line: 0, // TODO
+      });
+    }
+
+    if fun.params.len() > args.len() {
+      return Err(CallErr {
+        msg: format!(
+          "too few arguments, expected {}, got {}",
+          fun.params.len(),
+          args.len(),
+        ),
+        line: 0, // TODO
+      });
+    }
+
+    let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
+      &evaluator.current_env,
+    ))));
+
+    for (param, arg) in fun.params.iter().zip(args.iter()) {
+      if let Some(lexeme) = &param.lexeme {
+        env.borrow_mut().define(lexeme.clone(), arg.clone())
+      } else {
+        return Err(CallErr {
+          msg: String::from("no name in parameter"),
+          line: param.line,
+        });
+      }
+    }
+
     Ok(match evaluator.eval_block_ref(&fun.body, env)? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,

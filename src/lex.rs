@@ -19,6 +19,7 @@ pub enum TokenType {
   Asterisk,
   Conditional,
   Colon,
+  Pipe,
 
   // One or two character tokens.
   Exclamation,
@@ -166,6 +167,7 @@ pub fn analyze(src: &str) -> Result<AnalyzeResult, LexicalErr> {
       '*' => TokenResult::Valid(TokenType::Asterisk),
       '?' => TokenResult::Valid(TokenType::Conditional),
       ':' => TokenResult::Valid(TokenType::Colon),
+      '|' => TokenResult::Valid(TokenType::Pipe),
       '.' => {
         if next_is(&bytes, current_pos, '.') {
           current_pos += 1;

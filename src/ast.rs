@@ -1,8 +1,8 @@
-use crate::complex::{CallErr, ScriptFunction};
+use crate::complex::{CallErr, Closure, ScriptFunction};
 use crate::env::{Env, EnvRef};
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, CallExpr, Expr, GroupingExpr, LiteralExpr, LogicalExpr, RangeExpr,
-  TernaryExpr, UnaryExpr, VariableExpr, Visitor as ExprVisitor,
+  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GroupingExpr, LiteralExpr,
+  LogicalExpr, RangeExpr, TernaryExpr, UnaryExpr, VariableExpr, Visitor as ExprVisitor,
 };
 use crate::lex::{Token, TokenType};
 use crate::stmt::{
@@ -79,7 +79,7 @@ impl<'a> Parser<'a> {
       expr = Some(self.expression()?);
     }
 
-    self.consume(TokenType::Semicolon, "Expected ';' after variable decl")?;
+    self.consume(TokenType::Semicolon, "expected ';' after variable decl")?;
     Ok(Stmt::Var(Box::new(VarStmt::new(name, expr))))
   }
 
@@ -92,7 +92,7 @@ impl<'a> Parser<'a> {
     let mut params = Vec::new();
     if !self.check(TokenType::RightParen) {
       loop {
-        params.push(self.consume(TokenType::Identifier, "expect parameter name")?);
+        params.push(self.consume(TokenType::Identifier, "expected identifier")?);
 
         if !self.match_token(vec![TokenType::Comma]) {
           break;
@@ -100,7 +100,7 @@ impl<'a> Parser<'a> {
       }
     }
 
-    self.consume(TokenType::RightParen, "Expect ')' after parameters")?;
+    self.consume(TokenType::RightParen, "expect ')' after parameters")?;
 
     self.consume(
       TokenType::LeftBrace,
@@ -376,6 +376,30 @@ impl<'a> Parser<'a> {
       let expr = self.expression()?;
       self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
       return Ok(Expr::Grouping(Box::new(GroupingExpr::new(expr))));
+    }
+
+    if self.match_token(vec![TokenType::Pipe]) {
+      let mut params = Vec::new();
+      if !self.check(TokenType::Pipe) {
+        loop {
+          params.push(self.consume(TokenType::Identifier, "expected identifier")?);
+
+          if !self.match_token(vec![TokenType::Comma]) {
+            break;
+          }
+        }
+      }
+
+      self.consume(TokenType::Pipe, "expect '|' after closure parameters")?;
+
+      self.consume(TokenType::LeftBrace, "expect '{{' before closure body")?;
+
+      let body = self.block()?;
+
+      return Ok(Expr::Closure(Box::new(ClosureExpr::new(
+        Rc::new(params),
+        Rc::new(body),
+      ))));
     }
 
     // TODO proper error handling
@@ -1278,6 +1302,14 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
         line: e.paren.line,
       })
     }
+  }
+
+  fn visit_closure_expr(&mut self, e: Box<ClosureExpr>) -> ExprEvalResult {
+    Ok(Value::Callee(Rc::new(Closure::new(e))))
+  }
+
+  fn visit_closure_expr_ref(&mut self, e: &ClosureExpr) -> ExprEvalResult {
+    Ok(Value::Callee(Rc::new(Closure::new(Box::new(ClosureExpr::new(Rc::clone(&e.params), Rc::clone(&e.body)))))))
   }
 }
 

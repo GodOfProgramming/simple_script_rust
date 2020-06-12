@@ -11,3 +11,23 @@ fun foobar() {
 var x = foobar();
 
 x();
+
+foobar()();
+
+|| {
+  print "hello";
+}();
+
+var closure = |a| {
+  print a;
+};
+
+closure(123);
+
+var closure_result = |a, b| {
+  a + b;
+}(1, 2);
+
+print closure_result;
+
+print || { print "foo"; };
