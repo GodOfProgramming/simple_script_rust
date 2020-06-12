@@ -50,8 +50,13 @@ fun counter() {
   };
 }
 
-var c = counter();
+fun use_counter() {
+  var c = counter();
 
-print c();
-print c();
-print c();
+  print c();
+  print c();
+  print c();
+}
+
+use_counter();
+use_counter();
