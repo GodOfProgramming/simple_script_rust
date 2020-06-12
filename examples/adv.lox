@@ -60,3 +60,9 @@ fun use_counter() {
 
 use_counter();
 use_counter();
+
+fun exec(f) {
+  f();
+}
+
+exec(|| { print "executed"; });
