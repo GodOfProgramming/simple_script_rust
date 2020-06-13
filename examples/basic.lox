@@ -1,4 +1,4 @@
-fun first_function() {}
+fn first_function() {}
 
 var REPS = 100000;
 var before = clock();
@@ -9,20 +9,20 @@ var after = clock();
 
 print "func call time is " + ((after - before) / REPS);
 
-fun second_function(val1, val2) {
+fn second_function(val1, val2) {
   print "val1 is " + val1;
   print "val2 is " + val2;
 }
 
 second_function(123, "a value");
 
-fun third_function() {
+fn third_function() {
   "a";
 }
 
 print third_function();
 
-fun fourth_function(x) {
+fn fourth_function(x) {
   if x * 2 == 10 {
     return "number * 2 is 10";
   } else {

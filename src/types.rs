@@ -119,7 +119,7 @@ impl From<AstErr> for CallErr {
 }
 
 pub trait Callable: Display {
-  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>) -> CallResult;
+  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult;
 }
 
 pub struct NativeFunction<T>
@@ -152,7 +152,7 @@ impl<T> Callable for NativeFunction<T>
 where
   T: Fn(Vec<Value>) -> CallResult,
 {
-  fn call(&self, _: &mut Evaluator, args: Vec<Value>) -> CallResult {
+  fn call(&self, _: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     if self.airity < args.len() {
       return Err(CallErr {
         msg: format!(
@@ -160,7 +160,7 @@ where
           self.airity,
           args.len()
         ),
-        line: 0, // TODO
+        line,
       });
     }
 
@@ -171,7 +171,7 @@ where
           self.airity,
           args.len(),
         ),
-        line: 0, // TODO
+        line,
       });
     }
 
@@ -180,43 +180,43 @@ where
 }
 
 pub struct ScriptFunction {
-  pub fun: FunctionStmt,
+  pub func: FunctionStmt,
 }
 
 impl ScriptFunction {
-  pub fn new(fun: FunctionStmt) -> ScriptFunction {
-    ScriptFunction { fun }
+  pub fn new(func: FunctionStmt) -> ScriptFunction {
+    ScriptFunction { func }
   }
 }
 
 impl Display for ScriptFunction {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "<fun {}>", self.fun.name)
+    write!(f, "<fn {}>", self.func.name)
   }
 }
 
 impl Callable for ScriptFunction {
-  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>) -> CallResult {
-    let fun = &self.fun;
-    if fun.params.len() < args.len() {
+  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
+    let func = &self.func;
+    if func.params.len() < args.len() {
       return Err(CallErr {
         msg: format!(
           "too many arguments, expected {}, got {}",
-          fun.params.len(),
+          func.params.len(),
           args.len()
         ),
-        line: 0, // TODO
+        line,
       });
     }
 
-    if fun.params.len() > args.len() {
+    if func.params.len() > args.len() {
       return Err(CallErr {
         msg: format!(
           "too few arguments, expected {}, got {}",
-          fun.params.len(),
+          func.params.len(),
           args.len(),
         ),
-        line: 0, // TODO
+        line,
       });
     }
 
@@ -224,7 +224,7 @@ impl Callable for ScriptFunction {
       &evaluator.current_env,
     ))));
 
-    for (param, arg) in fun.params.iter().zip(args.iter()) {
+    for (param, arg) in func.params.iter().zip(args.iter()) {
       if let Some(lexeme) = &param.lexeme {
         env.borrow_mut().define(lexeme.clone(), arg.clone())
       } else {
@@ -235,7 +235,7 @@ impl Callable for ScriptFunction {
       }
     }
 
-    Ok(match evaluator.eval_block(&fun.body, env)? {
+    Ok(match evaluator.eval_block(&func.body, env)? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,
     })
@@ -260,33 +260,33 @@ impl Display for Closure {
 }
 
 impl Callable for Closure {
-  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>) -> CallResult {
-    let fun = &self.exec;
-    if fun.params.len() < args.len() {
+  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
+    let func = &self.exec;
+    if func.params.len() < args.len() {
       return Err(CallErr {
         msg: format!(
           "too many arguments, expected {}, got {}",
-          fun.params.len(),
+          func.params.len(),
           args.len()
         ),
-        line: 0, // TODO
+        line,
       });
     }
 
-    if fun.params.len() > args.len() {
+    if func.params.len() > args.len() {
       return Err(CallErr {
         msg: format!(
           "too few arguments, expected {}, got {}",
-          fun.params.len(),
+          func.params.len(),
           args.len(),
         ),
-        line: 0, // TODO
+        line,
       });
     }
 
     let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(&self.env))));
 
-    for (param, arg) in fun.params.iter().zip(args.iter()) {
+    for (param, arg) in func.params.iter().zip(args.iter()) {
       if let Some(lexeme) = &param.lexeme {
         env.borrow_mut().define(lexeme.clone(), arg.clone())
       } else {
@@ -297,7 +297,7 @@ impl Callable for Closure {
       }
     }
 
-    Ok(match evaluator.eval_block(&fun.body, env)? {
+    Ok(match evaluator.eval_block(&func.body, env)? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,
     })

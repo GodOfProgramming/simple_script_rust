@@ -3,13 +3,14 @@ use crate::expr::{
   self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GroupingExpr, LiteralExpr,
   LogicalExpr, RangeExpr, TernaryExpr, UnaryExpr, VariableExpr, Visitor as ExprVisitor,
 };
-use crate::lex::{Token, TokenType};
+use crate::lex::{self, LexicalErr, Token, TokenType};
 use crate::stmt::{
-  self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, PrintStmt, ReturnStmt, Stmt, VarStmt,
-  Visitor as StmtVisitor, WhileStmt,
+  self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, PrintStmt, ReturnStmt, Stmt,
+  VarStmt, Visitor as StmtVisitor, WhileStmt,
 };
 use crate::types::{CallErr, Closure, ScriptFunction, Value};
 use std::cell::RefCell;
+use std::fs;
 use std::rc::Rc;
 
 pub struct AstErr {
@@ -19,6 +20,15 @@ pub struct AstErr {
 
 impl From<CallErr> for AstErr {
   fn from(err: CallErr) -> Self {
+    Self {
+      msg: err.msg,
+      line: err.line,
+    }
+  }
+}
+
+impl From<LexicalErr> for AstErr {
+  fn from(err: LexicalErr) -> Self {
     Self {
       msg: err.msg,
       line: err.line,
@@ -58,7 +68,7 @@ impl<'a> Parser<'a> {
   fn decl(&mut self) -> StatementResult {
     match if self.match_token(vec![TokenType::Var]) {
       self.var_decl()
-    } else if self.match_token(vec![TokenType::Fun]) {
+    } else if self.match_token(vec![TokenType::Fn]) {
       self.fun_decl("function")
     } else {
       self.statement()
@@ -75,7 +85,7 @@ impl<'a> Parser<'a> {
     let name = self.consume(TokenType::Identifier, "Expected variable name")?;
     let mut expr = None;
     if self.match_token(vec![TokenType::Equal]) {
-      expr = Some(Box::new(self.expression()?));
+      expr = Some(self.expression()?);
     }
 
     self.consume(TokenType::Semicolon, "expected ';' after variable decl")?;
@@ -124,6 +134,8 @@ impl<'a> Parser<'a> {
       self.if_statement()
     } else if self.match_token(vec![TokenType::LeftBrace]) {
       Ok(Stmt::new_block(self.block()?))
+    } else if self.match_token(vec![TokenType::Load]) {
+      self.load_statement()
     } else {
       self.expr_statement()
     }
@@ -132,14 +144,14 @@ impl<'a> Parser<'a> {
   fn print_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_print(Box::new(expr)))
+    Ok(Stmt::new_print(expr))
   }
 
   fn return_statement(&mut self) -> StatementResult {
     let keyword = self.previous();
     let mut value = None;
     if !self.check(TokenType::Semicolon) {
-      value = Some(Box::new(self.expression()?));
+      value = Some(self.expression()?);
     }
 
     self.consume(TokenType::Semicolon, "expected ';' after return value")?;
@@ -176,14 +188,14 @@ impl<'a> Parser<'a> {
     let mut body = Stmt::new_block(self.block()?);
 
     if let Some(inc) = increment {
-      body = Stmt::new_block(vec![body, Stmt::new_expression(Box::new(inc))]);
+      body = Stmt::new_block(vec![body, Stmt::new_expression(inc)]);
     }
 
     if let None = condition {
       condition = Some(Expr::new_literal(Value::Bool(true)));
     }
 
-    body = Stmt::new_while(token, Box::new(condition.unwrap()), Box::new(body));
+    body = Stmt::new_while(token, condition.unwrap(), self.block()?);
 
     if let Some(init) = initializer {
       body = Stmt::new_block(vec![init, body])
@@ -196,14 +208,14 @@ impl<'a> Parser<'a> {
     let token = self.previous();
     let condition = self.expression()?;
     self.consume(TokenType::LeftBrace, "missing '{' after if condition")?;
-    let body = Stmt::new_block(self.block()?);
-    Ok(Stmt::new_while(token, Box::new(condition), Box::new(body)))
+    let body = self.block()?;
+    Ok(Stmt::new_while(token, condition, body))
   }
 
   fn if_statement(&mut self) -> StatementResult {
     let condition = self.expression()?;
     self.consume(TokenType::LeftBrace, "missing '{' after if condition")?;
-    let if_true = Stmt::new_block(self.block()?);
+    let if_true = self.block()?;
     let mut if_false = None;
 
     if self.match_token(vec![TokenType::Else]) {
@@ -219,17 +231,20 @@ impl<'a> Parser<'a> {
       };
     }
 
-    Ok(Stmt::new_if(
-      Box::new(condition),
-      Box::new(if_true),
-      if_false,
-    ))
+    Ok(Stmt::new_if(condition, if_true, if_false))
   }
 
   fn expr_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_expression(Box::new(expr)))
+    Ok(Stmt::new_expression(expr))
+  }
+
+  fn load_statement(&mut self) -> StatementResult {
+    let load = self.previous();
+    let file = self.expression()?;
+    self.consume(TokenType::Semicolon, "expected ';' after value")?;
+    Ok(Stmt::new_load(load, file))
   }
 
   fn expression(&mut self) -> ExprResult {
@@ -515,7 +530,7 @@ impl<'a> Parser<'a> {
 
       match self.peek().token_type {
         TokenType::Class => return,
-        TokenType::Fun => return,
+        TokenType::Fn => return,
         TokenType::Var => return,
         TokenType::For => return,
         TokenType::If => return,
@@ -670,7 +685,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
   fn visit_if_stmt(&mut self, e: &IfStmt) -> StmtEvalResult {
     let result = self.eval_expr(&e.condition)?;
     if self.is_truthy(&result) {
-      self.eval_stmt(&e.if_true)
+      self.eval_block(&e.if_true, Rc::clone(&self.current_env))
     } else if let Some(if_false) = &e.if_false {
       self.eval_stmt(&if_false)
     } else {
@@ -680,25 +695,19 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
 
   fn visit_while_stmt(&mut self, e: &WhileStmt) -> StmtEvalResult {
     let mut result = StatementType::Regular(Value::Nil);
-    if let Stmt::Block(blk) = &*e.body {
-      loop {
-        let res = self.eval_expr(&e.condition)?;
-        if !self.is_truthy(&res) {
+
+    loop {
+      let res = self.eval_expr(&e.condition)?;
+      if !self.is_truthy(&res) {
+        break;
+      }
+      match self.eval_block(&e.body, Rc::clone(&self.current_env))? {
+        StatementType::Regular(v) => result = StatementType::Regular(v),
+        StatementType::Return(v) => {
+          result = StatementType::Return(v);
           break;
         }
-        match self.visit_block_stmt(&blk)? {
-          StatementType::Regular(v) => result = StatementType::Regular(v),
-          StatementType::Return(v) => {
-            result = StatementType::Return(v);
-            break;
-          }
-        }
       }
-    } else {
-      return Err(AstErr {
-        msg: String::from("body of while loop is not block statement"),
-        line: e.token.line,
-      });
     }
 
     Ok(result)
@@ -725,6 +734,29 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
     }
 
     Ok(StatementType::Return(value))
+  }
+
+  fn visit_load_stmt(&mut self, s: &LoadStmt) -> StmtEvalResult {
+    let path = self.eval_expr(&s.path)?;
+    if let Value::Str(path) = path {
+      match fs::read_to_string(&path) {
+        Ok(contents) => {
+          let tokens = lex::analyze(&contents)?;
+          let program = parse(&tokens.tokens)?;
+          let result = exec(Rc::clone(&self.current_env), program)?;
+          Ok(StatementType::Regular(result))
+        }
+        Err(err) => Err(AstErr {
+          msg: format!("failed loading file {}: {}", path, err),
+          line: s.load.line,
+        }),
+      }
+    } else {
+      Err(AstErr {
+        msg: format!("cannot load non string value"),
+        line: s.load.line,
+      })
+    }
   }
 }
 
@@ -938,7 +970,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       for arg in e.args.iter() {
         args.push(self.eval_expr(arg)?);
       }
-      Ok(func.call(self, args)?)
+      Ok(func.call(self, args, e.paren.line)?)
     } else {
       Err(AstErr {
         msg: format!("can't call type {}", callee),

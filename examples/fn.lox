@@ -1,10 +1,7 @@
-var a = "global";
+var important_func;
 {
-  fun show_a() {
-    print a;
-  }
-
-  show_a();
-  var a = "block";
-  show_a();
+  var c = 3;
+  important_func = |a, b| {
+    a + b + c;
+  };
 }

@@ -1,4 +1,4 @@
-fun fib(n) {
+fn fib(n) {
   if n <= 1 {
     n;
   } else {
@@ -6,7 +6,7 @@ fun fib(n) {
   }
 }
 
-fun new_fib() {
+fn new_fib() {
   var c = |n| {
     if n <= 1 {
       n;

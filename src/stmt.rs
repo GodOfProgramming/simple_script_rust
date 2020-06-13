@@ -10,32 +10,36 @@ pub enum Stmt {
     Block(BlockStmt),
     Expression(ExpressionStmt),
     Print(PrintStmt),
+    Load(LoadStmt),
     Var(VarStmt),
 }
 
 impl Stmt {
-    pub fn new_return(keyword: Token, value: Option<Box<Expr>>) -> Self {
+    pub fn new_return(keyword: Token, value: Option<Expr>) -> Self {
         Self::Return(ReturnStmt::new(keyword, value))
     }
     pub fn new_function(name: Token, params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>) -> Self {
         Self::Function(FunctionStmt::new(name, params, body))
     }
-    pub fn new_while(token: Token, condition: Box<Expr>, body: Box<Stmt>) -> Self {
+    pub fn new_while(token: Token, condition: Expr, body: Vec<Stmt>) -> Self {
         Self::While(WhileStmt::new(token, condition, body))
     }
-    pub fn new_if(condition: Box<Expr>, if_true: Box<Stmt>, if_false: Option<Box<Stmt>>) -> Self {
+    pub fn new_if(condition: Expr, if_true: Vec<Stmt>, if_false: Option<Box<Stmt>>) -> Self {
         Self::If(IfStmt::new(condition, if_true, if_false))
     }
     pub fn new_block(statements: Vec<Stmt>) -> Self {
         Self::Block(BlockStmt::new(statements))
     }
-    pub fn new_expression(expr: Box<Expr>) -> Self {
+    pub fn new_expression(expr: Expr) -> Self {
         Self::Expression(ExpressionStmt::new(expr))
     }
-    pub fn new_print(expr: Box<Expr>) -> Self {
+    pub fn new_print(expr: Expr) -> Self {
         Self::Print(PrintStmt::new(expr))
     }
-    pub fn new_var(name: Token, initializer: Option<Box<Expr>>) -> Self {
+    pub fn new_load(load: Token, path: Expr) -> Self {
+        Self::Load(LoadStmt::new(load, path))
+    }
+    pub fn new_var(name: Token, initializer: Option<Expr>) -> Self {
         Self::Var(VarStmt::new(name, initializer))
     }
 }
@@ -49,17 +53,18 @@ pub fn accept<R>(e: &Stmt, visitor: &mut dyn Visitor<R>) -> R {
         Stmt::Block(x) => visitor.visit_block_stmt(&x),
         Stmt::Expression(x) => visitor.visit_expression_stmt(&x),
         Stmt::Print(x) => visitor.visit_print_stmt(&x),
+        Stmt::Load(x) => visitor.visit_load_stmt(&x),
         Stmt::Var(x) => visitor.visit_var_stmt(&x),
     }
 }
 
 pub struct ReturnStmt {
     pub keyword: Token,
-    pub value: Option<Box<Expr>>,
+    pub value: Option<Expr>,
 }
 
 impl ReturnStmt {
-    pub fn new(keyword: Token, value: Option<Box<Expr>>) -> Self {
+    pub fn new(keyword: Token, value: Option<Expr>) -> Self {
         Self { keyword, value }
     }
 }
@@ -78,12 +83,12 @@ impl FunctionStmt {
 
 pub struct WhileStmt {
     pub token: Token,
-    pub condition: Box<Expr>,
-    pub body: Box<Stmt>,
+    pub condition: Expr,
+    pub body: Vec<Stmt>,
 }
 
 impl WhileStmt {
-    pub fn new(token: Token, condition: Box<Expr>, body: Box<Stmt>) -> Self {
+    pub fn new(token: Token, condition: Expr, body: Vec<Stmt>) -> Self {
         Self {
             token,
             condition,
@@ -93,13 +98,13 @@ impl WhileStmt {
 }
 
 pub struct IfStmt {
-    pub condition: Box<Expr>,
-    pub if_true: Box<Stmt>,
+    pub condition: Expr,
+    pub if_true: Vec<Stmt>,
     pub if_false: Option<Box<Stmt>>,
 }
 
 impl IfStmt {
-    pub fn new(condition: Box<Expr>, if_true: Box<Stmt>, if_false: Option<Box<Stmt>>) -> Self {
+    pub fn new(condition: Expr, if_true: Vec<Stmt>, if_false: Option<Box<Stmt>>) -> Self {
         Self {
             condition,
             if_true,
@@ -119,32 +124,43 @@ impl BlockStmt {
 }
 
 pub struct ExpressionStmt {
-    pub expr: Box<Expr>,
+    pub expr: Expr,
 }
 
 impl ExpressionStmt {
-    pub fn new(expr: Box<Expr>) -> Self {
+    pub fn new(expr: Expr) -> Self {
         Self { expr }
     }
 }
 
 pub struct PrintStmt {
-    pub expr: Box<Expr>,
+    pub expr: Expr,
 }
 
 impl PrintStmt {
-    pub fn new(expr: Box<Expr>) -> Self {
+    pub fn new(expr: Expr) -> Self {
         Self { expr }
+    }
+}
+
+pub struct LoadStmt {
+    pub load: Token,
+    pub path: Expr,
+}
+
+impl LoadStmt {
+    pub fn new(load: Token, path: Expr) -> Self {
+        Self { load, path }
     }
 }
 
 pub struct VarStmt {
     pub name: Token,
-    pub initializer: Option<Box<Expr>>,
+    pub initializer: Option<Expr>,
 }
 
 impl VarStmt {
-    pub fn new(name: Token, initializer: Option<Box<Expr>>) -> Self {
+    pub fn new(name: Token, initializer: Option<Expr>) -> Self {
         Self { name, initializer }
     }
 }
@@ -157,5 +173,6 @@ pub trait Visitor<R> {
     fn visit_block_stmt(&mut self, e: &BlockStmt) -> R;
     fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> R;
     fn visit_print_stmt(&mut self, e: &PrintStmt) -> R;
+    fn visit_load_stmt(&mut self, e: &LoadStmt) -> R;
     fn visit_var_stmt(&mut self, e: &VarStmt) -> R;
 }
