@@ -24,18 +24,10 @@ impl <%= config.name %> {
 <%- end -%>
 }
 
-pub fn accept<R>(e: <%= config.name %>, visitor: &mut dyn Visitor<R>) -> R {
+pub fn accept<R>(e: &<%= config.name %>, visitor: &mut dyn Visitor<R>) -> R {
   match e {
   <%- for enum in config.enums -%>
-    <%= config.name %>::<%= enum.name %>(x) => visitor.<%= enum.visit_fn %>(x),
-  <%- end -%>
-  }
-}
-
-pub fn accept_ref<R>(e: &<%= config.name %>, visitor: &mut dyn Visitor<R>) -> R {
-  match e {
-  <%- for enum in config.enums -%>
-    <%= config.name %>::<%= enum.name %>(x) => visitor.<%= enum.visit_fn %>_ref(&x),
+    <%= config.name %>::<%= enum.name %>(x) => visitor.<%= enum.visit_fn %>(&x),
   <%- end -%>
   }
 }
@@ -64,7 +56,6 @@ impl <%= enum.struct_name %> {
 
 pub trait Visitor<R> {
 <%- for enum in config.enums -%>
-  fn <%= enum.visit_fn %>(&mut self, e: <%= enum.struct_name %>) -> R;
-  fn <%= enum.visit_fn %>_ref(&mut self, e: &<%= enum.struct_name %>) -> R;
+  fn <%= enum.visit_fn %>(&mut self, e: &<%= enum.struct_name %>) -> R;
 <%- end -%>
 }

@@ -561,7 +561,7 @@ pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
   let mut e = Evaluator::new(globals);
   let mut res = StatementType::Regular(Value::Nil);
 
-  for stmt in prgm.into_iter() {
+  for stmt in prgm.iter() {
     res = e.eval_stmt(stmt)?;
   }
 
@@ -582,55 +582,21 @@ impl<'a> Evaluator {
     }
   }
 
-  fn eval_expr(&mut self, e: Expr) -> ExprEvalResult {
+  fn eval_expr(&mut self, e: &Expr) -> ExprEvalResult {
     expr::accept(e, self)
   }
 
-  fn eval_expr_ref(&mut self, e: &Expr) -> ExprEvalResult {
-    expr::accept_ref(e, self)
-  }
-
-  fn eval_stmt(&mut self, s: Stmt) -> StmtEvalResult {
+  fn eval_stmt(&mut self, s: &Stmt) -> StmtEvalResult {
     stmt::accept(s, self)
   }
 
-  fn eval_stmt_ref(&mut self, s: &Stmt) -> StmtEvalResult {
-    stmt::accept_ref(s, self)
-  }
-
-  fn eval_block(&mut self, statements: Vec<Stmt>, env: EnvRef) -> StmtEvalResult {
-    let prev_env = Rc::clone(&self.current_env);
-    self.current_env = env;
-    let mut result = Ok(StatementType::Regular(Value::Nil));
-
-    for stmt in statements.into_iter() {
-      match self.eval_stmt(stmt) {
-        Ok(v) => match v {
-          StatementType::Regular(v) => result = Ok(StatementType::Regular(v)),
-          StatementType::Return(v) => {
-            result = Ok(StatementType::Return(v));
-            break;
-          }
-        },
-        Err(s) => {
-          result = Err(s);
-          break;
-        }
-      };
-    }
-
-    self.current_env = prev_env;
-
-    result
-  }
-
-  pub fn eval_block_ref(&mut self, statements: &Vec<Stmt>, env: EnvRef) -> StmtEvalResult {
+  pub fn eval_block(&mut self, statements: &Vec<Stmt>, env: EnvRef) -> StmtEvalResult {
     let prev_env = Rc::clone(&self.current_env);
     self.current_env = env;
     let mut result = Ok(StatementType::Regular(Value::Nil));
 
     for stmt in statements.iter() {
-      match self.eval_stmt_ref(stmt) {
+      match self.eval_stmt(stmt) {
         Ok(v) => match v {
           StatementType::Regular(v) => result = Ok(StatementType::Regular(v)),
           StatementType::Return(v) => {
@@ -664,49 +630,20 @@ impl<'a> Evaluator {
 }
 
 impl StmtVisitor<StmtEvalResult> for Evaluator {
-  fn visit_expression_stmt(&mut self, e: ExpressionStmt) -> StmtEvalResult {
-    Ok(StatementType::Regular(self.eval_expr(*e.expr)?))
+  fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> StmtEvalResult {
+    Ok(StatementType::Regular(self.eval_expr(&e.expr)?))
   }
 
-  fn visit_expression_stmt_ref(&mut self, e: &ExpressionStmt) -> StmtEvalResult {
-    Ok(StatementType::Regular(self.eval_expr_ref(&e.expr)?))
-  }
-
-  fn visit_print_stmt(&mut self, e: PrintStmt) -> StmtEvalResult {
-    println!("{}", self.eval_expr(*e.expr)?);
+  fn visit_print_stmt(&mut self, e: &PrintStmt) -> StmtEvalResult {
+    println!("{}", self.eval_expr(&e.expr)?);
     Ok(StatementType::Regular(Value::Nil))
   }
 
-  fn visit_print_stmt_ref(&mut self, e: &PrintStmt) -> StmtEvalResult {
-    println!("{}", self.eval_expr_ref(&e.expr)?);
-    Ok(StatementType::Regular(Value::Nil))
-  }
-
-  fn visit_var_stmt(&mut self, e: VarStmt) -> StmtEvalResult {
-    let mut value = Value::Nil;
-
-    if let Some(i) = e.initializer {
-      value = self.eval_expr(*i)?;
-    }
-
-    match e.name.lexeme {
-      Some(l) => self.current_env.borrow_mut().define(l, value),
-      None => {
-        return Err(AstErr {
-          msg: String::from("missing variable name"),
-          line: e.name.line,
-        })
-      }
-    }
-
-    Ok(StatementType::Regular(Value::Nil))
-  }
-
-  fn visit_var_stmt_ref(&mut self, e: &VarStmt) -> StmtEvalResult {
+  fn visit_var_stmt(&mut self, e: &VarStmt) -> StmtEvalResult {
     let mut value = Value::Nil;
 
     if let Some(i) = &e.initializer {
-      value = self.eval_expr_ref(i)?;
+      value = self.eval_expr(i)?;
     }
 
     match &e.name.lexeme {
@@ -722,17 +659,8 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
     Ok(StatementType::Regular(Value::Nil))
   }
 
-  fn visit_block_stmt(&mut self, e: BlockStmt) -> StmtEvalResult {
+  fn visit_block_stmt(&mut self, e: &BlockStmt) -> StmtEvalResult {
     self.eval_block(
-      e.statements,
-      Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
-        &self.current_env,
-      )))),
-    )
-  }
-
-  fn visit_block_stmt_ref(&mut self, e: &BlockStmt) -> StmtEvalResult {
-    self.eval_block_ref(
       &e.statements,
       Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
         &self.current_env,
@@ -740,63 +668,26 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
     )
   }
 
-  fn visit_if_stmt(&mut self, e: IfStmt) -> StmtEvalResult {
-    let result = self.eval_expr(*e.condition)?;
+  fn visit_if_stmt(&mut self, e: &IfStmt) -> StmtEvalResult {
+    let result = self.eval_expr(&e.condition)?;
     if self.is_truthy(&result) {
-      self.eval_stmt(*e.if_true)
-    } else if let Some(if_false) = e.if_false {
-      self.eval_stmt(*if_false)
-    } else {
-      Ok(StatementType::Regular(Value::Nil))
-    }
-  }
-
-  fn visit_if_stmt_ref(&mut self, e: &IfStmt) -> StmtEvalResult {
-    let result = self.eval_expr_ref(&e.condition)?;
-    if self.is_truthy(&result) {
-      self.eval_stmt_ref(&e.if_true)
+      self.eval_stmt(&e.if_true)
     } else if let Some(if_false) = &e.if_false {
-      self.eval_stmt_ref(&if_false)
+      self.eval_stmt(&if_false)
     } else {
       Ok(StatementType::Regular(Value::Nil))
     }
   }
 
-  fn visit_while_stmt(&mut self, e: WhileStmt) -> StmtEvalResult {
-    let mut result = StatementType::Regular(Value::Nil);
-    if let Stmt::Block(blk) = *e.body {
-      loop {
-        let res = self.eval_expr_ref(&e.condition)?;
-        if !self.is_truthy(&res) {
-          break;
-        }
-        match self.visit_block_stmt_ref(&blk)? {
-          StatementType::Regular(v) => result = StatementType::Regular(v),
-          StatementType::Return(v) => {
-            result = StatementType::Return(v);
-            break;
-          }
-        }
-      }
-    } else {
-      return Err(AstErr {
-        msg: String::from("body of while loop is not block statement"),
-        line: e.token.line,
-      });
-    }
-
-    Ok(result)
-  }
-
-  fn visit_while_stmt_ref(&mut self, e: &WhileStmt) -> StmtEvalResult {
+  fn visit_while_stmt(&mut self, e: &WhileStmt) -> StmtEvalResult {
     let mut result = StatementType::Regular(Value::Nil);
     if let Stmt::Block(blk) = &*e.body {
       loop {
-        let res = self.eval_expr_ref(&e.condition)?;
+        let res = self.eval_expr(&e.condition)?;
         if !self.is_truthy(&res) {
           break;
         }
-        match self.visit_block_stmt_ref(&blk)? {
+        match self.visit_block_stmt(&blk)? {
           StatementType::Regular(v) => result = StatementType::Regular(v),
           StatementType::Return(v) => {
             result = StatementType::Return(v);
@@ -814,17 +705,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
     Ok(result)
   }
 
-  fn visit_function_stmt(&mut self, e: FunctionStmt) -> StmtEvalResult {
-    let name = e.name.lexeme.as_ref().unwrap().clone();
-    let func = ScriptFunction::new(e);
-    self
-      .current_env
-      .borrow_mut()
-      .define(name, Value::Callee(Rc::new(func)));
-    Ok(StatementType::Regular(Value::Nil))
-  }
-
-  fn visit_function_stmt_ref(&mut self, e: &FunctionStmt) -> StmtEvalResult {
+  fn visit_function_stmt(&mut self, e: &FunctionStmt) -> StmtEvalResult {
     let name = e.name.lexeme.as_ref().unwrap().clone();
     let func = ScriptFunction::new(FunctionStmt::new(
       e.name.clone(),
@@ -838,19 +719,10 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
     Ok(StatementType::Regular(Value::Nil))
   }
 
-  fn visit_return_stmt(&mut self, s: ReturnStmt) -> StmtEvalResult {
-    let mut value = Value::Nil;
-    if let Some(e) = s.value {
-      value = self.eval_expr(*e)?;
-    }
-
-    Ok(StatementType::Return(value))
-  }
-
-  fn visit_return_stmt_ref(&mut self, s: &ReturnStmt) -> StmtEvalResult {
+  fn visit_return_stmt(&mut self, s: &ReturnStmt) -> StmtEvalResult {
     let mut value = Value::Nil;
     if let Some(e) = &s.value {
-      value = self.eval_expr_ref(e)?;
+      value = self.eval_expr(e)?;
     }
 
     Ok(StatementType::Return(value))
@@ -858,9 +730,9 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
 }
 
 impl ExprVisitor<ExprEvalResult> for Evaluator {
-  fn visit_binary_expr(&mut self, e: BinaryExpr) -> ExprEvalResult {
-    let left = self.eval_expr(*e.left)?;
-    let right = self.eval_expr(*e.right)?;
+  fn visit_binary_expr(&mut self, e: &BinaryExpr) -> ExprEvalResult {
+    let left = self.eval_expr(&e.left)?;
+    let right = self.eval_expr(&e.right)?;
 
     // value comparison
     if e.operator.token_type == TokenType::EqEq {
@@ -915,101 +787,26 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
     })
   }
 
-  fn visit_binary_expr_ref(&mut self, e: &BinaryExpr) -> ExprEvalResult {
-    let left = self.eval_expr_ref(&e.left)?;
-    let right = self.eval_expr_ref(&e.right)?;
-
-    // value comparison
-    if e.operator.token_type == TokenType::EqEq {
-      return Ok(Value::Bool(left == right));
-    }
-
-    if e.operator.token_type == TokenType::ExEq {
-      return Ok(Value::Bool(left != right));
-    }
-
-    // number arithmetic and comparison
-    if let Value::Num(l) = left {
-      if let Value::Num(r) = right {
-        return match e.operator.token_type {
-          TokenType::Plus => Ok(Value::Num(l + r)),
-          TokenType::Minus => Ok(Value::Num(l - r)),
-          TokenType::Slash => Ok(Value::Num(l / r)),
-          TokenType::Asterisk => Ok(Value::Num(l * r)),
-          TokenType::GreaterThan => Ok(Value::Bool(l > r)),
-          TokenType::GreaterEq => Ok(Value::Bool(l >= r)),
-          TokenType::LessThan => Ok(Value::Bool(l < r)),
-          TokenType::LessEq => Ok(Value::Bool(l <= r)),
-          _ => Err(AstErr {
-            msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
-            line: e.operator.line,
-          }),
-        };
-      }
-    }
-
-    // string concatenation
-    if e.operator.token_type == TokenType::Plus {
-      if let Value::Str(l) = &left {
-        if let Value::Str(r) = right {
-          return Ok(Value::Str(format!("{}{}", l, r)));
-        } else if let Value::Num(r) = right {
-          return Ok(Value::Str(format!("{}{}", l, r)));
-        }
-      } else if let Value::Num(l) = left {
-        if let Value::Str(r) = right {
-          return Ok(Value::Str(format!("{}{}", l, r)));
-        }
-      }
-    }
-
-    Err(AstErr {
-      msg: format!(
-        "Combination of {:?} and {:?} not allowed with {:?}",
-        left, right, e.operator
-      ),
-      line: e.operator.line,
-    })
-  }
-
-  fn visit_ternary_expr(&mut self, e: TernaryExpr) -> ExprEvalResult {
-    let result = self.eval_expr(*e.condition)?;
+  fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> ExprEvalResult {
+    let result = self.eval_expr(&e.condition)?;
 
     if self.is_truthy(&result) {
-      self.eval_expr(*e.if_true)
+      self.eval_expr(&e.if_true)
     } else {
-      self.eval_expr(*e.if_false)
+      self.eval_expr(&e.if_false)
     }
   }
 
-  fn visit_ternary_expr_ref(&mut self, e: &TernaryExpr) -> ExprEvalResult {
-    let result = self.eval_expr_ref(&e.condition)?;
-
-    if self.is_truthy(&result) {
-      self.eval_expr_ref(&e.if_true)
-    } else {
-      self.eval_expr_ref(&e.if_false)
-    }
+  fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> ExprEvalResult {
+    self.eval_expr(&e.expression)
   }
 
-  fn visit_grouping_expr(&mut self, e: GroupingExpr) -> ExprEvalResult {
-    self.eval_expr(*e.expression)
-  }
-
-  fn visit_grouping_expr_ref(&mut self, e: &GroupingExpr) -> ExprEvalResult {
-    self.eval_expr_ref(&e.expression)
-  }
-
-  fn visit_literal_expr(&mut self, e: LiteralExpr) -> ExprEvalResult {
-    Ok(e.value)
-  }
-
-  fn visit_literal_expr_ref(&mut self, e: &LiteralExpr) -> ExprEvalResult {
+  fn visit_literal_expr(&mut self, e: &LiteralExpr) -> ExprEvalResult {
     Ok(e.value.clone())
   }
 
-  fn visit_unary_expr(&mut self, e: UnaryExpr) -> ExprEvalResult {
-    let right = self.eval_expr(*e.right)?;
+  fn visit_unary_expr(&mut self, e: &UnaryExpr) -> ExprEvalResult {
+    let right = self.eval_expr(&e.right)?;
 
     match e.operator.token_type {
       TokenType::Exclamation => Ok(Value::Bool(!self.is_truthy(&right))),
@@ -1048,63 +845,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
     }
   }
 
-  fn visit_unary_expr_ref(&mut self, e: &UnaryExpr) -> ExprEvalResult {
-    let right = self.eval_expr_ref(&e.right)?;
-
-    match e.operator.token_type {
-      TokenType::Exclamation => Ok(Value::Bool(!self.is_truthy(&right))),
-      TokenType::Minus => {
-        if let Value::Num(n) = right {
-          Ok(Value::Num(-n))
-        } else {
-          Err(AstErr {
-            msg: format!("invalid negation on type {}", right),
-            line: e.operator.line,
-          })
-        }
-      }
-      TokenType::Plus => {
-        if let Value::Num(n) = right {
-          Ok(Value::Num(n.abs()))
-        } else if let Value::Str(s) = right {
-          match s.parse() {
-            Ok(n) => Ok(Value::Num(n)),
-            Err(err) => Err(AstErr {
-              msg: format!("string parse error: {}", err),
-              line: e.operator.line,
-            }),
-          }
-        } else {
-          Err(AstErr {
-            msg: format!("invalid absolution on type {}", right),
-            line: e.operator.line,
-          })
-        }
-      }
-      _ => Err(AstErr {
-        msg: format!("invalid unary operator {}", e.operator),
-        line: e.operator.line,
-      }),
-    }
-  }
-
-  fn visit_variable_expr(&mut self, e: VariableExpr) -> ExprEvalResult {
-    match e.name.lexeme {
-      Some(l) => match self.current_env.borrow().lookup(&l) {
-        Some(v) => Ok(v.clone()),
-        None => Err(AstErr {
-          msg: format!("used uninitialized variable '{}'", l),
-          line: e.name.line,
-        }),
-      },
-      None => Err(AstErr {
-        msg: String::from("cannot declare unnamed var"),
-        line: e.name.line,
-      }),
-    }
-  }
-
-  fn visit_variable_expr_ref(&mut self, e: &VariableExpr) -> ExprEvalResult {
+  fn visit_variable_expr(&mut self, e: &VariableExpr) -> ExprEvalResult {
     match &e.name.lexeme {
       Some(l) => match self.current_env.borrow().lookup(&l) {
         Some(v) => Ok(v.clone()),
@@ -1120,33 +861,8 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
     }
   }
 
-  fn visit_assign_expr(&mut self, e: AssignExpr) -> ExprEvalResult {
-    let value = self.eval_expr(*e.value)?;
-    match e.name.lexeme {
-      Some(l) => {
-        if let Err(msg) = self
-          .current_env
-          .borrow_mut()
-          .assign(l.clone(), value.clone())
-        {
-          return Err(AstErr {
-            msg: format!("assignment error: {}", msg),
-            line: e.name.line,
-          });
-        }
-      }
-      None => {
-        return Err(AstErr {
-          msg: format!("cannot assign unnamed var"),
-          line: e.name.line,
-        })
-      }
-    }
-    Ok(value)
-  }
-
-  fn visit_assign_expr_ref(&mut self, e: &AssignExpr) -> ExprEvalResult {
-    let value = self.eval_expr_ref(&e.value)?;
+  fn visit_assign_expr(&mut self, e: &AssignExpr) -> ExprEvalResult {
+    let value = self.eval_expr(&e.value)?;
     match &e.name.lexeme {
       Some(l) => {
         if let Err(msg) = self
@@ -1170,8 +886,8 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
     Ok(value)
   }
 
-  fn visit_logical_expr(&mut self, e: LogicalExpr) -> ExprEvalResult {
-    let left = self.eval_expr(*e.left)?;
+  fn visit_logical_expr(&mut self, e: &LogicalExpr) -> ExprEvalResult {
+    let left = self.eval_expr(&e.left)?;
 
     match e.operator.token_type {
       TokenType::Or => {
@@ -1192,37 +908,12 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       }
     }
 
-    self.eval_expr(*e.right)
+    self.eval_expr(&e.right)
   }
 
-  fn visit_logical_expr_ref(&mut self, e: &LogicalExpr) -> ExprEvalResult {
-    let left = self.eval_expr_ref(&e.left)?;
-
-    match e.operator.token_type {
-      TokenType::Or => {
-        if self.is_truthy(&left) {
-          return Ok(left);
-        }
-      }
-      TokenType::And => {
-        if !self.is_truthy(&left) {
-          return Ok(left);
-        }
-      }
-      _ => {
-        return Err(AstErr {
-          msg: String::from("invalid attempt for logical comparison"),
-          line: e.operator.line,
-        })
-      }
-    }
-
-    self.eval_expr_ref(&e.right)
-  }
-
-  fn visit_range_expr(&mut self, e: RangeExpr) -> ExprEvalResult {
-    let begin = self.eval_expr(*e.begin)?;
-    let end = self.eval_expr(*e.end)?;
+  fn visit_range_expr(&mut self, e: &RangeExpr) -> ExprEvalResult {
+    let begin = self.eval_expr(&e.begin)?;
+    let end = self.eval_expr(&e.end)?;
 
     if let Value::Num(begin) = begin {
       if let Value::Num(end) = end {
@@ -1240,32 +931,12 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
     })
   }
 
-  fn visit_range_expr_ref(&mut self, e: &RangeExpr) -> ExprEvalResult {
-    let begin = self.eval_expr_ref(&e.begin)?;
-    let end = self.eval_expr_ref(&e.end)?;
-
-    if let Value::Num(begin) = begin {
-      if let Value::Num(end) = end {
-        return Ok(Value::List(
-          ((begin.round() as i64)..(end.round() as i64))
-            .map(|n| Value::Num(n as f64))
-            .collect(),
-        ));
-      }
-    }
-
-    Err(AstErr {
-      msg: String::from("expected number with range expression"),
-      line: e.token.line,
-    })
-  }
-
-  fn visit_call_expr(&mut self, e: CallExpr) -> ExprEvalResult {
-    let callee = self.eval_expr(*e.callee)?;
+  fn visit_call_expr(&mut self, e: &CallExpr) -> ExprEvalResult {
+    let callee = self.eval_expr(&e.callee)?;
 
     if let Value::Callee(func) = callee {
       let mut args = Vec::new();
-      for arg in e.args.into_iter() {
+      for arg in e.args.iter() {
         args.push(self.eval_expr(arg)?);
       }
       Ok(func.call(self, args)?)
@@ -1277,31 +948,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
     }
   }
 
-  fn visit_call_expr_ref(&mut self, e: &CallExpr) -> ExprEvalResult {
-    let callee = self.eval_expr_ref(&e.callee)?;
-
-    if let Value::Callee(func) = callee {
-      let mut args = Vec::new();
-      for arg in e.args.iter() {
-        args.push(self.eval_expr_ref(arg)?);
-      }
-      Ok(func.call(self, args)?)
-    } else {
-      Err(AstErr {
-        msg: format!("can't call type {}", callee),
-        line: e.paren.line,
-      })
-    }
-  }
-
-  fn visit_closure_expr(&mut self, e: ClosureExpr) -> ExprEvalResult {
-    Ok(Value::Callee(Rc::new(Closure::new(
-      e,
-      Rc::clone(&self.current_env),
-    ))))
-  }
-
-  fn visit_closure_expr_ref(&mut self, e: &ClosureExpr) -> ExprEvalResult {
+  fn visit_closure_expr(&mut self, e: &ClosureExpr) -> ExprEvalResult {
     Ok(Value::Callee(Rc::new(Closure::new(
       ClosureExpr::new(Rc::clone(&e.params), Rc::clone(&e.body)),
       Rc::clone(&self.current_env),

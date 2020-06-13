@@ -141,7 +141,7 @@ impl Callable for ScriptFunction {
       }
     }
 
-    Ok(match evaluator.eval_block_ref(&fun.body, env)? {
+    Ok(match evaluator.eval_block(&fun.body, env)? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,
     })
@@ -203,7 +203,7 @@ impl Callable for Closure {
       }
     }
 
-    Ok(match evaluator.eval_block_ref(&fun.body, env)? {
+    Ok(match evaluator.eval_block(&fun.body, env)? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,
     })
