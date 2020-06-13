@@ -18,24 +18,24 @@ fun new_fib() {
   c;
 }
 
-var begin = clock();
+var begin = clock_seconds();
 for var i = 0; i < 20; i = i + 1 {
   var f = new_fib();
   print f(i);
 }
-var end = clock();
+var end = clock_seconds();
 
 var new_fib_time = end - begin;
-print "new_fib 0..20 took " + new_fib_time + " nanos";
+print "new_fib 0..20 took " + new_fib_time + " seconds";
 
-begin = clock();
+begin = clock_seconds();
 for var i = 0; i < 20; i = i + 1 {
   print fib(i);
 }
-end = clock();
+end = clock_seconds();
 
 var fib_time = end - begin;
-print "fib 0..20 took " + fib_time + " nanos";
+print "fib 0..20 took " + fib_time + " seconds";
 
 if fib_time > new_fib_time {
   print "closure is faster than functions";
