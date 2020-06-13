@@ -2,7 +2,6 @@ use crate::ast::AstErr;
 use crate::env::{Env, EnvRef};
 use crate::lex::LexicalErr;
 use crate::types::Value;
-use std::cell::RefCell;
 use std::fmt::{self, Display};
 use std::io::{self, Write};
 use std::rc::Rc;
@@ -57,12 +56,13 @@ pub struct Interpreter {
 
 impl Interpreter {
   pub fn new() -> Interpreter {
-    let mut globals = Env::new();
+    let globals = Env::new_ref();
 
-    builtin::time::enable(&mut globals);
+    builtin::time::enable(Rc::clone(&globals));
+    builtin::meta::enable(Rc::clone(&globals));
 
     Interpreter {
-      globals: Rc::new(RefCell::new(globals)),
+      globals,
     }
   }
 

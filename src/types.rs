@@ -135,35 +135,41 @@ impl From<AstErr> for CallErr {
 }
 
 pub trait Callable: Display {
-  fn call(
-    &self,
-    evaluator: &mut Evaluator,
-    args: Vec<Value>,
-    line: usize,
-  ) -> CallResult;
+  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult;
 }
 
 pub type NativeResult = Result<Value, String>;
-pub type NativeClosure = fn(Vec<Value>) -> NativeResult;
 
-pub struct NativeFunction {
+pub struct NativeFunction<T>
+where
+  T: Fn(Vec<Value>) -> NativeResult,
+{
   airity: usize,
-  func: NativeClosure,
+  func: T,
 }
 
-impl NativeFunction {
-  pub fn new(airity: usize, func: NativeClosure) -> NativeFunction {
-    NativeFunction { airity, func }
+impl<T> NativeFunction<T>
+where
+  T: Fn(Vec<Value>) -> NativeResult,
+{
+  pub fn new(airity: usize, func: T) -> Self {
+    Self { airity, func }
   }
 }
 
-impl Display for NativeFunction {
+impl<T> Display for NativeFunction<T>
+where
+  T: Fn(Vec<Value>) -> NativeResult,
+{
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "<native function>")
   }
 }
 
-impl Callable for NativeFunction {
+impl<T> Callable for NativeFunction<T>
+where
+  T: Fn(Vec<Value>) -> NativeResult,
+{
   fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     if self.airity < args.len() {
       return Err(CallErr {
@@ -191,7 +197,11 @@ impl Callable for NativeFunction {
 
     match (self.func)(args) {
       Ok(v) => Ok(v),
-      Err(msg) => Err(CallErr { file: e.file.clone(), line, msg }),
+      Err(msg) => Err(CallErr {
+        file: e.file.clone(),
+        line,
+        msg,
+      }),
     }
   }
 }
@@ -213,12 +223,7 @@ impl Display for ScriptFunction {
 }
 
 impl Callable for ScriptFunction {
-  fn call(
-    &self,
-    e: &mut Evaluator,
-    args: Vec<Value>,
-    line: usize,
-  ) -> CallResult {
+  fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     let func = &self.func;
     if func.params.len() < args.len() {
       return Err(CallErr {
@@ -244,9 +249,7 @@ impl Callable for ScriptFunction {
       });
     }
 
-    let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
-      &e.env,
-    ))));
+    let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(&e.env))));
 
     for (param, arg) in func.params.iter().zip(args.iter()) {
       env.borrow_mut().define(param.lexeme.clone(), arg.clone())
@@ -277,12 +280,7 @@ impl Display for Closure {
 }
 
 impl Callable for Closure {
-  fn call(
-    &self,
-    e: &mut Evaluator,
-    args: Vec<Value>,
-    line: usize,
-  ) -> CallResult {
+  fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     let func = &self.exec;
     if func.params.len() < args.len() {
       return Err(CallErr {

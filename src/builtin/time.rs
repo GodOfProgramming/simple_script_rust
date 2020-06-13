@@ -1,4 +1,4 @@
-use crate::env::Env;
+use crate::env::EnvRef;
 use crate::types::NativeFunction;
 use crate::types::Value;
 use std::rc::Rc;
@@ -6,8 +6,8 @@ use std::time::SystemTime;
 
 const NANOS_IN_SECOND: f64 = 1_000_000_000.0;
 
-pub fn enable(e: &mut Env) {
-  e.define(
+pub fn enable(e: EnvRef) {
+  e.borrow_mut().define(
     String::from("clock_nanos"),
     Value::Callee(Rc::new(NativeFunction::new(0, |_| match SystemTime::now()
       .duration_since(SystemTime::UNIX_EPOCH)
@@ -17,7 +17,7 @@ pub fn enable(e: &mut Env) {
     }))),
   );
 
-  e.define(
+  e.borrow_mut().define(
     String::from("clock_seconds"),
     Value::Callee(Rc::new(NativeFunction::new(0, |_| match SystemTime::now()
       .duration_since(SystemTime::UNIX_EPOCH)
