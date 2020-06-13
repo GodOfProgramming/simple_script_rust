@@ -1,5 +1,5 @@
-fun foobar() {
-  fun barfoo() {
+fn foobar() {
+  fn barfoo() {
     print "in barfoo";
   }
 
@@ -42,7 +42,7 @@ closure_result = |a| {
 
 print closure_result;
 
-fun counter() {
+fn counter() {
   var i = 0;
   || {
     i = i + 1;
@@ -50,7 +50,7 @@ fun counter() {
   };
 }
 
-fun use_counter() {
+fn use_counter() {
   var c = counter();
 
   print c();
@@ -61,7 +61,7 @@ fun use_counter() {
 use_counter();
 use_counter();
 
-fun exec(f) {
+fn exec(f) {
   f();
 }
 

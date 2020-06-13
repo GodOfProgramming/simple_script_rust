@@ -178,7 +178,7 @@
           },
           {
             "name": "value",
-            "type": "Option<Box<Expr>>"
+            "type": "Option<Expr>"
           }
         ]
       },
@@ -208,11 +208,11 @@
           },
           {
             "name": "condition",
-            "type": "Box<Expr>"
+            "type": "Expr"
           },
           {
             "name": "body",
-            "type": "Box<Stmt>"
+            "type": "Vec<Stmt>"
           }
         ]
       },
@@ -221,11 +221,11 @@
         "members": [
           {
             "name": "condition",
-            "type": "Box<Expr>"
+            "type": "Expr"
           },
           {
             "name": "if_true",
-            "type": "Box<Stmt>"
+            "type": "Vec<Stmt>"
           },
           {
             "name": "if_false",
@@ -247,7 +247,7 @@
         "members": [
           {
             "name": "expr",
-            "type": "Box<Expr>"
+            "type": "Expr"
           }
         ]
       },
@@ -256,7 +256,20 @@
         "members": [
           {
             "name": "expr",
-            "type": "Box<Expr>"
+            "type": "Expr"
+          }
+        ]
+      },
+      {
+        "name": "Load",
+        "members": [
+          {
+            "name": "load",
+            "type": "Token"
+          },
+          {
+            "name": "path",
+            "type": "Expr"
           }
         ]
       },
@@ -269,7 +282,7 @@
           },
           {
             "name": "initializer",
-            "type": "Option<Box<Expr>>"
+            "type": "Option<Expr>"
           }
         ]
       }
