@@ -13,7 +13,7 @@ pub enum Value {
   Bool(bool),
   Str(String),
   Num(f64),
-  List(Vec<Value>),
+  List(Values),
   Callee(Rc<dyn Callable>),
 }
 
@@ -30,15 +30,26 @@ impl Display for Value {
       Value::Bool(b) => write!(f, "{}", b),
       Value::Num(n) => write!(f, "{}", n),
       Value::Str(s) => write!(f, "{}", s),
-      Value::List(l) => {
-        // TODO better formatting
-        for v in l.iter() {
-          write!(f, "{}", v)?;
-        }
-        Ok(())
-      }
+      Value::List(l) => write!(f, "{}", l),
       Value::Callee(c) => write!(f, "{}", c),
     }
+  }
+}
+
+#[derive(Clone)]
+pub struct Values(Vec<Value>);
+
+impl Values {
+  pub fn new(values: Vec<Value>) -> Self {
+    Self(values)
+  }
+}
+
+impl Display for Values {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    self.0.iter().fold(Ok(()), |result, value| {
+      result.and_then(|_| writeln!(f, "{}", value))
+    })
   }
 }
 
@@ -74,6 +85,9 @@ impl PartialEq for Value {
       }
       Value::List(a) => {
         if let Value::List(b) = other {
+          let a = &a.0;
+          let b = &b.0;
+
           if a.len() == b.len() {
             for it in a.iter().zip(b.iter()) {
               let (ai, bi) = it;
@@ -105,77 +119,80 @@ impl PartialEq for Value {
 pub type CallResult = Result<Value, CallErr>;
 
 pub struct CallErr {
-  pub msg: String,
+  pub file: String,
   pub line: usize,
+  pub msg: String,
 }
 
 impl From<AstErr> for CallErr {
   fn from(err: AstErr) -> Self {
     CallErr {
-      msg: err.msg,
+      file: err.file,
       line: err.line,
+      msg: err.msg,
     }
   }
 }
 
 pub trait Callable: Display {
-  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult;
+  fn call(
+    &self,
+    evaluator: &mut Evaluator,
+    args: Vec<Value>,
+    line: usize,
+  ) -> CallResult;
 }
 
-pub struct NativeFunction<T>
-where
-  T: Fn(Vec<Value>) -> CallResult,
-{
+pub type NativeResult = Result<Value, String>;
+pub type NativeClosure = fn(Vec<Value>) -> NativeResult;
+
+pub struct NativeFunction {
   airity: usize,
-  func: T,
+  func: NativeClosure,
 }
 
-impl<T> NativeFunction<T>
-where
-  T: Fn(Vec<Value>) -> CallResult,
-{
-  pub fn new(airity: usize, func: T) -> NativeFunction<T> {
+impl NativeFunction {
+  pub fn new(airity: usize, func: NativeClosure) -> NativeFunction {
     NativeFunction { airity, func }
   }
 }
 
-impl<T> Display for NativeFunction<T>
-where
-  T: Fn(Vec<Value>) -> CallResult,
-{
+impl Display for NativeFunction {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "<native function>")
   }
 }
 
-impl<T> Callable for NativeFunction<T>
-where
-  T: Fn(Vec<Value>) -> CallResult,
-{
-  fn call(&self, _: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
+impl Callable for NativeFunction {
+  fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     if self.airity < args.len() {
       return Err(CallErr {
+        file: e.file.clone(),
+        line,
         msg: format!(
           "too many arguments, expected {}, got {}",
           self.airity,
           args.len()
         ),
-        line,
       });
     }
 
     if self.airity > args.len() {
       return Err(CallErr {
+        file: e.file.clone(),
+        line,
         msg: format!(
           "too few arguments, expected {}, got {}",
           self.airity,
           args.len(),
         ),
-        line,
       });
     }
 
-    (self.func)(args)
+    match (self.func)(args) {
+      Ok(v) => Ok(v),
+      Err(msg) => Err(CallErr { file: e.file.clone(), line, msg }),
+    }
   }
 }
 
@@ -196,46 +213,46 @@ impl Display for ScriptFunction {
 }
 
 impl Callable for ScriptFunction {
-  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
+  fn call(
+    &self,
+    e: &mut Evaluator,
+    args: Vec<Value>,
+    line: usize,
+  ) -> CallResult {
     let func = &self.func;
     if func.params.len() < args.len() {
       return Err(CallErr {
+        file: e.file.clone(),
+        line,
         msg: format!(
           "too many arguments, expected {}, got {}",
           func.params.len(),
           args.len()
         ),
-        line,
       });
     }
 
     if func.params.len() > args.len() {
       return Err(CallErr {
+        file: e.file.clone(),
+        line,
         msg: format!(
           "too few arguments, expected {}, got {}",
           func.params.len(),
           args.len(),
         ),
-        line,
       });
     }
 
     let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
-      &evaluator.current_env,
+      &e.env,
     ))));
 
     for (param, arg) in func.params.iter().zip(args.iter()) {
-      if let Some(lexeme) = &param.lexeme {
-        env.borrow_mut().define(lexeme.clone(), arg.clone())
-      } else {
-        return Err(CallErr {
-          msg: String::from("no name in parameter"),
-          line: param.line,
-        });
-      }
+      env.borrow_mut().define(param.lexeme.clone(), arg.clone())
     }
 
-    Ok(match evaluator.eval_block(&func.body, env)? {
+    Ok(match e.eval_block(&func.body, env)? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,
     })
@@ -260,44 +277,44 @@ impl Display for Closure {
 }
 
 impl Callable for Closure {
-  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
+  fn call(
+    &self,
+    e: &mut Evaluator,
+    args: Vec<Value>,
+    line: usize,
+  ) -> CallResult {
     let func = &self.exec;
     if func.params.len() < args.len() {
       return Err(CallErr {
+        file: e.file.clone(),
+        line,
         msg: format!(
           "too many arguments, expected {}, got {}",
           func.params.len(),
           args.len()
         ),
-        line,
       });
     }
 
     if func.params.len() > args.len() {
       return Err(CallErr {
+        file: e.file.clone(),
+        line,
         msg: format!(
           "too few arguments, expected {}, got {}",
           func.params.len(),
           args.len(),
         ),
-        line,
       });
     }
 
     let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(&self.env))));
 
     for (param, arg) in func.params.iter().zip(args.iter()) {
-      if let Some(lexeme) = &param.lexeme {
-        env.borrow_mut().define(lexeme.clone(), arg.clone())
-      } else {
-        return Err(CallErr {
-          msg: String::from("no name in parameter"),
-          line: param.line,
-        });
-      }
+      env.borrow_mut().define(param.lexeme.clone(), arg.clone())
     }
 
-    Ok(match evaluator.eval_block(&func.body, env)? {
+    Ok(match e.eval_block(&func.body, env)? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,
     })
