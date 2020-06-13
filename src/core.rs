@@ -2,7 +2,7 @@ use crate::ast::{self, AstErr};
 use crate::builtin;
 use crate::env::{Env, EnvRef};
 use crate::lex::{self, LexicalErr};
-use crate::types::Value;
+use crate::types::{CallErr, NativeFunction, Value};
 use std::cell::RefCell;
 use std::fmt::{self, Display};
 use std::rc::Rc;

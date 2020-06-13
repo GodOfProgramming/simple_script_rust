@@ -1,4 +1,3 @@
-use crate::complex::{CallErr, Closure, ScriptFunction};
 use crate::env::{Env, EnvRef};
 use crate::expr::{
   self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GroupingExpr, LiteralExpr,
@@ -9,7 +8,7 @@ use crate::stmt::{
   self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, PrintStmt, ReturnStmt, Stmt, VarStmt,
   Visitor as StmtVisitor, WhileStmt,
 };
-use crate::types::Value;
+use crate::types::{CallErr, Closure, ScriptFunction, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
