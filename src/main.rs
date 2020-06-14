@@ -1,27 +1,32 @@
-use simple_script::core::Interpreter;
+use simple_script::Interpreter;
 use std::env;
 use std::fs;
-use std::io::{self, Write};
 use std::path::Path;
 
-fn main() -> Result<(), String> {
-  let inter = Interpreter::new();
+fn main() {
+  let mut exit_code = 0;
+  let mut inter = Interpreter::new();
   let args: Vec<String> = env::args().collect();
 
   if args.contains(&String::from("-h")) {
-    help(inter)?;
+    if !help(inter) {
+      exit_code = 1;
+    }
   } else if args.len() >= 2 {
-    run_file(inter, args)?;
+    if !run_file(inter, args) {
+      exit_code = 1;
+    }
   } else {
-    run_interactive(inter)?;
+    if !inter.cli() {
+      exit_code = 1;
+    }
   }
 
-  Ok(())
+  std::process::exit(exit_code);
 }
 
-fn help(inter: Interpreter) -> Result<(), String> {
-  const HELP_SCRIPT: &str =
-  r#"
+fn help(inter: Interpreter) -> bool {
+  const HELP_SCRIPT: &str = r#"
   print "Simple Script Interpreter";
   print "";
   print "Usage: ss [optional_script]";
@@ -30,59 +35,33 @@ fn help(inter: Interpreter) -> Result<(), String> {
   print "Here you can execute a series of statements line by line for real time feedback.";
   print "";
   "#;
-  if let Err(err) = inter.exec(HELP_SCRIPT) {
-    return Err(format!("this shouldn't happen, please report it: {}", err.msg));
+  if let Err(err) = inter.exec("help", HELP_SCRIPT) {
+    println!("this shouldn't happen: {}", err);
+    false
   } else {
-    Ok(())
+    true
   }
 }
 
-fn run_file(inter: Interpreter, args: Vec<String>) -> Result<(), String> {
-    let p = Path::new(&args[1]);
-    if p.exists() {
-      match fs::read_to_string(p) {
-        Ok(contents) => {
-          if let Err(err) = inter.exec(&contents) {
-            println!("Fatal: could not run script: {}: line {}", err.msg, err.line + 1);
-            return Err(err.msg);
-          }
-        }
-        Err(err) => {
-          return Err(format!("{}", err));
+fn run_file(inter: Interpreter, args: Vec<String>) -> bool {
+  let p = Path::new(&args[1]);
+  if p.exists() {
+    match fs::read_to_string(p) {
+      Ok(contents) => {
+        if let Err(err) = inter.exec(&args[1], &contents) {
+          println!("{}", err);
+          return false;
         }
       }
-    } else {
-      println!("Fatal: could not find source file '{}'", p.display());
+      Err(err) => {
+        println!("{}", err);
+        return false;
+      }
     }
+  } else {
+    println!("error:could not find source file '{}'", p.display());
+    return false;
+  }
 
-    Ok(())
-}
-
-fn run_interactive(inter: Interpreter) -> Result<(), String> {
-    let mut input = String::new();
-    let exit = false;
-    let mut line_number = 1;
-
-    while !exit {
-      print!("ss(main):{}> ", line_number);
-      if let Err(err) = io::stdout().flush() {
-        return Err(format!("{}", err));
-      }
-
-      if let Err(err) = io::stdin().read_line(&mut input) {
-        return Err(format!("{}", err));
-      }
-
-      match inter.exec(&input) {
-        Ok(res) => {
-          println!("=> {}", res.value);
-          line_number += res.lines;
-        }
-        Err(err) => println!("{}: line {}", err.msg, line_number + err.line),
-      }
-
-      input.clear();
-    }
-
-    Ok(())
+  true
 }

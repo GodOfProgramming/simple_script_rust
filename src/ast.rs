@@ -8,30 +8,40 @@ use crate::stmt::{
   self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, PrintStmt, ReturnStmt, Stmt,
   VarStmt, Visitor as StmtVisitor, WhileStmt,
 };
-use crate::types::{CallErr, Closure, ScriptFunction, Value};
+use crate::types::{CallErr, Closure, ScriptFunction, Value, Values};
 use std::cell::RefCell;
+use std::fmt::{self, Display};
 use std::fs;
 use std::rc::Rc;
 
 pub struct AstErr {
-  pub msg: String,
+  pub file: String,
   pub line: usize,
+  pub msg: String,
 }
 
-impl From<CallErr> for AstErr {
-  fn from(err: CallErr) -> Self {
-    Self {
-      msg: err.msg,
-      line: err.line,
-    }
+impl Display for AstErr {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{} ({}): {}", self.file, self.line, self.msg)
   }
 }
 
 impl From<LexicalErr> for AstErr {
   fn from(err: LexicalErr) -> Self {
     Self {
-      msg: err.msg,
+      file: err.file,
       line: err.line,
+      msg: err.msg,
+    }
+  }
+}
+
+impl From<CallErr> for AstErr {
+  fn from(err: CallErr) -> Self {
+    Self {
+      file: err.file,
+      line: err.line,
+      msg: err.msg,
     }
   }
 }
@@ -40,19 +50,24 @@ type ParseResult = Result<Vec<Stmt>, AstErr>;
 type StatementResult = Result<Stmt, AstErr>;
 type ExprResult = Result<Expr, AstErr>;
 
-pub fn parse<'a>(tokens: &'a Vec<Token>) -> ParseResult {
-  let mut parser = Parser::<'a>::new(tokens);
+pub fn parse<'a, 'b>(file: &'a str, tokens: &'b Vec<Token>) -> ParseResult {
+  let mut parser = Parser::new(file, tokens);
   parser.parse()
 }
 
-struct Parser<'a> {
-  tokens: &'a Vec<Token>,
+struct Parser<'a, 'b> {
+  file: &'a str,
+  tokens: &'b Vec<Token>,
   current: usize,
 }
 
-impl<'a> Parser<'a> {
-  fn new(tokens: &'a Vec<Token>) -> Self {
-    Self { tokens, current: 0 }
+impl<'a, 'b> Parser<'a, 'b> {
+  fn new(file: &'a str, tokens: &'b Vec<Token>) -> Self {
+    Self {
+      file,
+      tokens,
+      current: 0,
+    }
   }
 
   fn parse(&mut self) -> ParseResult {
@@ -161,45 +176,29 @@ impl<'a> Parser<'a> {
   fn for_statement(&mut self) -> StatementResult {
     let token = self.previous();
 
-    let initializer = if self.match_token(vec![TokenType::Semicolon]) {
-      None
-    } else if self.match_token(vec![TokenType::Var]) {
-      Some(self.var_decl()?)
+    let initializer = if self.match_token(vec![TokenType::Var]) {
+      self.var_decl()?
     } else {
-      Some(self.expr_statement()?)
+      self.expr_statement()?
     };
 
-    let mut condition = if self.check(TokenType::Semicolon) {
-      None
-    } else {
-      Some(self.expression()?)
-    };
+    let condition = self.expression()?;
+    self.consume(TokenType::Semicolon, "Expect ';' after condition")?;
 
-    self.consume(TokenType::Semicolon, "Expect ';' after loop condition")?;
-
-    let increment = if self.check(TokenType::Semicolon) {
-      None
-    } else {
-      Some(self.expression()?)
-    };
-
+    let increment = self.expression()?;
     self.consume(TokenType::LeftBrace, "Expect '{' after increment")?;
 
-    let mut body = Stmt::new_block(self.block()?);
-
-    if let Some(inc) = increment {
-      body = Stmt::new_block(vec![body, Stmt::new_expression(inc)]);
-    }
-
-    if let None = condition {
-      condition = Some(Expr::new_literal(Value::Bool(true)));
-    }
-
-    body = Stmt::new_while(token, condition.unwrap(), self.block()?);
-
-    if let Some(init) = initializer {
-      body = Stmt::new_block(vec![init, body])
-    }
+    let body = Stmt::new_block(vec![
+      initializer,
+      Stmt::new_while(
+        token,
+        condition,
+        vec![
+          Stmt::new_block(self.block()?),
+          Stmt::new_expression(increment),
+        ],
+      ),
+    ]);
 
     Ok(body)
   }
@@ -225,8 +224,9 @@ impl<'a> Parser<'a> {
         Some(Box::new(self.if_statement()?))
       } else {
         return Err(AstErr {
-          msg: format!("invalid token after token {}", self.peek()),
+          file: String::from(self.file),
           line: self.peek().line,
+          msg: format!("invalid token after token {}", self.peek()),
         });
       };
     }
@@ -287,8 +287,9 @@ impl<'a> Parser<'a> {
         Ok(Expr::new_assign(v.name, Box::new(value)))
       } else {
         Err(AstErr {
-          msg: String::from("invalid assignment target"),
+          file: String::from(self.file),
           line: equals.line,
+          msg: String::from("invalid assignment target"),
         })
       }
     } else {
@@ -409,8 +410,9 @@ impl<'a> Parser<'a> {
     // TODO proper error handling
 
     Err(AstErr {
-      msg: String::from("could not find valid primary token"),
+      file: String::from(self.file),
       line: self.peek().line,
+      msg: String::from("could not find valid primary token"),
     })
   }
 
@@ -501,7 +503,7 @@ impl<'a> Parser<'a> {
     self.peek().token_type == TokenType::Eof
   }
 
-  fn peek(&self) -> &'a Token {
+  fn peek(&self) -> &'b Token {
     &self.tokens[self.current]
   }
 
@@ -514,8 +516,9 @@ impl<'a> Parser<'a> {
       Ok(self.advance())
     } else {
       Err(AstErr {
-        msg: String::from(msg),
+        file: String::from(self.file),
         line: self.peek().line,
+        msg: String::from(msg),
       })
     }
   }
@@ -571,8 +574,8 @@ pub enum StatementType {
 type ExprEvalResult = Result<Value, AstErr>;
 pub type StmtEvalResult = Result<StatementType, AstErr>;
 
-pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
-  let mut e = Evaluator::new(globals);
+pub fn exec<'a>(file: &'a str, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
+  let mut e = Evaluator::new(String::from(file), globals);
   let mut res = StatementType::Regular(Value::Nil);
 
   for stmt in prgm.iter() {
@@ -586,14 +589,13 @@ pub fn exec(globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
 }
 
 pub struct Evaluator {
-  pub current_env: EnvRef,
+  pub file: String,
+  pub env: EnvRef,
 }
 
-impl<'a> Evaluator {
-  fn new(globals: EnvRef) -> Self {
-    Self {
-      current_env: globals,
-    }
+impl Evaluator {
+  fn new(file: String, env: EnvRef) -> Self {
+    Self { file, env: env }
   }
 
   fn eval_expr(&mut self, e: &Expr) -> ExprEvalResult {
@@ -605,8 +607,8 @@ impl<'a> Evaluator {
   }
 
   pub fn eval_block(&mut self, statements: &Vec<Stmt>, env: EnvRef) -> StmtEvalResult {
-    let prev_env = Rc::clone(&self.current_env);
-    self.current_env = env;
+    let prev_env = Rc::clone(&self.env);
+    self.env = env;
     let mut result = Ok(StatementType::Regular(Value::Nil));
 
     for stmt in statements.iter() {
@@ -625,7 +627,7 @@ impl<'a> Evaluator {
       };
     }
 
-    self.current_env = prev_env;
+    self.env = prev_env;
 
     result
   }
@@ -660,15 +662,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
       value = self.eval_expr(i)?;
     }
 
-    match &e.name.lexeme {
-      Some(l) => self.current_env.borrow_mut().define(l.clone(), value),
-      None => {
-        return Err(AstErr {
-          msg: String::from("missing variable name"),
-          line: e.name.line,
-        })
-      }
-    }
+    self.env.borrow_mut().define(e.name.lexeme.clone(), value);
 
     Ok(StatementType::Regular(Value::Nil))
   }
@@ -676,16 +670,14 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
   fn visit_block_stmt(&mut self, e: &BlockStmt) -> StmtEvalResult {
     self.eval_block(
       &e.statements,
-      Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(
-        &self.current_env,
-      )))),
+      Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(&self.env)))),
     )
   }
 
   fn visit_if_stmt(&mut self, e: &IfStmt) -> StmtEvalResult {
     let result = self.eval_expr(&e.condition)?;
     if self.is_truthy(&result) {
-      self.eval_block(&e.if_true, Rc::clone(&self.current_env))
+      self.eval_block(&e.if_true, Rc::clone(&self.env))
     } else if let Some(if_false) = &e.if_false {
       self.eval_stmt(&if_false)
     } else {
@@ -701,7 +693,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
       if !self.is_truthy(&res) {
         break;
       }
-      match self.eval_block(&e.body, Rc::clone(&self.current_env))? {
+      match self.eval_block(&e.body, Rc::clone(&self.env))? {
         StatementType::Regular(v) => result = StatementType::Regular(v),
         StatementType::Return(v) => {
           result = StatementType::Return(v);
@@ -714,14 +706,14 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
   }
 
   fn visit_function_stmt(&mut self, e: &FunctionStmt) -> StmtEvalResult {
-    let name = e.name.lexeme.as_ref().unwrap().clone();
+    let name = e.name.lexeme.clone();
     let func = ScriptFunction::new(FunctionStmt::new(
       e.name.clone(),
       Rc::clone(&e.params),
       Rc::clone(&e.body),
     ));
     self
-      .current_env
+      .env
       .borrow_mut()
       .define(name, Value::Callee(Rc::new(func)));
     Ok(StatementType::Regular(Value::Nil))
@@ -741,20 +733,22 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
     if let Value::Str(path) = path {
       match fs::read_to_string(&path) {
         Ok(contents) => {
-          let tokens = lex::analyze(&contents)?;
-          let program = parse(&tokens.tokens)?;
-          let result = exec(Rc::clone(&self.current_env), program)?;
+          let tokens = lex::analyze(&path, &contents)?;
+          let program = parse(&path, &tokens.tokens)?;
+          let result = exec(&self.file, Rc::clone(&self.env), program)?;
           Ok(StatementType::Regular(result))
         }
         Err(err) => Err(AstErr {
-          msg: format!("failed loading file {}: {}", path, err),
+          file: self.file.clone(),
           line: s.load.line,
+          msg: format!("failed loading file {}: {}", path, err),
         }),
       }
     } else {
       Err(AstErr {
-        msg: format!("cannot load non string value"),
+        file: self.file.clone(),
         line: s.load.line,
+        msg: format!("cannot load non string value"),
       })
     }
   }
@@ -787,8 +781,9 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
           TokenType::LessThan => Ok(Value::Bool(l < r)),
           TokenType::LessEq => Ok(Value::Bool(l <= r)),
           _ => Err(AstErr {
-            msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
+            file: self.file.clone(),
             line: e.operator.line,
+            msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
           }),
         };
       }
@@ -810,11 +805,12 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
     }
 
     Err(AstErr {
+      file: self.file.clone(),
+      line: e.operator.line,
       msg: format!(
         "Combination of {:?} and {:?} not allowed with {:?}",
         left, right, e.operator
       ),
-      line: e.operator.line,
     })
   }
 
@@ -846,8 +842,9 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
           Ok(Value::Num(-n))
         } else {
           Err(AstErr {
-            msg: format!("invalid negation on type {}", right),
+            file: self.file.clone(),
             line: e.operator.line,
+            msg: format!("invalid negation on type {}", right),
           })
         }
       }
@@ -858,61 +855,50 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
           match s.parse() {
             Ok(n) => Ok(Value::Num(n)),
             Err(err) => Err(AstErr {
-              msg: format!("string parse error: {}", err),
+              file: self.file.clone(),
               line: e.operator.line,
+              msg: format!("string parse error: {}", err),
             }),
           }
         } else {
           Err(AstErr {
-            msg: format!("invalid absolution on type {}", right),
+            file: self.file.clone(),
             line: e.operator.line,
+            msg: format!("invalid absolution on type {}", right),
           })
         }
       }
       _ => Err(AstErr {
-        msg: format!("invalid unary operator {}", e.operator),
+        file: self.file.clone(),
         line: e.operator.line,
+        msg: format!("invalid unary operator {}", e.operator),
       }),
     }
   }
 
   fn visit_variable_expr(&mut self, e: &VariableExpr) -> ExprEvalResult {
-    match &e.name.lexeme {
-      Some(l) => match self.current_env.borrow().lookup(&l) {
-        Some(v) => Ok(v.clone()),
-        None => Err(AstErr {
-          msg: format!("used uninitialized variable '{}'", l),
-          line: e.name.line,
-        }),
-      },
+    match self.env.borrow().lookup(&e.name.lexeme) {
+      Some(v) => Ok(v.clone()),
       None => Err(AstErr {
-        msg: String::from("cannot declare unnamed var"),
+        file: self.file.clone(),
         line: e.name.line,
+        msg: format!("used uninitialized variable '{}'", e.name.lexeme),
       }),
     }
   }
 
   fn visit_assign_expr(&mut self, e: &AssignExpr) -> ExprEvalResult {
     let value = self.eval_expr(&e.value)?;
-    match &e.name.lexeme {
-      Some(l) => {
-        if let Err(msg) = self
-          .current_env
-          .borrow_mut()
-          .assign(l.clone(), value.clone())
-        {
-          return Err(AstErr {
-            msg: format!("assignment error: {}", msg),
-            line: e.name.line,
-          });
-        }
-      }
-      None => {
-        return Err(AstErr {
-          msg: format!("cannot assign unnamed var"),
-          line: e.name.line,
-        })
-      }
+    if let Err(msg) = self
+      .env
+      .borrow_mut()
+      .assign(e.name.lexeme.clone(), value.clone())
+    {
+      return Err(AstErr {
+        file: self.file.clone(),
+        line: e.name.line,
+        msg: format!("assignment error: {}", msg),
+      });
     }
     Ok(value)
   }
@@ -933,8 +919,9 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       }
       _ => {
         return Err(AstErr {
-          msg: String::from("invalid attempt for logical comparison"),
+          file: self.file.clone(),
           line: e.operator.line,
+          msg: String::from("invalid attempt for logical comparison"),
         })
       }
     }
@@ -948,17 +935,18 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
 
     if let Value::Num(begin) = begin {
       if let Value::Num(end) = end {
-        return Ok(Value::List(
+        return Ok(Value::List(Values::new(
           ((begin.round() as i64)..(end.round() as i64))
             .map(|n| Value::Num(n as f64))
             .collect(),
-        ));
+        )));
       }
     }
 
     Err(AstErr {
-      msg: String::from("expected number with range expression"),
+      file: self.file.clone(),
       line: e.token.line,
+      msg: String::from("expected number with range expression"),
     })
   }
 
@@ -973,8 +961,9 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       Ok(func.call(self, args, e.paren.line)?)
     } else {
       Err(AstErr {
-        msg: format!("can't call type {}", callee),
+        file: self.file.clone(),
         line: e.paren.line,
+        msg: format!("can't call type {}", callee),
       })
     }
   }
@@ -982,7 +971,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
   fn visit_closure_expr(&mut self, e: &ClosureExpr) -> ExprEvalResult {
     Ok(Value::Callee(Rc::new(Closure::new(
       ClosureExpr::new(Rc::clone(&e.params), Rc::clone(&e.body)),
-      Rc::clone(&self.current_env),
+      Rc::clone(&self.env),
     ))))
   }
 }

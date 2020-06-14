@@ -64,18 +64,13 @@ pub enum TokenType {
 #[derive(Clone, PartialEq)]
 pub struct Token {
   pub token_type: TokenType,
-  pub lexeme: Option<String>,
+  pub lexeme: String,
   pub literal: Option<Value>,
   pub line: usize,
 }
 
 impl Token {
-  pub fn new(
-    token_type: TokenType,
-    lexeme: Option<String>,
-    literal: Option<Value>,
-    line: usize,
-  ) -> Token {
+  pub fn new(token_type: TokenType, lexeme: String, literal: Option<Value>, line: usize) -> Token {
     Token {
       token_type,
       lexeme,
@@ -90,11 +85,7 @@ impl Display for Token {
     match &self.token_type {
       TokenType::StringLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
       TokenType::NumberLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
-      TokenType::Identifier => write!(f, "{}", self.lexeme.as_ref().unwrap()),
-      other => match &self.lexeme {
-        Some(lex) => write!(f, "{:?}({})", other, lex),
-        None => write!(f, "{:?}", other),
-      },
+      _ => write!(f, "{}", self.lexeme),
     }
   }
 }
@@ -131,8 +122,15 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
 
 #[derive(Debug)]
 pub struct LexicalErr {
-  pub msg: String,
+  pub file: String,
   pub line: usize,
+  pub msg: String,
+}
+
+impl Display for LexicalErr {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{} ({}): {}", self.file, self.line, self.msg)
+  }
 }
 
 pub struct AnalyzeResult {
@@ -140,11 +138,11 @@ pub struct AnalyzeResult {
   pub lines: usize,
 }
 
-pub fn analyze(src: &str) -> Result<AnalyzeResult, LexicalErr> {
+pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
   enum TokenResult {
     Valid(TokenType),
     Skip,
-    Error(usize),
+    Error { msg: String, line: usize },
   };
 
   let keywords = basic_keywords();
@@ -245,6 +243,7 @@ pub fn analyze(src: &str) -> Result<AnalyzeResult, LexicalErr> {
           current_pos += 1;
         } {
           return Err(LexicalErr {
+            file: String::from(filename),
             msg: String::from(r#"missing closing " for string"#),
             line,
           });
@@ -296,10 +295,16 @@ pub fn analyze(src: &str) -> Result<AnalyzeResult, LexicalErr> {
               Some(token) => TokenResult::Valid(token.clone()),
               None => TokenResult::Valid(TokenType::Identifier),
             },
-            Err(_) => TokenResult::Error(line),
+            Err(err) => TokenResult::Error {
+              msg: format!("{}", err),
+              line,
+            },
           }
         } else {
-          TokenResult::Error(line)
+          TokenResult::Error {
+            msg: format!("invalid character '{}'", c),
+            line,
+          }
         }
       }
     };
@@ -308,23 +313,25 @@ pub fn analyze(src: &str) -> Result<AnalyzeResult, LexicalErr> {
 
     if let TokenResult::Valid(token_type) = token {
       match create_token(&bytes, start_pos, current_pos, token_type) {
-        Ok(token) => tokens.push(Token::new(token.0, Some(token.1), token.2, line)),
-        Err(_) => {
+        Ok(info) => tokens.push(Token::new(info.token_type, info.lexeme, info.literal, line)),
+        Err(err) => {
           return Err(LexicalErr {
-            msg: String::from(""),
+            file: String::from(filename),
+            msg: err,
             line,
           });
         }
       }
-    } else if let TokenResult::Error(line) = token {
+    } else if let TokenResult::Error { msg, line } = token {
       return Err(LexicalErr {
-        msg: String::from(""),
+        file: String::from(filename),
+        msg,
         line,
       });
     }
   }
 
-  tokens.push(Token::new(TokenType::Eof, None, None, line));
+  tokens.push(Token::new(TokenType::Eof, String::from("EOF"), None, line));
 
   Ok(AnalyzeResult {
     tokens: tokens,
@@ -340,12 +347,18 @@ fn peek(buff: &[u8], current_pos: usize) -> Option<char> {
   }
 }
 
+struct TokenInfo {
+  token_type: TokenType,
+  lexeme: String,
+  literal: Option<Value>,
+}
+
 fn create_token(
   buff: &[u8],
   start: usize,
   end: usize,
   token_type: TokenType,
-) -> Result<(TokenType, String, Option<Value>), String> {
+) -> Result<TokenInfo, String> {
   let lexeme = match str::from_utf8(&buff[start..end]) {
     Ok(string) => string,
     Err(err) => return Err(format!("{}", err)),
@@ -353,7 +366,7 @@ fn create_token(
 
   let lexeme = String::from(lexeme);
 
-  let value = match token_type {
+  let literal = match token_type {
     TokenType::StringLiteral => Some(Value::Str(String::from(&lexeme[1..lexeme.len() - 1]))),
     TokenType::NumberLiteral => match lexeme.parse() {
       Ok(n) => Some(Value::Num(n)),
@@ -365,7 +378,11 @@ fn create_token(
     _ => None,
   };
 
-  Ok((token_type, lexeme, value))
+  Ok(TokenInfo {
+    token_type,
+    lexeme,
+    literal,
+  })
 }
 
 fn is_digit(c: char) -> bool {
@@ -398,20 +415,20 @@ mod tests {
 
   #[test]
   fn lexer_analyze_with_no_error_basic() {
-    let result = analyze(GOOD_SRC);
+    let result = analyze("test", GOOD_SRC);
 
     let expected_tokens = vec![
-      Token::new(TokenType::Var, Some(String::from("var")), None, 0),
-      Token::new(TokenType::Identifier, Some(String::from("var_1")), None, 0),
-      Token::new(TokenType::Equal, Some(String::from("=")), None, 0),
+      Token::new(TokenType::Var, String::from("var"), None, 0),
+      Token::new(TokenType::Identifier, String::from("var_1"), None, 0),
+      Token::new(TokenType::Equal, String::from("="), None, 0),
       Token::new(
         TokenType::StringLiteral,
-        Some(String::from(r#""some value""#)),
+        String::from(r#""some value""#),
         Some(Value::Str(String::from("some value"))),
         0,
       ),
-      Token::new(TokenType::Semicolon, Some(String::from(";")), None, 0),
-      Token::new(TokenType::Eof, None, None, 0),
+      Token::new(TokenType::Semicolon, String::from(";"), None, 0),
+      Token::new(TokenType::Eof, String::from("EOF"), None, 0),
     ];
 
     match result {

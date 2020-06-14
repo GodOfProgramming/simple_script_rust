@@ -18,11 +18,19 @@ impl Env {
     }
   }
 
+  pub fn new_ref() -> EnvRef {
+    Rc::new(RefCell::new(Env::new()))
+  }
+
   pub fn new_with_enclosing(enclosing: EnvRef) -> Self {
     Self {
       values: HashMap::new(),
       enclosing: Some(enclosing),
     }
+  }
+
+  pub fn new_ref_with_enclosing(enclosing: EnvRef) -> EnvRef {
+    Rc::new(RefCell::new(Env::new_with_enclosing(enclosing)))
   }
 
   pub fn define(&mut self, name: String, value: Value) {
