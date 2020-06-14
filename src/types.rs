@@ -1,6 +1,6 @@
 use crate::ast::AstErr;
 use crate::ast::{Evaluator, StatementType};
-use crate::env::Env;
+use crate::env::{Env, EnvRef};
 use crate::expr::ClosureExpr;
 use crate::stmt::FunctionStmt;
 use std::cell::RefCell;
@@ -139,37 +139,26 @@ pub trait Callable: Display {
 }
 
 pub type NativeResult = Result<Value, String>;
+pub type NativeClosure = fn(EnvRef, Vec<Value>) -> NativeResult;
 
-pub struct NativeFunction<T>
-where
-  T: Fn(Vec<Value>) -> NativeResult,
-{
+pub struct NativeFunction {
   airity: usize,
-  func: T,
+  func: NativeClosure,
 }
 
-impl<T> NativeFunction<T>
-where
-  T: Fn(Vec<Value>) -> NativeResult,
-{
-  pub fn new(airity: usize, func: T) -> Self {
+impl NativeFunction {
+  pub fn new(airity: usize, func: NativeClosure) -> Self {
     Self { airity, func }
   }
 }
 
-impl<T> Display for NativeFunction<T>
-where
-  T: Fn(Vec<Value>) -> NativeResult,
-{
+impl Display for NativeFunction {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "<native function>")
   }
 }
 
-impl<T> Callable for NativeFunction<T>
-where
-  T: Fn(Vec<Value>) -> NativeResult,
-{
+impl Callable for NativeFunction {
   fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     if self.airity < args.len() {
       return Err(CallErr {
@@ -195,7 +184,7 @@ where
       });
     }
 
-    match (self.func)(args) {
+    match (self.func)(Rc::clone(&e.env), args) {
       Ok(v) => Ok(v),
       Err(msg) => Err(CallErr {
         file: e.file.clone(),

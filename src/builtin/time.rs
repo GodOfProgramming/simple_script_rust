@@ -9,7 +9,7 @@ const NANOS_IN_SECOND: f64 = 1_000_000_000.0;
 pub fn enable(e: EnvRef) {
   e.borrow_mut().define(
     String::from("clock_nanos"),
-    Value::Callee(Rc::new(NativeFunction::new(0, |_| match SystemTime::now()
+    Value::Callee(Rc::new(NativeFunction::new(0, |_, _| match SystemTime::now()
       .duration_since(SystemTime::UNIX_EPOCH)
     {
       Ok(n) => Ok(Value::Num(n.as_nanos() as f64)),
@@ -19,7 +19,7 @@ pub fn enable(e: EnvRef) {
 
   e.borrow_mut().define(
     String::from("clock_seconds"),
-    Value::Callee(Rc::new(NativeFunction::new(0, |_| match SystemTime::now()
+    Value::Callee(Rc::new(NativeFunction::new(0, |_, _| match SystemTime::now()
       .duration_since(SystemTime::UNIX_EPOCH)
     {
       Ok(n) => Ok(Value::Num(n.as_nanos() as f64 / NANOS_IN_SECOND)),
