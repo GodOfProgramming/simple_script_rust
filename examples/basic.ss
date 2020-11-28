@@ -1,11 +1,13 @@
+#!/usr/bin/env ss
+
 fn first_function() {}
 
-var REPS = 100000;
-var before = clock();
-for var i = 0; i < REPS; i = i + 1 {
+let REPS = 100000;
+let before = clock_nanos();
+for let i = 0; i < REPS; i = i + 1 {
   first_function();
 }
-var after = clock();
+let after = clock_nanos();
 
 print "func call time is " + ((after - before) / REPS);
 
@@ -35,11 +37,11 @@ fn fourth_function(x) {
 print fourth_function(1);
 print fourth_function(5);
 
-var foo = 1;
+let foo = 1;
 {
-  var foo = "some string";
+  let foo = "some string";
   {
-    var foo = true;
+    let foo = true;
 
     print foo;
   }
@@ -47,13 +49,13 @@ var foo = 1;
 }
 print foo;
 
-var a = 1;
+let a = 1;
 {
-  var a = a + 2;
+  let a = a + 2;
   print a;
 }
 
-var q = true;
+let q = true;
 
 if q {
   print "q is true";
@@ -61,8 +63,8 @@ if q {
   print "q is false";
 }
 
-var one = 1;
-var two = 2;
+let one = 1;
+let two = 2;
 
 if one == 1 {
   print "1 is 1";
@@ -72,8 +74,8 @@ if one == 1 {
   print "something is wrong";
 }
 
-var false_type = false;
-var true_type = true;
+let false_type = false;
+let true_type = true;
 
 if true_type or false_type {
   print "passed";
@@ -85,7 +87,7 @@ if true_type and false_type {
 
 print true ? one + one : two + two;
 
-var xyz;
+let xyz;
 
 xyz = 1 +
       2 +
@@ -98,6 +100,6 @@ while xyz != 0 {
   xyz = xyz - 1;
 }
 
-for var i = 0; i < 10; i = i + 1 {
+for let i = 0; i < 10; i = i + 1 {
   print i;
 }

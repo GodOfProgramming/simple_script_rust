@@ -135,7 +135,7 @@ impl Display for LexicalErr {
 
 pub struct AnalyzeResult {
   pub tokens: Vec<Token>,
-  pub lines: usize,
+  pub lines_analyzed: usize,
 }
 
 pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
@@ -287,7 +287,7 @@ pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
 
           match str::from_utf8(&bytes[start_pos..current_pos + 1]) {
             Ok(string) => match keywords.get(string) {
-              Some(token) => TokenResult::Valid(token.clone()),
+              Some(token) => TokenResult::Valid(*token),
               None => TokenResult::Valid(TokenType::Identifier),
             },
             Err(err) => TokenResult::Error {
@@ -329,8 +329,8 @@ pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
   tokens.push(Token::new(TokenType::Eof, String::from("EOF"), None, line));
 
   Ok(AnalyzeResult {
-    tokens: tokens,
-    lines: line,
+    tokens,
+    lines_analyzed: line,
   })
 }
 
@@ -428,10 +428,10 @@ mod tests {
 
     match result {
       Ok(res) => {
-        assert_eq!(res.lines, 0);
+        assert_eq!(res.lines_analyzed, 0);
         assert_eq!(res.tokens, expected_tokens);
       }
-      Err(_) => assert!(false),
+      Err(_) => panic!(),
     }
   }
 }

@@ -26,7 +26,7 @@ pub struct ExecErr {
 
 impl Display for ExecErr {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} ({}): {}", self.file, self.msg, self.msg)
+    write!(f, "{} ({}): {}", self.file, self.line, self.msg)
   }
 }
 
@@ -127,7 +127,7 @@ impl Interpreter {
       match ast::exec("ss", Rc::clone(&self.globals), program) {
         Ok(v) => {
           println!("=> {}", v);
-          line_number += analysis.lines;
+          line_number += analysis.lines_analyzed;
         }
         Err(err) => println!("{} ({}): {}", err.file, err.line + line_number, err.msg),
       }
@@ -148,7 +148,7 @@ mod tests {
   fn test_script_logic() {
     let i = Interpreter::default_with_test_support();
 
-    if let Err(e) = i.exec(TEST_SCRIPT_SRC, TEST_SCRIPT_FILE) {
+    if let Err(e) = i.exec(TEST_SCRIPT_FILE, TEST_SCRIPT_SRC) {
       panic!("test script improperly written: {}", e);
     }
   }
