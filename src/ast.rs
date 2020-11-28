@@ -1,4 +1,4 @@
-use crate::env::{Env, EnvRef};
+use crate::env::EnvRef;
 use crate::expr::{
   self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GroupingExpr, LiteralExpr,
   LogicalExpr, RangeExpr, TernaryExpr, UnaryExpr, VariableExpr, Visitor as ExprVisitor,
@@ -9,7 +9,6 @@ use crate::stmt::{
   ReturnStmt, Stmt, VarStmt, Visitor as StmtVisitor, WhileStmt,
 };
 use crate::types::{CallErr, Closure, ScriptFunction, Value, Values};
-use std::cell::RefCell;
 use std::env;
 use std::ffi::OsString;
 use std::fmt::{self, Display};
@@ -59,7 +58,7 @@ type ParseResult = Result<Vec<Stmt>, AstErr>;
 type StatementResult = Result<Stmt, AstErr>;
 type ExprResult = Result<Expr, AstErr>;
 
-pub fn parse<'token>(file: OsString, tokens: &'token [Token]) -> ParseResult {
+pub fn parse(file: OsString, tokens: &[Token]) -> ParseResult {
   let mut parser = Parser::new(file, tokens);
   parser.parse()
 }
@@ -493,7 +492,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn match_token(&mut self, types: &[TokenType]) -> bool {
-    for token_type in types.into_iter() {
+    for token_type in types.iter() {
       if self.check(*token_type) {
         self.advance();
         return true;
@@ -591,7 +590,7 @@ type ExprEvalResult = Result<Value, AstErr>;
 pub type StmtEvalResult = Result<StatementType, AstErr>;
 
 pub fn exec(file: OsString, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
-  let mut e = Evaluator::new(file, globals);
+  let mut e = Evaluator::new(file, globals.snapshot());
   let mut res = StatementType::Regular(Value::Nil);
 
   for stmt in prgm.iter() {
@@ -623,8 +622,9 @@ impl Evaluator {
   }
 
   pub fn eval_block(&mut self, statements: &[Stmt], env: EnvRef) -> StmtEvalResult {
-    let prev_env = Rc::clone(&self.env);
+    let prev_env = self.env.snapshot();
     self.env = env;
+
     let mut result = Ok(StatementType::Regular(Value::Nil));
 
     for stmt in statements.iter() {
@@ -678,22 +678,19 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
       value = self.eval_expr(i)?;
     }
 
-    self.env.borrow_mut().define(e.name.lexeme.clone(), value);
+    self.env.define(e.name.lexeme.clone(), value);
 
     Ok(StatementType::Regular(Value::Nil))
   }
 
   fn visit_block_stmt(&mut self, e: &BlockStmt) -> StmtEvalResult {
-    self.eval_block(
-      &e.statements,
-      Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(&self.env)))),
-    )
+    self.eval_block(&e.statements,  EnvRef::new_with_enclosing(self.env.snapshot()))
   }
 
   fn visit_if_stmt(&mut self, e: &IfStmt) -> StmtEvalResult {
     let result = self.eval_expr(&e.condition)?;
     if self.is_truthy(&result) {
-      self.eval_block(&e.if_true, Rc::clone(&self.env))
+      self.eval_block(&e.if_true, self.env.snapshot())
     } else if let Some(if_false) = &e.if_false {
       self.eval_stmt(&if_false)
     } else {
@@ -709,7 +706,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
       if !self.is_truthy(&res) {
         break;
       }
-      match self.eval_block(&e.body, Rc::clone(&self.env))? {
+      match self.eval_block(&e.body, self.env.snapshot())? {
         StatementType::Regular(v) => result = StatementType::Regular(v),
         StatementType::Return(v) => {
           result = StatementType::Return(v);
@@ -728,10 +725,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
       Rc::clone(&e.params),
       Rc::clone(&e.body),
     ));
-    self
-      .env
-      .borrow_mut()
-      .define(name, Value::Callee(Rc::new(func)));
+    self.env.define(name, Value::Callee(Rc::new(func)));
     Ok(StatementType::Regular(Value::Nil))
   }
 
@@ -751,7 +745,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
         Ok(contents) => {
           let tokens = lex::analyze(path.clone().into(), &contents)?;
           let program = parse(path.clone().into(), &tokens.tokens)?;
-          let result = exec(path.into(), Rc::clone(&self.env), program)?;
+          let result = exec(path.into(), self.env.snapshot(), program)?;
           Ok(StatementType::Regular(result))
         }
         Err(err) => Err(AstErr {
@@ -772,7 +766,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
   fn visit_loadr_stmt(&mut self, s: &LoadrStmt) -> StmtEvalResult {
     let path = self.eval_expr(&s.path)?;
     if let Value::Str(path) = path {
-      let mut wd: PathBuf = env::current_dir().map_err(|e| AstErr {
+      let mut wd: PathBuf = env::current_dir().map_err(|_| AstErr {
         file: self.file.clone(),
         line: s.loadr.line,
         msg: "unable to check current working directory".to_string(),
@@ -785,7 +779,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
         Ok(contents) => {
           let tokens = lex::analyze(path.clone().into(), &contents)?;
           let program = parse(path.clone().into(), &tokens.tokens)?;
-          let result = exec(path.into(), Rc::clone(&self.env), program)?;
+          let result = exec(path.into(), self.env.snapshot(), program)?;
           Ok(StatementType::Regular(result))
         }
         Err(err) => Err(AstErr {
@@ -927,7 +921,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
   }
 
   fn visit_variable_expr(&mut self, e: &VariableExpr) -> ExprEvalResult {
-    match self.env.borrow().lookup(&e.name.lexeme) {
+    match self.env.lookup(&e.name.lexeme) {
       Some(v) => Ok(v),
       None => Err(AstErr {
         file: self.file.clone(),
@@ -939,11 +933,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
 
   fn visit_assign_expr(&mut self, e: &AssignExpr) -> ExprEvalResult {
     let value = self.eval_expr(&e.value)?;
-    if let Err(msg) = self
-      .env
-      .borrow_mut()
-      .assign(e.name.lexeme.clone(), value.clone())
-    {
+    if let Err(msg) = self.env.assign(e.name.lexeme.clone(), value.clone()) {
       return Err(AstErr {
         file: self.file.clone(),
         line: e.name.line,
@@ -1021,7 +1011,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
   fn visit_closure_expr(&mut self, e: &ClosureExpr) -> ExprEvalResult {
     Ok(Value::Callee(Rc::new(Closure::new(
       ClosureExpr::new(Rc::clone(&e.params), Rc::clone(&e.body)),
-      Rc::clone(&self.env),
+      self.env.snapshot(),
     ))))
   }
 }

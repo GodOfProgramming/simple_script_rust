@@ -3,8 +3,8 @@ use crate::types::NativeFunction;
 use crate::types::Value;
 use std::rc::Rc;
 
-pub fn enable(e: EnvRef) {
-  e.borrow_mut().define(
+pub fn enable(e: &mut EnvRef) {
+  e.define(
     String::from("assert"),
     Value::Callee(Rc::new(NativeFunction::new(2, |_env, args| {
       if args[0] != args[1] {

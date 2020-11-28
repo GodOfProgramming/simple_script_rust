@@ -1,11 +1,10 @@
 use crate::ast::AstErr;
-use crate::env::{Env, EnvRef};
+use crate::env::EnvRef;
 use crate::lex::LexicalErr;
 use crate::types::Value;
 use std::ffi::OsString;
 use std::fmt::{self, Display};
 use std::io::{self, Write};
-use std::rc::Rc;
 
 pub mod types;
 
@@ -63,10 +62,10 @@ pub struct Interpreter {
 
 impl Default for Interpreter {
   fn default() -> Self {
-    let globals = Env::new_ref();
+    let mut globals = EnvRef::default();
 
-    builtin::time::enable(Rc::clone(&globals));
-    builtin::meta::enable(Rc::clone(&globals));
+    builtin::time::enable(&mut globals);
+    builtin::meta::enable(&mut globals);
 
     Interpreter { globals }
   }
@@ -74,21 +73,21 @@ impl Default for Interpreter {
 
 impl Interpreter {
   pub fn default_with_test_support() -> Self {
-    let i = Interpreter::default();
+    let mut i = Interpreter::default();
 
-    builtin::test::enable(Rc::clone(&i.globals));
+    builtin::test::enable(&mut i.globals);
 
     i
   }
 
   pub fn set_var(&mut self, name: &str, value: Value) {
-    self.globals.borrow_mut().define(name.to_string(), value);
+    self.globals.define(name.to_string(), value);
   }
 
   pub fn exec(&self, script_name: &str, src: &str) -> Result<Value, ExecErr> {
     let res = lex::analyze(script_name.into(), src)?;
     let program = ast::parse(script_name.into(), &res.tokens)?;
-    let value = ast::exec(script_name.into(), Rc::clone(&self.globals), program)?;
+    let value = ast::exec(script_name.into(), self.globals.snapshot(), program)?;
     Ok(value)
   }
 
@@ -141,7 +140,7 @@ impl Interpreter {
         }
       };
 
-      match ast::exec("ss".into(), Rc::clone(&self.globals), program) {
+      match ast::exec("ss".into(), self.globals.snapshot(), program) {
         Ok(v) => {
           println!("=> {}", v);
           line_number += analysis.lines_analyzed;

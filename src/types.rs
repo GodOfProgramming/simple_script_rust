@@ -1,12 +1,11 @@
 use crate::ast::AstErr;
 use crate::ast::{Evaluator, StatementType};
-use crate::env::{Env, EnvRef};
+use crate::env::EnvRef;
 use crate::expr::ClosureExpr;
 use crate::stmt::FunctionStmt;
-use std::cell::RefCell;
+use std::ffi::OsString;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
-use std::ffi::OsString;
 
 #[derive(Clone)]
 pub enum Value {
@@ -181,7 +180,7 @@ impl Callable for NativeFunction {
       });
     }
 
-    match (self.func)(Rc::clone(&e.env), args) {
+    match (self.func)(e.env.snapshot(), args) {
       Ok(v) => Ok(v),
       Err(msg) => Err(CallErr {
         file: e.file.clone(),
@@ -235,10 +234,10 @@ impl Callable for ScriptFunction {
       });
     }
 
-    let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(&e.env))));
+    let mut env = EnvRef::new_with_enclosing(e.env.snapshot());
 
     for (param, arg) in func.params.iter().zip(args.iter()) {
-      env.borrow_mut().define(param.lexeme.clone(), arg.clone())
+      env.define(param.lexeme.clone(), arg.clone())
     }
 
     Ok(match e.eval_block(&func.body, env)? {
@@ -250,11 +249,11 @@ impl Callable for ScriptFunction {
 
 pub struct Closure {
   pub exec: ClosureExpr,
-  env: Rc<RefCell<Env>>,
+  env: EnvRef,
 }
 
 impl Closure {
-  pub fn new(exec: ClosureExpr, env: Rc<RefCell<Env>>) -> Self {
+  pub fn new(exec: ClosureExpr, env: EnvRef) -> Self {
     Self { exec, env }
   }
 }
@@ -292,10 +291,10 @@ impl Callable for Closure {
       });
     }
 
-    let env = Rc::new(RefCell::new(Env::new_with_enclosing(Rc::clone(&self.env))));
+    let mut env = EnvRef::new_with_enclosing(self.env.snapshot());
 
     for (param, arg) in func.params.iter().zip(args.iter()) {
-      env.borrow_mut().define(param.lexeme.clone(), arg.clone())
+      env.define(param.lexeme.clone(), arg.clone())
     }
 
     Ok(match e.eval_block(&func.body, env)? {

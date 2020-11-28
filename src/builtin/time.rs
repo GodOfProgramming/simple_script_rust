@@ -6,8 +6,8 @@ use std::time::SystemTime;
 
 const NANOS_IN_SECOND: f64 = 1_000_000_000.0;
 
-pub fn enable(e: EnvRef) {
-  e.borrow_mut().define(
+pub fn enable(e: &mut EnvRef) {
+  e.define(
     String::from("clock_nanos"),
     Value::Callee(Rc::new(NativeFunction::new(0, |_, _| match SystemTime::now()
       .duration_since(SystemTime::UNIX_EPOCH)
@@ -17,7 +17,7 @@ pub fn enable(e: EnvRef) {
     }))),
   );
 
-  e.borrow_mut().define(
+  e.define(
     String::from("clock_seconds"),
     Value::Callee(Rc::new(NativeFunction::new(0, |_, _| match SystemTime::now()
       .duration_since(SystemTime::UNIX_EPOCH)

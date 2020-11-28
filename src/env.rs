@@ -3,58 +3,88 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-pub struct Env {
-  values: HashMap<String, Value>,
+struct Env {
+  scope: HashMap<String, Value>,
   enclosing: Option<EnvRef>,
 }
 
-pub type EnvRef = Rc<RefCell<Env>>;
-
-impl Env {
-  pub fn new() -> Self {
+impl Default for Env {
+  fn default() -> Self {
     Self {
-      values: HashMap::new(),
+      scope: HashMap::new(),
       enclosing: None,
     }
   }
+}
 
-  pub fn new_ref() -> EnvRef {
-    Rc::new(RefCell::new(Env::new()))
-  }
-
-  pub fn new_with_enclosing(enclosing: EnvRef) -> Self {
+impl Env {
+  fn new(enclosing: EnvRef) -> Env {
     Self {
-      values: HashMap::new(),
+      scope: HashMap::new(),
       enclosing: Some(enclosing),
     }
   }
 
-  pub fn new_ref_with_enclosing(enclosing: EnvRef) -> EnvRef {
-    Rc::new(RefCell::new(Env::new_with_enclosing(enclosing)))
+  fn define(&mut self, name: String, value: Value) {
+    self.scope.insert(name, value);
   }
 
-  pub fn define(&mut self, name: String, value: Value) {
-    self.values.insert(name, value);
-  }
-
-  pub fn lookup(&self, name: &String) -> Option<Value> {
-    if let Some(v) = self.values.get(name) {
+  fn lookup(&self, name: &str) -> Option<Value> {
+    if let Some(v) = self.scope.get(name) {
       Some(v.clone())
-    } else if let Some(e) = &self.enclosing {
-      e.borrow().lookup(name)
+    } else if let Some(enc) = &self.enclosing {
+      enc.env.borrow().lookup(name)
     } else {
       None
     }
   }
 
-  pub fn assign(&mut self, name: String, value: Value) -> Result<(), String> {
-    if self.values.contains_key(&name) {
-      self.values.insert(name, value);
+  fn assign(&mut self, name: String, value: Value) -> Result<(), String> {
+    if self.scope.contains_key(&name) {
+      self.scope.insert(name, value);
       Ok(())
-    } else if let Some(e) = &mut self.enclosing {
-      e.borrow_mut().assign(name, value)
+    } else if let Some(enc) = &mut self.enclosing {
+      enc.env.borrow_mut().assign(name, value)
     } else {
       Err(format!("assignment of undefined variable '{}'", name))
     }
+  }
+}
+
+pub struct EnvRef {
+  env: Rc<RefCell<Env>>,
+}
+
+impl Default for EnvRef {
+  fn default() -> Self {
+    Self {
+      env: Rc::new(RefCell::new(Env::default())),
+    }
+  }
+}
+
+impl EnvRef {
+  pub fn new_with_enclosing(enclosing: EnvRef) -> Self {
+    Self {
+      env: Rc::new(RefCell::new(Env::new(enclosing))),
+    }
+  }
+
+  pub fn snapshot(&self) -> Self {
+    Self {
+      env: Rc::clone(&self.env),
+    }
+  }
+
+  pub fn define(&mut self, name: String, value: Value) {
+    self.env.borrow_mut().define(name, value);
+  }
+
+  pub fn lookup(&self, name: &str) -> Option<Value> {
+    self.env.borrow().lookup(name)
+  }
+
+  pub fn assign(&mut self, name: String, value: Value) -> Result<(), String> {
+    self.env.borrow_mut().assign(name, value)
   }
 }
