@@ -24,10 +24,11 @@ pub fn enable(e: EnvRef) {
     String::from("exec"),
     Value::Callee(Rc::new(NativeFunction::new(1, |env, args| {
       if let Value::Str(script) = &args[0] {
-        let analysis = lex::analyze("exec", &script).or_else(|err| Err(format!("{}", err)))?;
+        let analysis =
+          lex::analyze("exec".into(), &script).or_else(|err| Err(format!("{}", err)))?;
         let program =
-          ast::parse("exec", &analysis.tokens).or_else(|err| Err(format!("{}", err)))?;
-        ast::exec("exec", Rc::clone(&env), program).or_else(|err| Err(format!("{}", err)))
+          ast::parse("exec".into(), &analysis.tokens).or_else(|err| Err(format!("{}", err)))?;
+        ast::exec("exec".into(), Rc::clone(&env), program).or_else(|err| Err(format!("{}", err)))
       } else {
         Err(String::from("value is not string"))
       }

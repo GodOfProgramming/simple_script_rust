@@ -1,5 +1,6 @@
 use crate::types::Value;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fmt::{self, Debug, Display};
 use std::str;
 
@@ -124,14 +125,14 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
 
 #[derive(Debug)]
 pub struct LexicalErr {
-  pub file: String,
+  pub file: OsString,
   pub line: usize,
   pub msg: String,
 }
 
 impl Display for LexicalErr {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} ({}): {}", self.file, self.line, self.msg)
+    write!(f, "{} ({}): {}", self.file.to_string_lossy(), self.line, self.msg)
   }
 }
 
@@ -140,7 +141,7 @@ pub struct AnalyzeResult {
   pub lines_analyzed: usize,
 }
 
-pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
+pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
   enum TokenResult {
     Valid(TokenType),
     Skip,
@@ -240,7 +241,7 @@ pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
           current_pos += 1;
         } {
           return Err(LexicalErr {
-            file: String::from(filename),
+            file,
             msg: String::from(r#"missing closing " for string"#),
             line,
           });
@@ -313,7 +314,7 @@ pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
         Ok(info) => tokens.push(Token::new(info.token_type, info.lexeme, info.literal, line)),
         Err(err) => {
           return Err(LexicalErr {
-            file: String::from(filename),
+            file,
             msg: err,
             line,
           });
@@ -321,7 +322,7 @@ pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
       }
     } else if let TokenResult::Error { msg, line } = token {
       return Err(LexicalErr {
-        file: String::from(filename),
+        file,
         msg,
         line,
       });
@@ -412,7 +413,7 @@ mod tests {
 
   #[test]
   fn lexer_analyze_with_no_error_basic() {
-    let result = analyze("test", GOOD_SRC);
+    let result = analyze("test".into(), GOOD_SRC);
 
     let expected_tokens = vec![
       Token::new(TokenType::Let, String::from("let"), None, 0),

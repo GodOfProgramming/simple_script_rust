@@ -2,6 +2,7 @@ use crate::ast::AstErr;
 use crate::env::{Env, EnvRef};
 use crate::lex::LexicalErr;
 use crate::types::Value;
+use std::ffi::OsString;
 use std::fmt::{self, Display};
 use std::io::{self, Write};
 use std::rc::Rc;
@@ -19,14 +20,20 @@ pub type ExecResult = Result<Value, ExecErr>;
 
 #[derive(Debug)]
 pub struct ExecErr {
-  pub file: String,
+  pub file: OsString,
   pub line: usize,
   pub msg: String,
 }
 
 impl Display for ExecErr {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} ({}): {}", self.file, self.line, self.msg)
+    write!(
+      f,
+      "{} ({}): {}",
+      self.file.to_string_lossy(),
+      self.line,
+      self.msg
+    )
   }
 }
 
@@ -79,9 +86,9 @@ impl Interpreter {
   }
 
   pub fn exec(&self, script_name: &str, src: &str) -> Result<Value, ExecErr> {
-    let res = lex::analyze("ss", src)?;
-    let program = ast::parse(script_name, &res.tokens)?;
-    let value = ast::exec(script_name, Rc::clone(&self.globals), program)?;
+    let res = lex::analyze(script_name.into(), src)?;
+    let program = ast::parse(script_name.into(), &res.tokens)?;
+    let value = ast::exec(script_name.into(), Rc::clone(&self.globals), program)?;
     Ok(value)
   }
 
@@ -107,29 +114,44 @@ impl Interpreter {
         exit = true;
       }
 
-      let analysis = match lex::analyze("ss", &input) {
+      let analysis = match lex::analyze("ss".into(), &input) {
         Ok(a) => a,
         Err(err) => {
           // - 1 because analyze will read the \n from pressing enter
-          println!("{} ({}): {}", err.file, err.line + line_number - 1, err.msg);
+          println!(
+            "{} ({}): {}",
+            err.file.to_string_lossy(),
+            err.line + line_number - 1,
+            err.msg
+          );
           continue;
         }
       };
 
-      let program = match ast::parse("ss", &analysis.tokens) {
+      let program = match ast::parse("ss".into(), &analysis.tokens) {
         Ok(p) => p,
         Err(err) => {
-          println!("{} ({}): {}", err.file, err.line + line_number, err.msg);
+          println!(
+            "{} ({}): {}",
+            err.file.to_string_lossy(),
+            err.line + line_number,
+            err.msg
+          );
           continue;
         }
       };
 
-      match ast::exec("ss", Rc::clone(&self.globals), program) {
+      match ast::exec("ss".into(), Rc::clone(&self.globals), program) {
         Ok(v) => {
           println!("=> {}", v);
           line_number += analysis.lines_analyzed;
         }
-        Err(err) => println!("{} ({}): {}", err.file, err.line + line_number, err.msg),
+        Err(err) => println!(
+          "{} ({}): {}",
+          err.file.to_string_lossy(),
+          err.line + line_number,
+          err.msg
+        ),
       }
     }
 

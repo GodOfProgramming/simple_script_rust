@@ -6,6 +6,7 @@ use crate::stmt::FunctionStmt;
 use std::cell::RefCell;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
+use std::ffi::OsString;
 
 #[derive(Clone)]
 pub enum Value {
@@ -115,7 +116,7 @@ impl PartialEq for Value {
 pub type CallResult = Result<Value, CallErr>;
 
 pub struct CallErr {
-  pub file: String,
+  pub file: OsString,
   pub line: usize,
   pub msg: String,
 }

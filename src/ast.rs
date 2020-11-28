@@ -11,20 +11,27 @@ use crate::stmt::{
 use crate::types::{CallErr, Closure, ScriptFunction, Value, Values};
 use std::cell::RefCell;
 use std::env;
+use std::ffi::OsString;
 use std::fmt::{self, Display};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 pub struct AstErr {
-  pub file: String,
+  pub file: OsString,
   pub line: usize,
   pub msg: String,
 }
 
 impl Display for AstErr {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} ({}): {}", self.file, self.line, self.msg)
+    write!(
+      f,
+      "{} ({}): {}",
+      self.file.to_string_lossy(),
+      self.line,
+      self.msg
+    )
   }
 }
 
@@ -52,19 +59,19 @@ type ParseResult = Result<Vec<Stmt>, AstErr>;
 type StatementResult = Result<Stmt, AstErr>;
 type ExprResult = Result<Expr, AstErr>;
 
-pub fn parse<'token>(file: &str, tokens: &'token [Token]) -> ParseResult {
+pub fn parse<'token>(file: OsString, tokens: &'token [Token]) -> ParseResult {
   let mut parser = Parser::new(file, tokens);
   parser.parse()
 }
 
-struct Parser<'file, 'tokens> {
-  file: &'file str,
+struct Parser<'tokens> {
+  file: OsString,
   tokens: &'tokens [Token],
   current: usize,
 }
 
-impl<'file, 'tokens> Parser<'file, 'tokens> {
-  fn new(file: &'file str, tokens: &'tokens [Token]) -> Self {
+impl<'tokens> Parser<'tokens> {
+  fn new(file: OsString, tokens: &'tokens [Token]) -> Self {
     Self {
       file,
       tokens,
@@ -228,7 +235,7 @@ impl<'file, 'tokens> Parser<'file, 'tokens> {
         Some(Box::new(self.if_statement()?))
       } else {
         return Err(AstErr {
-          file: String::from(self.file),
+          file: self.file.clone(),
           line: self.peek().line,
           msg: format!("invalid token after token {}", self.peek()),
         });
@@ -299,7 +306,7 @@ impl<'file, 'tokens> Parser<'file, 'tokens> {
         Ok(Expr::new_assign(v.name, Box::new(value)))
       } else {
         Err(AstErr {
-          file: String::from(self.file),
+          file: self.file.clone(),
           line: equals.line,
           msg: String::from("invalid assignment target"),
         })
@@ -419,7 +426,7 @@ impl<'file, 'tokens> Parser<'file, 'tokens> {
     // TODO proper error handling
 
     Err(AstErr {
-      file: String::from(self.file),
+      file: self.file.clone(),
       line: self.peek().line,
       msg: String::from("could not find valid primary token"),
     })
@@ -525,7 +532,7 @@ impl<'file, 'tokens> Parser<'file, 'tokens> {
       Ok(self.advance())
     } else {
       Err(AstErr {
-        file: String::from(self.file),
+        file: self.file.clone(),
         line: self.peek().line,
         msg: String::from(msg),
       })
@@ -583,8 +590,8 @@ pub enum StatementType {
 type ExprEvalResult = Result<Value, AstErr>;
 pub type StmtEvalResult = Result<StatementType, AstErr>;
 
-pub fn exec(file: &str, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
-  let mut e = Evaluator::new(String::from(file), globals);
+pub fn exec(file: OsString, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
+  let mut e = Evaluator::new(file, globals);
   let mut res = StatementType::Regular(Value::Nil);
 
   for stmt in prgm.iter() {
@@ -598,12 +605,12 @@ pub fn exec(file: &str, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
 }
 
 pub struct Evaluator {
-  pub file: String,
+  pub file: OsString,
   pub env: EnvRef,
 }
 
 impl Evaluator {
-  fn new(file: String, env: EnvRef) -> Self {
+  fn new(file: OsString, env: EnvRef) -> Self {
     Self { file, env }
   }
 
@@ -742,9 +749,9 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
     if let Value::Str(path) = path {
       match fs::read_to_string(&path) {
         Ok(contents) => {
-          let tokens = lex::analyze(&path, &contents)?;
-          let program = parse(&path, &tokens.tokens)?;
-          let result = exec(&self.file, Rc::clone(&self.env), program)?;
+          let tokens = lex::analyze(path.clone().into(), &contents)?;
+          let program = parse(path.clone().into(), &tokens.tokens)?;
+          let result = exec(path.into(), Rc::clone(&self.env), program)?;
           Ok(StatementType::Regular(result))
         }
         Err(err) => Err(AstErr {
@@ -776,9 +783,9 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
       wd.push(&path);
       match fs::read_to_string(&wd) {
         Ok(contents) => {
-          let tokens = lex::analyze(&path, &contents)?;
-          let program = parse(&path, &tokens.tokens)?;
-          let result = exec(&self.file, Rc::clone(&self.env), program)?;
+          let tokens = lex::analyze(path.clone().into(), &contents)?;
+          let program = parse(path.clone().into(), &tokens.tokens)?;
+          let result = exec(path.into(), Rc::clone(&self.env), program)?;
           Ok(StatementType::Regular(result))
         }
         Err(err) => Err(AstErr {
