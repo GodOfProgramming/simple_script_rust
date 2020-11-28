@@ -5,13 +5,15 @@ use crate::expr::{
 };
 use crate::lex::{self, LexicalErr, Token, TokenType};
 use crate::stmt::{
-  self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, PrintStmt, ReturnStmt, Stmt,
-  VarStmt, Visitor as StmtVisitor, WhileStmt,
+  self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
+  ReturnStmt, Stmt, VarStmt, Visitor as StmtVisitor, WhileStmt,
 };
 use crate::types::{CallErr, Closure, ScriptFunction, Value, Values};
 use std::cell::RefCell;
+use std::env;
 use std::fmt::{self, Display};
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 pub struct AstErr {
@@ -50,19 +52,19 @@ type ParseResult = Result<Vec<Stmt>, AstErr>;
 type StatementResult = Result<Stmt, AstErr>;
 type ExprResult = Result<Expr, AstErr>;
 
-pub fn parse<'a, 'b>(file: &'a str, tokens: &'b Vec<Token>) -> ParseResult {
+pub fn parse<'token>(file: &str, tokens: &'token [Token]) -> ParseResult {
   let mut parser = Parser::new(file, tokens);
   parser.parse()
 }
 
-struct Parser<'a, 'b> {
-  file: &'a str,
-  tokens: &'b Vec<Token>,
+struct Parser<'file, 'tokens> {
+  file: &'file str,
+  tokens: &'tokens [Token],
   current: usize,
 }
 
-impl<'a, 'b> Parser<'a, 'b> {
-  fn new(file: &'a str, tokens: &'b Vec<Token>) -> Self {
+impl<'file, 'tokens> Parser<'file, 'tokens> {
+  fn new(file: &'file str, tokens: &'tokens [Token]) -> Self {
     Self {
       file,
       tokens,
@@ -81,10 +83,10 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn decl(&mut self) -> StatementResult {
-    match if self.match_token(vec![TokenType::Let]) {
+    match if self.match_token(&[TokenType::Let]) {
       self.var_decl()
-    } else if self.match_token(vec![TokenType::Fn]) {
-      self.fun_decl("function")
+    } else if self.match_token(&[TokenType::Fn]) {
+      self.fn_decl("function")
     } else {
       self.statement()
     } {
@@ -99,7 +101,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn var_decl(&mut self) -> StatementResult {
     let name = self.consume(TokenType::Identifier, "Expected variable name")?;
     let mut expr = None;
-    if self.match_token(vec![TokenType::Equal]) {
+    if self.match_token(&[TokenType::Equal]) {
       expr = Some(self.expression()?);
     }
 
@@ -107,7 +109,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     Ok(Stmt::new_var(name, expr))
   }
 
-  fn fun_decl(&mut self, kind: &str) -> StatementResult {
+  fn fn_decl(&mut self, kind: &str) -> StatementResult {
     let name = self.consume(TokenType::Identifier, &format!("expect {} name", kind))?;
     self.consume(
       TokenType::LeftParen,
@@ -118,7 +120,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       loop {
         params.push(self.consume(TokenType::Identifier, "expected identifier")?);
 
-        if !self.match_token(vec![TokenType::Comma]) {
+        if !self.match_token(&[TokenType::Comma]) {
           break;
         }
       }
@@ -137,20 +139,22 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn statement(&mut self) -> StatementResult {
-    if self.match_token(vec![TokenType::Print]) {
+    if self.match_token(&[TokenType::Print]) {
       self.print_statement()
-    } else if self.match_token(vec![TokenType::Return]) {
+    } else if self.match_token(&[TokenType::Return]) {
       self.return_statement()
-    } else if self.match_token(vec![TokenType::For]) {
+    } else if self.match_token(&[TokenType::For]) {
       self.for_statement()
-    } else if self.match_token(vec![TokenType::While]) {
+    } else if self.match_token(&[TokenType::While]) {
       self.while_statement()
-    } else if self.match_token(vec![TokenType::If]) {
+    } else if self.match_token(&[TokenType::If]) {
       self.if_statement()
-    } else if self.match_token(vec![TokenType::LeftBrace]) {
+    } else if self.match_token(&[TokenType::LeftBrace]) {
       Ok(Stmt::new_block(self.block()?))
-    } else if self.match_token(vec![TokenType::Load]) {
+    } else if self.match_token(&[TokenType::Load]) {
       self.load_statement()
+    } else if self.match_token(&[TokenType::Loadr]) {
+      self.loadr_statement()
     } else {
       self.expr_statement()
     }
@@ -170,13 +174,13 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     self.consume(TokenType::Semicolon, "expected ';' after return value")?;
-    return Ok(Stmt::new_return(keyword, value));
+    Ok(Stmt::new_return(keyword, value))
   }
 
   fn for_statement(&mut self) -> StatementResult {
     let token = self.previous();
 
-    let initializer = if self.match_token(vec![TokenType::Let]) {
+    let initializer = if self.match_token(&[TokenType::Let]) {
       self.var_decl()?
     } else {
       self.expr_statement()?
@@ -217,10 +221,10 @@ impl<'a, 'b> Parser<'a, 'b> {
     let if_true = self.block()?;
     let mut if_false = None;
 
-    if self.match_token(vec![TokenType::Else]) {
-      if_false = if self.match_token(vec![TokenType::LeftBrace]) {
+    if self.match_token(&[TokenType::Else]) {
+      if_false = if self.match_token(&[TokenType::LeftBrace]) {
         Some(Box::new(Stmt::new_block(self.block()?)))
-      } else if self.match_token(vec![TokenType::If]) {
+      } else if self.match_token(&[TokenType::If]) {
         Some(Box::new(self.if_statement()?))
       } else {
         return Err(AstErr {
@@ -247,14 +251,22 @@ impl<'a, 'b> Parser<'a, 'b> {
     Ok(Stmt::new_load(load, file))
   }
 
+  fn loadr_statement(&mut self) -> StatementResult {
+    let loadr = self.previous();
+    let file = self.expression()?;
+    self.consume(TokenType::Semicolon, "expected ';' after value")?;
+    Ok(Stmt::new_loadr(loadr, file))
+  }
+
   fn expression(&mut self) -> ExprResult {
     self.ternary()
   }
 
+  // TODO
   fn _list(&mut self) -> ExprResult {
     let mut expr = self.assignment()?;
 
-    if self.match_token(vec![TokenType::Comma]) {
+    if self.match_token(&[TokenType::Comma]) {
       let op = self.previous();
       let right = self._list()?;
       expr = Expr::new_binary(Box::new(expr), op, Box::new(right));
@@ -266,7 +278,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn ternary(&mut self) -> ExprResult {
     let mut expr = self.assignment()?;
 
-    if self.match_token(vec![TokenType::Conditional]) {
+    if self.match_token(&[TokenType::Conditional]) {
       let if_true = self.expression()?;
       self.consume(TokenType::Colon, "expected ':' for conditional operator")?;
       let if_false = self.expression()?;
@@ -279,7 +291,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn assignment(&mut self) -> ExprResult {
     let expr = self.range()?;
 
-    if self.match_token(vec![TokenType::Equal]) {
+    if self.match_token(&[TokenType::Equal]) {
       let equals = self.previous();
       let value = self.assignment()?;
 
@@ -300,7 +312,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn range(&mut self) -> ExprResult {
     let mut begin = self.or()?;
 
-    if self.match_token(vec![TokenType::Range]) {
+    if self.match_token(&[TokenType::Range]) {
       let token = self.previous();
       let end = self.or()?;
       begin = Expr::new_range(Box::new(begin), token, Box::new(end));
@@ -310,21 +322,21 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn or(&mut self) -> ExprResult {
-    self.left_associative_logical(Parser::and, vec![TokenType::Or])
+    self.left_associative_logical(Parser::and, &[TokenType::Or])
   }
 
   fn and(&mut self) -> ExprResult {
-    self.left_associative_logical(Parser::equality, vec![TokenType::And])
+    self.left_associative_logical(Parser::equality, &[TokenType::And])
   }
 
   fn equality(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::comparison, vec![TokenType::ExEq, TokenType::EqEq])
+    self.left_associative_binary(Parser::comparison, &[TokenType::ExEq, TokenType::EqEq])
   }
 
   fn comparison(&mut self) -> ExprResult {
     self.left_associative_binary(
       Parser::addition,
-      vec![
+      &[
         TokenType::GreaterThan,
         TokenType::GreaterEq,
         TokenType::LessThan,
@@ -334,27 +346,24 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn addition(&mut self) -> ExprResult {
-    self.left_associative_binary(
-      Parser::multiplication,
-      vec![TokenType::Plus, TokenType::Minus],
-    )
+    self.left_associative_binary(Parser::multiplication, &[TokenType::Plus, TokenType::Minus])
   }
 
   fn multiplication(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::unary, vec![TokenType::Slash, TokenType::Asterisk])
+    self.left_associative_binary(Parser::unary, &[TokenType::Slash, TokenType::Asterisk])
   }
 
   fn unary(&mut self) -> ExprResult {
     self.right_associative_unary(
       Parser::call,
-      vec![TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
+      &[TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
     )
   }
 
   fn call(&mut self) -> ExprResult {
     let mut expr = self.primary()?;
 
-    while self.match_token(vec![TokenType::LeftParen]) {
+    while self.match_token(&[TokenType::LeftParen]) {
       expr = self.finish_call(expr)?;
     }
 
@@ -362,7 +371,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn primary(&mut self) -> ExprResult {
-    if self.match_token(vec![
+    if self.match_token(&[
       TokenType::False,
       TokenType::True,
       TokenType::Nil,
@@ -376,23 +385,23 @@ impl<'a, 'b> Parser<'a, 'b> {
       }
     }
 
-    if self.match_token(vec![TokenType::Identifier]) {
+    if self.match_token(&[TokenType::Identifier]) {
       return Ok(Expr::new_variable(self.previous()));
     }
 
-    if self.match_token(vec![TokenType::LeftParen]) {
+    if self.match_token(&[TokenType::LeftParen]) {
       let expr = self.expression()?;
       self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
       return Ok(Expr::new_grouping(Box::new(expr)));
     }
 
-    if self.match_token(vec![TokenType::Pipe]) {
+    if self.match_token(&[TokenType::Pipe]) {
       let mut params = Vec::new();
       if !self.check(TokenType::Pipe) {
         loop {
           params.push(self.consume(TokenType::Identifier, "expected identifier")?);
 
-          if !self.match_token(vec![TokenType::Comma]) {
+          if !self.match_token(&[TokenType::Comma]) {
             break;
           }
         }
@@ -419,12 +428,12 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn left_associative_logical(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
-    types: Vec<TokenType>,
+    types: &[TokenType],
   ) -> ExprResult {
     let mut expr = next(self)?;
 
     // TODO stop cloning
-    while self.match_token(types.clone()) {
+    while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
       expr = Expr::new_logical(Box::new(expr), op, Box::new(right));
@@ -436,12 +445,12 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn left_associative_binary(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
-    types: Vec<TokenType>,
+    types: &[TokenType],
   ) -> ExprResult {
     let mut expr = next(self)?;
 
     // TODO stop cloning
-    while self.match_token(types.clone()) {
+    while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
       expr = Expr::new_binary(Box::new(expr), op, Box::new(right));
@@ -453,7 +462,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn right_associative_unary(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
-    types: Vec<TokenType>,
+    types: &[TokenType],
   ) -> ExprResult {
     if self.match_token(types) {
       let op = self.previous();
@@ -476,9 +485,9 @@ impl<'a, 'b> Parser<'a, 'b> {
     Ok(v)
   }
 
-  fn match_token(&mut self, types: Vec<TokenType>) -> bool {
+  fn match_token(&mut self, types: &[TokenType]) -> bool {
     for token_type in types.into_iter() {
-      if self.check(token_type) {
+      if self.check(*token_type) {
         self.advance();
         return true;
       }
@@ -503,7 +512,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     self.peek().token_type == TokenType::Eof
   }
 
-  fn peek(&self) -> &'b Token {
+  fn peek(&self) -> &'tokens Token {
     &self.tokens[self.current]
   }
 
@@ -554,7 +563,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       loop {
         args.push(self.expression()?);
 
-        if !self.match_token(vec![TokenType::Comma]) {
+        if !self.match_token(&[TokenType::Comma]) {
           break;
         }
       }
@@ -574,7 +583,7 @@ pub enum StatementType {
 type ExprEvalResult = Result<Value, AstErr>;
 pub type StmtEvalResult = Result<StatementType, AstErr>;
 
-pub fn exec<'a>(file: &'a str, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
+pub fn exec(file: &str, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
   let mut e = Evaluator::new(String::from(file), globals);
   let mut res = StatementType::Regular(Value::Nil);
 
@@ -595,7 +604,7 @@ pub struct Evaluator {
 
 impl Evaluator {
   fn new(file: String, env: EnvRef) -> Self {
-    Self { file, env: env }
+    Self { file, env }
   }
 
   fn eval_expr(&mut self, e: &Expr) -> ExprEvalResult {
@@ -606,7 +615,7 @@ impl Evaluator {
     stmt::accept(s, self)
   }
 
-  pub fn eval_block(&mut self, statements: &Vec<Stmt>, env: EnvRef) -> StmtEvalResult {
+  pub fn eval_block(&mut self, statements: &[Stmt], env: EnvRef) -> StmtEvalResult {
     let prev_env = Rc::clone(&self.env);
     self.env = env;
     let mut result = Ok(StatementType::Regular(Value::Nil));
@@ -748,7 +757,41 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
       Err(AstErr {
         file: self.file.clone(),
         line: s.load.line,
-        msg: format!("cannot load non string value"),
+        msg: "cannot load non string value".to_string(),
+      })
+    }
+  }
+
+  fn visit_loadr_stmt(&mut self, s: &LoadrStmt) -> StmtEvalResult {
+    let path = self.eval_expr(&s.path)?;
+    if let Value::Str(path) = path {
+      let mut wd: PathBuf = env::current_dir().map_err(|e| AstErr {
+        file: self.file.clone(),
+        line: s.loadr.line,
+        msg: "unable to check current working directory".to_string(),
+      })?;
+      let mut fp = PathBuf::from(&self.file);
+      fp.pop();
+      wd.push(fp);
+      wd.push(&path);
+      match fs::read_to_string(&wd) {
+        Ok(contents) => {
+          let tokens = lex::analyze(&path, &contents)?;
+          let program = parse(&path, &tokens.tokens)?;
+          let result = exec(&self.file, Rc::clone(&self.env), program)?;
+          Ok(StatementType::Regular(result))
+        }
+        Err(err) => Err(AstErr {
+          file: self.file.clone(),
+          line: s.loadr.line,
+          msg: format!("failed loading file {}: {}", wd.as_path().display(), err),
+        }),
+      }
+    } else {
+      Err(AstErr {
+        file: self.file.clone(),
+        line: s.loadr.line,
+        msg: "cannot load non string value".to_string(),
       })
     }
   }
@@ -878,7 +921,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
 
   fn visit_variable_expr(&mut self, e: &VariableExpr) -> ExprEvalResult {
     match self.env.borrow().lookup(&e.name.lexeme) {
-      Some(v) => Ok(v.clone()),
+      Some(v) => Ok(v),
       None => Err(AstErr {
         file: self.file.clone(),
         line: e.name.line,

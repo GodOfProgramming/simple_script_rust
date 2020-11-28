@@ -274,6 +274,19 @@
         ]
       },
       {
+        "name": "Loadr",
+        "members": [
+          {
+            "name": "loadr",
+            "type": "Token"
+          },
+          {
+            "name": "path",
+            "type": "Expr"
+          }
+        ]
+      },
+      {
         "name": "Var",
         "members": [
           {

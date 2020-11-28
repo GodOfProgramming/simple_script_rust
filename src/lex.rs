@@ -56,6 +56,7 @@ pub enum TokenType {
   Let,
   While,
   Load,
+  Loadr,
 
   // Line Delimiters
   Eof,
@@ -106,6 +107,7 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
     map.insert("for", TokenType::For);
     map.insert("if", TokenType::If);
     map.insert("load", TokenType::Load);
+    map.insert("loadr", TokenType::Loadr);
     map.insert("nil", TokenType::Nil);
     map.insert("or", TokenType::Or);
     map.insert("print", TokenType::Print);

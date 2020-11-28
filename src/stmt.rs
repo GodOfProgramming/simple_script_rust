@@ -11,6 +11,7 @@ pub enum Stmt {
     Expression(ExpressionStmt),
     Print(PrintStmt),
     Load(LoadStmt),
+    Loadr(LoadrStmt),
     Var(VarStmt),
 }
 
@@ -39,6 +40,9 @@ impl Stmt {
     pub fn new_load(load: Token, path: Expr) -> Self {
         Self::Load(LoadStmt::new(load, path))
     }
+    pub fn new_loadr(loadr: Token, path: Expr) -> Self {
+        Self::Loadr(LoadrStmt::new(loadr, path))
+    }
     pub fn new_var(name: Token, initializer: Option<Expr>) -> Self {
         Self::Var(VarStmt::new(name, initializer))
     }
@@ -54,6 +58,7 @@ pub fn accept<R>(e: &Stmt, visitor: &mut dyn Visitor<R>) -> R {
         Stmt::Expression(x) => visitor.visit_expression_stmt(&x),
         Stmt::Print(x) => visitor.visit_print_stmt(&x),
         Stmt::Load(x) => visitor.visit_load_stmt(&x),
+        Stmt::Loadr(x) => visitor.visit_loadr_stmt(&x),
         Stmt::Var(x) => visitor.visit_var_stmt(&x),
     }
 }
@@ -154,6 +159,17 @@ impl LoadStmt {
     }
 }
 
+pub struct LoadrStmt {
+    pub loadr: Token,
+    pub path: Expr,
+}
+
+impl LoadrStmt {
+    pub fn new(loadr: Token, path: Expr) -> Self {
+        Self { loadr, path }
+    }
+}
+
 pub struct VarStmt {
     pub name: Token,
     pub initializer: Option<Expr>,
@@ -174,5 +190,6 @@ pub trait Visitor<R> {
     fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> R;
     fn visit_print_stmt(&mut self, e: &PrintStmt) -> R;
     fn visit_load_stmt(&mut self, e: &LoadStmt) -> R;
+    fn visit_loadr_stmt(&mut self, e: &LoadrStmt) -> R;
     fn visit_var_stmt(&mut self, e: &VarStmt) -> R;
 }

@@ -141,11 +141,11 @@ impl Interpreter {
 mod tests {
   use super::*;
 
-  const TEST_SCRIPT_FILE: &str = "../examples/test_scripts.ss";
-  const TEST_SCRIPT_SRC: &str = include_str!("../examples/test_scripts.ss");
-
   #[test]
   fn test_script_logic() {
+    const TEST_SCRIPT_FILE: &str = "examples/test_scripts.ss";
+    const TEST_SCRIPT_SRC: &str = include_str!("../examples/test_scripts.ss");
+
     let i = Interpreter::default_with_test_support();
 
     if let Err(e) = i.exec(TEST_SCRIPT_FILE, TEST_SCRIPT_SRC) {
@@ -153,21 +153,14 @@ mod tests {
     }
   }
 
-  const INTEGER_SCRIPT: &str = "12345;";
-  const STRING_SCRIPT: &str = r#""some string";"#;
-  const TRUE_SCRIPT: &str = "true;";
-  const FALSE_SCRIPT: &str = "false;";
-  const NIL_SCRIPT: &str = "nil;";
-
-  fn handle_result(expected: Value, res: ExecResult) {
-    match res {
-      Ok(v) => assert_eq!(expected, v),
-      Err(err) => println!("{}", err),
-    }
-  }
-
   #[test]
   fn test_exec() {
+    const INTEGER_SCRIPT: &str = "12345;";
+    const STRING_SCRIPT: &str = "\"some string\";";
+    const TRUE_SCRIPT: &str = "true;";
+    const FALSE_SCRIPT: &str = "false;";
+    const NIL_SCRIPT: &str = "nil;";
+
     let i = Interpreter::default();
 
     let results = vec![
@@ -203,5 +196,12 @@ mod tests {
     i2.set_var(&String::from("closure"), closure);
 
     handle_result(Value::Num(3.0), i2.exec("test", CLOSURE_CALL_SCRIPT));
+  }
+
+  fn handle_result(expected: Value, res: ExecResult) {
+    match res {
+      Ok(v) => assert_eq!(expected, v),
+      Err(err) => println!("{}", err),
+    }
   }
 }

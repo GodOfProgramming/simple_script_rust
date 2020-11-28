@@ -20,7 +20,7 @@ repository:
       - name: "keyword.variable.super.simplescript"
         match: "\\b(super)\\b"
       - name: "support.function.builtin.simplescript"
-        match: "\\b(print)\\b"
+        match: "\\b(print|load|loadr)\\b"
       - name: "constant.language.null.simplescript"
         match: "\\b(nil)\\b"
       - name: "constant.language.boolean.simplescript"

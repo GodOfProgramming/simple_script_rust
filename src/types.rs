@@ -106,11 +106,7 @@ impl PartialEq for Value {
       }
       Value::Callee(_) => false, // TODO figure this out
       Value::Nil => {
-        if let Value::Nil = other {
-          true
-        } else {
-          false
-        }
+        matches!(other, Value::Nil)
       }
     }
   }

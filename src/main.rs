@@ -16,10 +16,8 @@ fn main() {
     if !run_file(inter, args) {
       exit_code = 1;
     }
-  } else {
-    if !inter.cli() {
-      exit_code = 1;
-    }
+  } else if !inter.cli() {
+    exit_code = 1;
   }
 
   std::process::exit(exit_code);

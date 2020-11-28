@@ -42,7 +42,7 @@
         },
         {
           "name": "support.function.builtin.simplescript",
-          "match": "\\b(print)\\b"
+          "match": "\\b(print|load|loadr)\\b"
         },
         {
           "name": "constant.language.null.simplescript",
