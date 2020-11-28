@@ -14,16 +14,22 @@
 {
   let a = "global";
   {
-    fn check_a() {
+    fn check_a_fn() {
       assert(a, "global");
     }
 
+    let check_a_closure = || {
+      assert(a, "global");
+    };
+
     # should always pass
-    check_a();
+    check_a_fn();
+    check_a_closure();
 
     let a = "local";
 
     # should fail if resolving doesn't function
-    check_a();
+    check_a_fn();
+    check_a_closure();
   }
 }

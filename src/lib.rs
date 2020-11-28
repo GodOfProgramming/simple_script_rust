@@ -14,6 +14,7 @@ mod env;
 mod expr;
 mod lex;
 mod stmt;
+mod res;
 
 pub type ExecResult = Result<Value, ExecErr>;
 
