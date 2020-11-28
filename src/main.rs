@@ -5,7 +5,7 @@ use std::path::Path;
 
 fn main() {
   let mut exit_code = 0;
-  let mut inter = Interpreter::new();
+  let mut inter = Interpreter::default();
   let args: Vec<String> = env::args().collect();
 
   if args.contains(&String::from("-h")) {

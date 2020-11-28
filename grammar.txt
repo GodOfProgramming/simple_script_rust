@@ -4,7 +4,7 @@ program     		→ declaration* EOF ;
 
 declaration 		→ fun_decl | var_decl | statement ;
 var_decl        → "var" IDENTIFIER ( "=" expression )? ";" ;
-fn_decl       → "fn" function ;
+fn_decl         → "fn" function ;
 function        → IDENTIFIER "(" parameters? ")" block ;
 parameters      → IDENTIFIER ( "," IDENTIFIER )* ;
 statement   		→ expr_stmt | for_stmt | if_stmt | print_stmt | return_stmt | while_stmt | block ;

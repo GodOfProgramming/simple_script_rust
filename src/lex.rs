@@ -13,10 +13,10 @@ pub enum TokenType {
   Comma,
   Minus,
   Plus,
-  Semicolon,
   Slash,
-  BackSlash,
   Asterisk,
+  Semicolon,
+  BackSlash,
   Conditional,
   Colon,
   Pipe,
@@ -53,7 +53,7 @@ pub enum TokenType {
   Super,
   This,
   True,
-  Var,
+  Let,
   While,
   Load,
 
@@ -100,22 +100,22 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
   let mut map = HashMap::new();
   {
     map.insert("and", TokenType::And);
-    map.insert("class", TokenType::Class);
     map.insert("else", TokenType::Else);
     map.insert("false", TokenType::False);
-    map.insert("for", TokenType::For);
     map.insert("fn", TokenType::Fn);
+    map.insert("for", TokenType::For);
     map.insert("if", TokenType::If);
+    map.insert("load", TokenType::Load);
     map.insert("nil", TokenType::Nil);
     map.insert("or", TokenType::Or);
     map.insert("print", TokenType::Print);
     map.insert("return", TokenType::Return);
+    map.insert("struct", TokenType::Class);
     map.insert("super", TokenType::Super);
     map.insert("this", TokenType::This);
     map.insert("true", TokenType::True);
-    map.insert("var", TokenType::Var);
+    map.insert("let", TokenType::Let);
     map.insert("while", TokenType::While);
-    map.insert("load", TokenType::Load);
   }
   map
 }
@@ -164,8 +164,9 @@ pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
       ',' => TokenResult::Valid(TokenType::Comma),
       '-' => TokenResult::Valid(TokenType::Minus),
       '+' => TokenResult::Valid(TokenType::Plus),
-      ';' => TokenResult::Valid(TokenType::Semicolon),
       '*' => TokenResult::Valid(TokenType::Asterisk),
+      '/' => TokenResult::Valid(TokenType::Slash),
+      ';' => TokenResult::Valid(TokenType::Semicolon),
       '?' => TokenResult::Valid(TokenType::Conditional),
       ':' => TokenResult::Valid(TokenType::Colon),
       '|' => TokenResult::Valid(TokenType::Pipe),
@@ -209,21 +210,15 @@ pub fn analyze(filename: &str, src: &str) -> Result<AnalyzeResult, LexicalErr> {
           TokenResult::Valid(TokenType::GreaterThan)
         }
       }
-      '/' => {
-        // TODO clean this up/make more efficient
-        if next_is(&bytes, current_pos, '/') {
-          current_pos += 1;
-          while let Some(next) = peek(&bytes, current_pos) {
-            if next == '\n' {
-              break;
-            } else {
-              current_pos += 1;
-            }
+      '#' => {
+        while let Some(next) = peek(&bytes, current_pos) {
+          if next == '\n' {
+            break;
+          } else {
+            current_pos += 1;
           }
-          TokenResult::Skip
-        } else {
-          TokenResult::Valid(TokenType::Slash)
         }
+        TokenResult::Skip
       }
       '"' => {
         // TODO clean this up/make more efficient
@@ -411,14 +406,14 @@ fn next_is(bytes: &[u8], curr_pos: usize, test: char) -> bool {
 mod tests {
   use super::*;
 
-  const GOOD_SRC: &'static str = r#"var var_1 = "some value";"#;
+  const GOOD_SRC: &str = r#"let var_1 = "some value";"#;
 
   #[test]
   fn lexer_analyze_with_no_error_basic() {
     let result = analyze("test", GOOD_SRC);
 
     let expected_tokens = vec![
-      Token::new(TokenType::Var, String::from("var"), None, 0),
+      Token::new(TokenType::Let, String::from("let"), None, 0),
       Token::new(TokenType::Identifier, String::from("var_1"), None, 0),
       Token::new(TokenType::Equal, String::from("="), None, 0),
       Token::new(

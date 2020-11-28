@@ -54,23 +54,20 @@ pub struct Interpreter {
   globals: EnvRef,
 }
 
-impl Interpreter {
-  pub fn new() -> Interpreter {
+impl Default for Interpreter {
+  fn default() -> Self {
     let globals = Env::new_ref();
 
     builtin::time::enable(Rc::clone(&globals));
     builtin::meta::enable(Rc::clone(&globals));
 
-    Interpreter {
-      globals,
-    }
+    Interpreter { globals }
   }
+}
 
-  pub fn set_var(&mut self, name: &String, value: Value) {
-    self
-      .globals
-      .borrow_mut()
-      .define(name.clone(), value);
+impl Interpreter {
+  pub fn set_var(&mut self, name: &str, value: Value) {
+    self.globals.borrow_mut().define(name.to_string(), value);
   }
 
   pub fn exec(&self, script_name: &str, src: &str) -> Result<Value, ExecErr> {
@@ -82,7 +79,7 @@ impl Interpreter {
 
   pub fn cli(&mut self) -> bool {
     let mut input = String::new();
-    let exit = false;
+    let mut exit = false;
     let mut line_number = 1;
 
     while !exit {
@@ -96,6 +93,10 @@ impl Interpreter {
       if let Err(err) = io::stdin().read_line(&mut input) {
         println!("{}", err);
         return false;
+      }
+
+      if input == "exit" {
+        exit = true;
       }
 
       let analysis = match lex::analyze("ss", &input) {
@@ -147,7 +148,7 @@ mod tests {
 
   #[test]
   fn test_exec() {
-    let i = Interpreter::new();
+    let i = Interpreter::default();
 
     let results = vec![
       Value::Num(12345.0),
@@ -169,16 +170,14 @@ mod tests {
     }
   }
 
-  const CLOSURE_INIT_SCRIPT: &str = "|a, b| {
-    a + b;
-  };";
-
-  const CLOSURE_CALL_SCRIPT: &str = "closure(1, 2);";
-
   #[test]
   fn transfer_closure() {
-    let i1 = Interpreter::new();
-    let mut i2 = Interpreter::new();
+    const CLOSURE_INIT_SCRIPT: &str = "|a, b| {
+      a + b;
+    };";
+    const CLOSURE_CALL_SCRIPT: &str = "closure(1, 2);";
+    let i1 = Interpreter::default();
+    let mut i2 = Interpreter::default();
 
     let closure = i1.exec("test", CLOSURE_INIT_SCRIPT).unwrap();
     i2.set_var(&String::from("closure"), closure);

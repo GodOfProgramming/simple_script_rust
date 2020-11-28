@@ -1,0 +1,165 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "SimpleScript",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#statements"
+    },
+    {
+      "include": "#callables"
+    },
+    {
+      "include": "#ident"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#digits"
+    }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.simplescript",
+          "match": "\\b(and|else|for|if|or|return|while)\\b"
+        },
+        {
+          "name": "keyword.declaration.simplescript",
+          "match": "\\b(fn|let)\\b"
+        },
+        {
+          "name": "keyword.variable.this.simplescript",
+          "match": "\\b(self)\\b"
+        },
+        {
+          "name": "keyword.variable.super.simplescript",
+          "match": "\\b(super)\\b"
+        },
+        {
+          "name": "support.function.builtin.simplescript",
+          "match": "\\b(print)\\b"
+        },
+        {
+          "name": "constant.language.null.simplescript",
+          "match": "\\b(nil)\\b"
+        },
+        {
+          "name": "constant.language.boolean.simplescript",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "statements": {
+      "patterns": [
+        {
+          "match": "let\\s+[A-Za-z_]\\w*",
+          "captures": [
+            {
+              "1": {
+                "name": "storage.type.simplescript"
+              }
+            },
+            {
+              "2": {
+                "name": "support.variable.simplescript"
+              }
+            }
+          ]
+        },
+        {
+          "match": "fn\\s+[A-Za-z_]\\w*\\s*\\(([A-Za-z_]\\w*[,\\s])*\\)",
+          "captures": [
+            {
+              "1": {
+                "name": "entity.name.function.simplescript"
+              }
+            },
+            {
+              "2": {
+                "name": "storage.type.function.simplescript"
+              }
+            },
+            {
+              "3": {
+                "patterns": [
+                  {
+                    "match": "\\b[A-Za-z_]\\w*\\b",
+                    "name": "variable.parameter.simplescript"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "match": "struct(\\s+[A-Za-z_]\\w*)?",
+          "captures": [
+            {
+              "1": {
+                "name": "entity.name.class.simplescript"
+              }
+            },
+            {
+              "2": {
+                "name": "storage.type.class.simplescript"
+              }
+            },
+            {
+              "3": {
+                "name": "storage.modifier.simplescript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "callables": {
+      "patterns": [
+        {
+          "match": "([A-Za-z_]\\w*\\(([A-Za-z_]\\w*((\\.\\w+)*)|[0-9]+(?:.[0-9]+)?|[+\\-*\\/,\\s])*\\))|(\\|([A-Za-z_]\\w*((\\.\\w+)*)|[0-9]+(?:.[0-9]+)?|[+\\-*\\/,\\s])*\\|)",
+          "name": "support.function.simplescript"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.simplescript",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": []
+    },
+    "digits": {
+      "name": "constant.numeric.simplescript",
+      "patterns": [
+        {
+          "name": "constant.numeric.simplescript",
+          "match": "\\b[0-9]+(?:.[0-9]+)?\\b"
+        }
+      ]
+    },
+    "ident": {
+      "patterns": [
+        {
+          "name": "variable.other.readwrite.lox",
+          "match": "\\b[A-Za-z_]\\w*\\b"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.pound.simplescript",
+          "match": "#.*"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.ss"
+}
