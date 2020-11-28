@@ -81,7 +81,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   }
 
   fn decl(&mut self) -> StatementResult {
-    match if self.match_token(vec![TokenType::Var]) {
+    match if self.match_token(vec![TokenType::Let]) {
       self.var_decl()
     } else if self.match_token(vec![TokenType::Fn]) {
       self.fun_decl("function")
@@ -176,7 +176,7 @@ impl<'a, 'b> Parser<'a, 'b> {
   fn for_statement(&mut self) -> StatementResult {
     let token = self.previous();
 
-    let initializer = if self.match_token(vec![TokenType::Var]) {
+    let initializer = if self.match_token(vec![TokenType::Let]) {
       self.var_decl()?
     } else {
       self.expr_statement()?
@@ -534,7 +534,7 @@ impl<'a, 'b> Parser<'a, 'b> {
       match self.peek().token_type {
         TokenType::Class => return,
         TokenType::Fn => return,
-        TokenType::Var => return,
+        TokenType::Let => return,
         TokenType::For => return,
         TokenType::If => return,
         TokenType::While => return,

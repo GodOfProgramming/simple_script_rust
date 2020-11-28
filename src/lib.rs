@@ -66,6 +66,14 @@ impl Default for Interpreter {
 }
 
 impl Interpreter {
+  pub fn default_with_test_support() -> Self {
+    let i = Interpreter::default();
+
+    builtin::test::enable(Rc::clone(&i.globals));
+
+    i
+  }
+
   pub fn set_var(&mut self, name: &str, value: Value) {
     self.globals.borrow_mut().define(name.to_string(), value);
   }
@@ -132,6 +140,18 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  const TEST_SCRIPT_FILE: &str = "../examples/test_scripts.ss";
+  const TEST_SCRIPT_SRC: &str = include_str!("../examples/test_scripts.ss");
+
+  #[test]
+  fn test_script_logic() {
+    let i = Interpreter::default_with_test_support();
+
+    if let Err(e) = i.exec(TEST_SCRIPT_SRC, TEST_SCRIPT_FILE) {
+      panic!("test script improperly written: {}", e);
+    }
+  }
 
   const INTEGER_SCRIPT: &str = "12345;";
   const STRING_SCRIPT: &str = r#""some string";"#;
