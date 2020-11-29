@@ -1,9 +1,8 @@
-use crate::ast::AstErr;
 use crate::ast::{Evaluator, StatementType};
 use crate::env::EnvRef;
 use crate::expr::ClosureExpr;
 use crate::stmt::FunctionStmt;
-use std::ffi::OsString;
+use crate::ScriptError;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
 
@@ -112,23 +111,7 @@ impl PartialEq for Value {
   }
 }
 
-pub type CallResult = Result<Value, CallErr>;
-
-pub struct CallErr {
-  pub file: OsString,
-  pub line: usize,
-  pub msg: String,
-}
-
-impl From<AstErr> for CallErr {
-  fn from(err: AstErr) -> Self {
-    CallErr {
-      file: err.file,
-      line: err.line,
-      msg: err.msg,
-    }
-  }
-}
+pub type CallResult = Result<Value, ScriptError>;
 
 pub trait Callable: Display {
   fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult;
@@ -157,7 +140,7 @@ impl Display for NativeFunction {
 impl Callable for NativeFunction {
   fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     if self.airity < args.len() {
-      return Err(CallErr {
+      return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
@@ -169,7 +152,7 @@ impl Callable for NativeFunction {
     }
 
     if self.airity > args.len() {
-      return Err(CallErr {
+      return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
@@ -182,7 +165,7 @@ impl Callable for NativeFunction {
 
     match (self.func)(e.env.snapshot(), args) {
       Ok(v) => Ok(v),
-      Err(msg) => Err(CallErr {
+      Err(msg) => Err(ScriptError {
         file: e.file.clone(),
         line,
         msg,
@@ -211,7 +194,7 @@ impl Callable for ScriptFunction {
   fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     let func = &self.func;
     if func.params.len() < args.len() {
-      return Err(CallErr {
+      return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
@@ -223,7 +206,7 @@ impl Callable for ScriptFunction {
     }
 
     if func.params.len() > args.len() {
-      return Err(CallErr {
+      return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
@@ -268,7 +251,7 @@ impl Callable for Closure {
   fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     let func = &self.exec;
     if func.params.len() < args.len() {
-      return Err(CallErr {
+      return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
@@ -280,7 +263,7 @@ impl Callable for Closure {
     }
 
     if func.params.len() > args.len() {
-      return Err(CallErr {
+      return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(

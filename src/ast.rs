@@ -3,60 +3,22 @@ use crate::expr::{
   self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GroupingExpr, LiteralExpr,
   LogicalExpr, RangeExpr, TernaryExpr, UnaryExpr, VariableExpr, Visitor as ExprVisitor,
 };
-use crate::lex::{self, LexicalErr, Token, TokenType};
+use crate::lex::{self, Token, TokenType};
 use crate::stmt::{
   self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
   ReturnStmt, Stmt, VarStmt, Visitor as StmtVisitor, WhileStmt,
 };
-use crate::types::{CallErr, Closure, ScriptFunction, Value, Values};
+use crate::types::{Closure, ScriptFunction, Value, Values};
+use crate::ScriptError;
 use std::env;
 use std::ffi::OsString;
-use std::fmt::{self, Display};
 use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-pub struct AstErr {
-  pub file: OsString,
-  pub line: usize,
-  pub msg: String,
-}
-
-impl Display for AstErr {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(
-      f,
-      "{} ({}): {}",
-      self.file.to_string_lossy(),
-      self.line,
-      self.msg
-    )
-  }
-}
-
-impl From<LexicalErr> for AstErr {
-  fn from(err: LexicalErr) -> Self {
-    Self {
-      file: err.file,
-      line: err.line,
-      msg: err.msg,
-    }
-  }
-}
-
-impl From<CallErr> for AstErr {
-  fn from(err: CallErr) -> Self {
-    Self {
-      file: err.file,
-      line: err.line,
-      msg: err.msg,
-    }
-  }
-}
-
-type ParseResult = Result<Vec<Stmt>, AstErr>;
-type StatementResult = Result<Stmt, AstErr>;
-type ExprResult = Result<Expr, AstErr>;
+type ParseResult = Result<Vec<Stmt>, ScriptError>;
+type StatementResult = Result<Stmt, ScriptError>;
+type ExprResult = Result<Expr, ScriptError>;
 
 pub fn parse(file: OsString, tokens: &[Token]) -> ParseResult {
   let mut parser = Parser::new(file, tokens);
@@ -233,7 +195,7 @@ impl<'tokens> Parser<'tokens> {
       } else if self.match_token(&[TokenType::If]) {
         Some(Box::new(self.if_statement()?))
       } else {
-        return Err(AstErr {
+        return Err(ScriptError {
           file: self.file.clone(),
           line: self.peek().line,
           msg: format!("invalid token after token {}", self.peek()),
@@ -304,7 +266,7 @@ impl<'tokens> Parser<'tokens> {
       if let Expr::Variable(v) = expr {
         Ok(Expr::new_assign(v.name, Box::new(value)))
       } else {
-        Err(AstErr {
+        Err(ScriptError {
           file: self.file.clone(),
           line: equals.line,
           msg: String::from("invalid assignment target"),
@@ -424,7 +386,7 @@ impl<'tokens> Parser<'tokens> {
 
     // TODO proper error handling
 
-    Err(AstErr {
+    Err(ScriptError {
       file: self.file.clone(),
       line: self.peek().line,
       msg: String::from("could not find valid primary token"),
@@ -479,7 +441,7 @@ impl<'tokens> Parser<'tokens> {
     }
   }
 
-  fn block(&mut self) -> Result<Vec<Stmt>, AstErr> {
+  fn block(&mut self) -> Result<Vec<Stmt>, ScriptError> {
     let mut v = Vec::new();
 
     while !self.check(TokenType::RightBrace) && !self.is_at_end() {
@@ -526,11 +488,11 @@ impl<'tokens> Parser<'tokens> {
     self.tokens[self.current - 1].clone()
   }
 
-  fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<Token, AstErr> {
+  fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<Token, ScriptError> {
     if self.check(token_type) {
       Ok(self.advance())
     } else {
-      Err(AstErr {
+      Err(ScriptError {
         file: self.file.clone(),
         line: self.peek().line,
         msg: String::from(msg),
@@ -586,8 +548,8 @@ pub enum StatementType {
   Return(Value),
 }
 
-type ExprEvalResult = Result<Value, AstErr>;
-pub type StmtEvalResult = Result<StatementType, AstErr>;
+type ExprEvalResult = Result<Value, ScriptError>;
+pub type StmtEvalResult = Result<StatementType, ScriptError>;
 
 pub fn exec(file: OsString, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
   let mut e = Evaluator::new(file, globals.snapshot());
@@ -748,14 +710,14 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
           let result = exec(path.into(), self.env.snapshot(), program)?;
           Ok(StatementType::Regular(result))
         }
-        Err(err) => Err(AstErr {
+        Err(err) => Err(ScriptError {
           file: self.file.clone(),
           line: s.load.line,
           msg: format!("failed loading file {}: {}", path, err),
         }),
       }
     } else {
-      Err(AstErr {
+      Err(ScriptError {
         file: self.file.clone(),
         line: s.load.line,
         msg: "cannot load non string value".to_string(),
@@ -766,7 +728,7 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
   fn visit_loadr_stmt(&mut self, s: &LoadrStmt) -> StmtEvalResult {
     let path = self.eval_expr(&s.path)?;
     if let Value::Str(path) = path {
-      let mut wd: PathBuf = env::current_dir().map_err(|_| AstErr {
+      let mut wd: PathBuf = env::current_dir().map_err(|_| ScriptError {
         file: self.file.clone(),
         line: s.loadr.line,
         msg: "unable to check current working directory".to_string(),
@@ -782,14 +744,14 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
           let result = exec(path.into(), self.env.snapshot(), program)?;
           Ok(StatementType::Regular(result))
         }
-        Err(err) => Err(AstErr {
+        Err(err) => Err(ScriptError {
           file: self.file.clone(),
           line: s.loadr.line,
           msg: format!("failed loading file {}: {}", wd.as_path().display(), err),
         }),
       }
     } else {
-      Err(AstErr {
+      Err(ScriptError {
         file: self.file.clone(),
         line: s.loadr.line,
         msg: "cannot load non string value".to_string(),
@@ -824,7 +786,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
           TokenType::GreaterEq => Ok(Value::Bool(l >= r)),
           TokenType::LessThan => Ok(Value::Bool(l < r)),
           TokenType::LessEq => Ok(Value::Bool(l <= r)),
-          _ => Err(AstErr {
+          _ => Err(ScriptError {
             file: self.file.clone(),
             line: e.operator.line,
             msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
@@ -848,7 +810,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       }
     }
 
-    Err(AstErr {
+    Err(ScriptError {
       file: self.file.clone(),
       line: e.operator.line,
       msg: format!(
@@ -885,7 +847,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
         if let Value::Num(n) = right {
           Ok(Value::Num(-n))
         } else {
-          Err(AstErr {
+          Err(ScriptError {
             file: self.file.clone(),
             line: e.operator.line,
             msg: format!("invalid negation on type {}", right),
@@ -898,21 +860,21 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
         } else if let Value::Str(s) = right {
           match s.parse() {
             Ok(n) => Ok(Value::Num(n)),
-            Err(err) => Err(AstErr {
+            Err(err) => Err(ScriptError {
               file: self.file.clone(),
               line: e.operator.line,
               msg: format!("string parse error: {}", err),
             }),
           }
         } else {
-          Err(AstErr {
+          Err(ScriptError {
             file: self.file.clone(),
             line: e.operator.line,
             msg: format!("invalid absolution on type {}", right),
           })
         }
       }
-      _ => Err(AstErr {
+      _ => Err(ScriptError {
         file: self.file.clone(),
         line: e.operator.line,
         msg: format!("invalid unary operator {}", e.operator),
@@ -923,7 +885,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
   fn visit_variable_expr(&mut self, e: &VariableExpr) -> ExprEvalResult {
     match self.env.lookup(&e.name.lexeme) {
       Some(v) => Ok(v),
-      None => Err(AstErr {
+      None => Err(ScriptError {
         file: self.file.clone(),
         line: e.name.line,
         msg: format!("used uninitialized variable '{}'", e.name.lexeme),
@@ -934,7 +896,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
   fn visit_assign_expr(&mut self, e: &AssignExpr) -> ExprEvalResult {
     let value = self.eval_expr(&e.value)?;
     if let Err(msg) = self.env.assign(e.name.lexeme.clone(), value.clone()) {
-      return Err(AstErr {
+      return Err(ScriptError {
         file: self.file.clone(),
         line: e.name.line,
         msg: format!("assignment error: {}", msg),
@@ -958,7 +920,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
         }
       }
       _ => {
-        return Err(AstErr {
+        return Err(ScriptError {
           file: self.file.clone(),
           line: e.operator.line,
           msg: String::from("invalid attempt for logical comparison"),
@@ -983,7 +945,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       }
     }
 
-    Err(AstErr {
+    Err(ScriptError {
       file: self.file.clone(),
       line: e.token.line,
       msg: String::from("expected number with range expression"),
@@ -1000,7 +962,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       }
       Ok(func.call(self, args, e.paren.line)?)
     } else {
-      Err(AstErr {
+      Err(ScriptError {
         file: self.file.clone(),
         line: e.paren.line,
         msg: format!("can't call type {}", callee),

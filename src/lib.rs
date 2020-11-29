@@ -1,6 +1,4 @@
-use crate::ast::AstErr;
 use crate::env::EnvRef;
-use crate::lex::LexicalErr;
 use crate::types::Value;
 use std::ffi::OsString;
 use std::fmt::{self, Display};
@@ -16,46 +14,20 @@ mod lex;
 mod stmt;
 mod res;
 
-pub type ExecResult = Result<Value, ExecErr>;
-
 #[derive(Debug)]
-pub struct ExecErr {
+pub struct ScriptError {
   pub file: OsString,
   pub line: usize,
   pub msg: String,
 }
 
-impl Display for ExecErr {
+impl Display for ScriptError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(
-      f,
-      "{} ({}): {}",
-      self.file.to_string_lossy(),
-      self.line,
-      self.msg
-    )
+    write!(f, "{} ({}): {}", self.file.to_string_lossy(), self.line, self.msg)
   }
 }
 
-impl From<AstErr> for ExecErr {
-  fn from(err: AstErr) -> Self {
-    Self {
-      file: err.file,
-      line: err.line,
-      msg: err.msg,
-    }
-  }
-}
-
-impl From<LexicalErr> for ExecErr {
-  fn from(err: LexicalErr) -> Self {
-    Self {
-      file: err.file,
-      line: err.line,
-      msg: err.msg,
-    }
-  }
-}
+pub type ExecResult = Result<Value, ScriptError>;
 
 pub struct Interpreter {
   globals: EnvRef,
@@ -85,7 +57,7 @@ impl Interpreter {
     self.globals.define(name.to_string(), value);
   }
 
-  pub fn exec(&self, script_name: &str, src: &str) -> Result<Value, ExecErr> {
+  pub fn exec(&self, script_name: &str, src: &str) -> Result<Value, ScriptError> {
     let res = lex::analyze(script_name.into(), src)?;
     let program = ast::parse(script_name.into(), &res.tokens)?;
     let value = ast::exec(script_name.into(), self.globals.snapshot(), program)?;

@@ -1,4 +1,5 @@
 use crate::types::Value;
+use crate::ScriptError;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::{self, Debug, Display};
@@ -123,25 +124,12 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
   map
 }
 
-#[derive(Debug)]
-pub struct LexicalErr {
-  pub file: OsString,
-  pub line: usize,
-  pub msg: String,
-}
-
-impl Display for LexicalErr {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} ({}): {}", self.file.to_string_lossy(), self.line, self.msg)
-  }
-}
-
 pub struct AnalyzeResult {
   pub tokens: Vec<Token>,
   pub lines_analyzed: usize,
 }
 
-pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
+pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, ScriptError> {
   enum TokenResult {
     Valid(TokenType),
     Skip,
@@ -240,7 +228,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
           }
           current_pos += 1;
         } {
-          return Err(LexicalErr {
+          return Err(ScriptError {
             file,
             msg: String::from(r#"missing closing " for string"#),
             line,
@@ -313,7 +301,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
       match create_token(&bytes, start_pos, current_pos, token_type) {
         Ok(info) => tokens.push(Token::new(info.token_type, info.lexeme, info.literal, line)),
         Err(err) => {
-          return Err(LexicalErr {
+          return Err(ScriptError {
             file,
             msg: err,
             line,
@@ -321,11 +309,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
         }
       }
     } else if let TokenResult::Error { msg, line } = token {
-      return Err(LexicalErr {
-        file,
-        msg,
-        line,
-      });
+      return Err(ScriptError { file, msg, line });
     }
   }
 
