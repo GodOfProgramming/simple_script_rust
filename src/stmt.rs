@@ -1,5 +1,6 @@
 use crate::expr::Expr;
 use crate::lex::Token;
+use crate::types::Visitor;
 use std::rc::Rc;
 
 pub enum Stmt {
@@ -48,18 +49,30 @@ impl Stmt {
     }
 }
 
-pub fn accept<R>(e: &Stmt, visitor: &mut dyn Visitor<R>) -> R {
+pub fn accept<V, R>(e: &Stmt, visitor: &mut V) -> R
+where
+    V: Visitor<ReturnStmt, R>
+        + Visitor<FunctionStmt, R>
+        + Visitor<WhileStmt, R>
+        + Visitor<IfStmt, R>
+        + Visitor<BlockStmt, R>
+        + Visitor<ExpressionStmt, R>
+        + Visitor<PrintStmt, R>
+        + Visitor<LoadStmt, R>
+        + Visitor<LoadrStmt, R>
+        + Visitor<VarStmt, R>,
+{
     match e {
-        Stmt::Return(x) => visitor.visit_return_stmt(&x),
-        Stmt::Function(x) => visitor.visit_function_stmt(&x),
-        Stmt::While(x) => visitor.visit_while_stmt(&x),
-        Stmt::If(x) => visitor.visit_if_stmt(&x),
-        Stmt::Block(x) => visitor.visit_block_stmt(&x),
-        Stmt::Expression(x) => visitor.visit_expression_stmt(&x),
-        Stmt::Print(x) => visitor.visit_print_stmt(&x),
-        Stmt::Load(x) => visitor.visit_load_stmt(&x),
-        Stmt::Loadr(x) => visitor.visit_loadr_stmt(&x),
-        Stmt::Var(x) => visitor.visit_var_stmt(&x),
+        Stmt::Return(x) => visitor.visit(x),
+        Stmt::Function(x) => visitor.visit(x),
+        Stmt::While(x) => visitor.visit(x),
+        Stmt::If(x) => visitor.visit(x),
+        Stmt::Block(x) => visitor.visit(x),
+        Stmt::Expression(x) => visitor.visit(x),
+        Stmt::Print(x) => visitor.visit(x),
+        Stmt::Load(x) => visitor.visit(x),
+        Stmt::Loadr(x) => visitor.visit(x),
+        Stmt::Var(x) => visitor.visit(x),
     }
 }
 
@@ -179,17 +192,4 @@ impl VarStmt {
     pub fn new(name: Token, initializer: Option<Expr>) -> Self {
         Self { name, initializer }
     }
-}
-
-pub trait Visitor<R> {
-    fn visit_return_stmt(&mut self, e: &ReturnStmt) -> R;
-    fn visit_function_stmt(&mut self, e: &FunctionStmt) -> R;
-    fn visit_while_stmt(&mut self, e: &WhileStmt) -> R;
-    fn visit_if_stmt(&mut self, e: &IfStmt) -> R;
-    fn visit_block_stmt(&mut self, e: &BlockStmt) -> R;
-    fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> R;
-    fn visit_print_stmt(&mut self, e: &PrintStmt) -> R;
-    fn visit_load_stmt(&mut self, e: &LoadStmt) -> R;
-    fn visit_loadr_stmt(&mut self, e: &LoadrStmt) -> R;
-    fn visit_var_stmt(&mut self, e: &VarStmt) -> R;
 }

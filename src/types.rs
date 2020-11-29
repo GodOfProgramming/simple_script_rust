@@ -286,3 +286,7 @@ impl Callable for Closure {
     })
   }
 }
+
+pub trait Visitor<T, R> {
+    fn visit(&mut self, e: &T) -> R;
+}

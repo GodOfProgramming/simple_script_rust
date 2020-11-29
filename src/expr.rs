@@ -1,6 +1,6 @@
 use crate::lex::Token;
 use crate::stmt::Stmt;
-use crate::types::Value;
+use crate::types::{Value, Visitor};
 use std::rc::Rc;
 
 pub enum Expr {
@@ -53,19 +53,32 @@ impl Expr {
     }
 }
 
-pub fn accept<R>(e: &Expr, visitor: &mut dyn Visitor<R>) -> R {
+pub fn accept<V, R>(e: &Expr, visitor: &mut V) -> R
+where
+    V: Visitor<ClosureExpr, R>
+        + Visitor<RangeExpr, R>
+        + Visitor<LogicalExpr, R>
+        + Visitor<AssignExpr, R>
+        + Visitor<BinaryExpr, R>
+        + Visitor<TernaryExpr, R>
+        + Visitor<CallExpr, R>
+        + Visitor<GroupingExpr, R>
+        + Visitor<LiteralExpr, R>
+        + Visitor<UnaryExpr, R>
+        + Visitor<VariableExpr, R>,
+{
     match e {
-        Expr::Closure(x) => visitor.visit_closure_expr(&x),
-        Expr::Range(x) => visitor.visit_range_expr(&x),
-        Expr::Logical(x) => visitor.visit_logical_expr(&x),
-        Expr::Assign(x) => visitor.visit_assign_expr(&x),
-        Expr::Binary(x) => visitor.visit_binary_expr(&x),
-        Expr::Ternary(x) => visitor.visit_ternary_expr(&x),
-        Expr::Call(x) => visitor.visit_call_expr(&x),
-        Expr::Grouping(x) => visitor.visit_grouping_expr(&x),
-        Expr::Literal(x) => visitor.visit_literal_expr(&x),
-        Expr::Unary(x) => visitor.visit_unary_expr(&x),
-        Expr::Variable(x) => visitor.visit_variable_expr(&x),
+        Expr::Closure(x) => visitor.visit(x),
+        Expr::Range(x) => visitor.visit(x),
+        Expr::Logical(x) => visitor.visit(x),
+        Expr::Assign(x) => visitor.visit(x),
+        Expr::Binary(x) => visitor.visit(x),
+        Expr::Ternary(x) => visitor.visit(x),
+        Expr::Call(x) => visitor.visit(x),
+        Expr::Grouping(x) => visitor.visit(x),
+        Expr::Literal(x) => visitor.visit(x),
+        Expr::Unary(x) => visitor.visit(x),
+        Expr::Variable(x) => visitor.visit(x),
     }
 }
 
@@ -206,18 +219,4 @@ impl VariableExpr {
     pub fn new(name: Token) -> Self {
         Self { name }
     }
-}
-
-pub trait Visitor<R> {
-    fn visit_closure_expr(&mut self, e: &ClosureExpr) -> R;
-    fn visit_range_expr(&mut self, e: &RangeExpr) -> R;
-    fn visit_logical_expr(&mut self, e: &LogicalExpr) -> R;
-    fn visit_assign_expr(&mut self, e: &AssignExpr) -> R;
-    fn visit_binary_expr(&mut self, e: &BinaryExpr) -> R;
-    fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> R;
-    fn visit_call_expr(&mut self, e: &CallExpr) -> R;
-    fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> R;
-    fn visit_literal_expr(&mut self, e: &LiteralExpr) -> R;
-    fn visit_unary_expr(&mut self, e: &UnaryExpr) -> R;
-    fn visit_variable_expr(&mut self, e: &VariableExpr) -> R;
 }
