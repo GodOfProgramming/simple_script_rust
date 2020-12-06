@@ -1,5 +1,6 @@
 # Load test
 {
+
   load "examples/test_helpers.ss";
   assert(load_func(), 1);
 }

@@ -11,8 +11,8 @@ mod builtin;
 mod env;
 mod expr;
 mod lex;
-mod stmt;
 mod res;
+mod stmt;
 
 #[derive(Debug)]
 pub struct ScriptError {
@@ -23,7 +23,13 @@ pub struct ScriptError {
 
 impl Display for ScriptError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} ({}): {}", self.file.to_string_lossy(), self.line, self.msg)
+    write!(
+      f,
+      "{} ({}): {}",
+      self.file.to_string_lossy(),
+      self.line,
+      self.msg
+    )
   }
 }
 
@@ -58,8 +64,8 @@ impl Interpreter {
   }
 
   pub fn exec(&self, script_name: &str, src: &str) -> Result<Value, ScriptError> {
-    let res = lex::analyze(script_name.into(), src)?;
-    let program = ast::parse(script_name.into(), &res.tokens)?;
+    let analysis = lex::analyze(script_name.into(), src)?;
+    let program = ast::parse(script_name.into(), &analysis.tokens)?;
     let value = ast::exec(script_name.into(), self.globals.snapshot(), program)?;
     Ok(value)
   }

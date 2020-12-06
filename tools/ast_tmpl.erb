@@ -14,11 +14,13 @@ impl <%= config.name %> {
   <% for m in enum.members %>
     <%= m.name %>: <%= m.type %>,
   <%- end -%>
+    id: usize,
   ) -> Self {
     Self::<%= enum.name %>(<%= enum.struct_name %>::new(
     <%- for m in enum.members -%>
       <%= m.name %>,
     <%- end -%>
+      id,
     ))
   }
 <%- end -%>
@@ -43,6 +45,7 @@ pub struct <%= enum.struct_name %> {
 <%- for m in enum.members -%>
   pub <%= m.name %>: <%= m.type %>,
 <%- end -%>
+  pub id: usize,
 }
 
 impl <%= enum.struct_name %> {
@@ -50,11 +53,13 @@ impl <%= enum.struct_name %> {
   <% for m in enum.members %>
     <%= m.name %>: <%= m.type %>,
   <%- end -%>
+    id: usize,
   ) -> Self {
     Self {
     <%- for m in enum.members -%>
       <%= m.name %>,
     <%- end -%>
+      id,
     }
   }
 }

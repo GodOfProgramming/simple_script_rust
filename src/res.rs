@@ -14,15 +14,18 @@ use std::collections::HashMap;
 
 pub type ResolveResult = Result<(), ScriptError>;
 
-pub fn resolve(evaluator: &mut Evaluator) {}
+pub fn resolve(evaluator: &mut Evaluator, statements: &Vec<Stmt>) -> ResolveResult {
+  let mut resolver = Resolver::new(evaluator);
+  resolver.resolve(statements)
+}
 
 struct Resolver<'eval> {
-  evaluator: &'eval Evaluator,
+  evaluator: &'eval mut Evaluator,
   scopes: Vec<HashMap<String, bool>>,
 }
 
 impl<'eval> Resolver<'eval> {
-  fn new(evaluator: &'eval Evaluator) -> Self {
+  fn new(evaluator: &'eval mut Evaluator) -> Self {
     Self {
       evaluator,
       scopes: Vec::new(),
@@ -38,13 +41,13 @@ impl<'eval> Resolver<'eval> {
   }
 
   fn declare(&mut self, name: &Token) {
-    if let Some(scope) = self.scopes.last() {
+    if let Some(scope) = self.scopes.last_mut() {
       scope.insert(name.lexeme.clone(), false);
     }
   }
 
   fn define(&mut self, name: &Token) {
-    if let Some(scope) = self.scopes.last() {
+    if let Some(scope) = self.scopes.last_mut() {
       scope.insert(name.lexeme.clone(), true);
     }
   }
@@ -86,9 +89,24 @@ impl Res<FunctionStmt> for Resolver<'_> {
   }
 }
 
+impl Res<ClosureExpr> for Resolver<'_> {
+  type Return = ResolveResult;
+  fn resolve(&mut self, e: &ClosureExpr) -> Self::Return {
+    self.begin_scope();
+    for param in e.params.iter() {
+      self.declare(param);
+      self.define(param);
+    }
+    self.resolve(&*e.body)?;
+    self.end_scope();
+    Ok(())
+  }
+}
+
 impl Res<Expr> for Resolver<'_> {
   type Return = ResolveResult;
   fn resolve(&mut self, e: &Expr) -> Self::Return {
+    println!("resolving expr");
     expr::accept(e, self)
   }
 }
@@ -100,8 +118,8 @@ trait ResLoc<T> {
 impl ResLoc<VariableExpr> for Resolver<'_> {
   fn resolve_local(&mut self, e: &VariableExpr, name: &Token) {
     for (i, scope) in self.scopes.iter().rev().enumerate() {
-      if let Some(_) = scope.get(&name.lexeme) {
-        self.evaluator.resolve(e, self.scopes.len() - 1 - i);
+      if scope.get(&name.lexeme).is_some() {
+        self.evaluator.resolve(e.id, self.scopes.len() - 1 - i);
       }
     }
   }
@@ -110,8 +128,8 @@ impl ResLoc<VariableExpr> for Resolver<'_> {
 impl ResLoc<AssignExpr> for Resolver<'_> {
   fn resolve_local(&mut self, e: &AssignExpr, name: &Token) {
     for (i, scope) in self.scopes.iter().rev().enumerate() {
-      if let Some(_) = scope.get(&name.lexeme) {
-        self.evaluator.resolve(e, self.scopes.len() - 1 - i);
+      if scope.get(&name.lexeme).is_some() {
+        self.evaluator.resolve(e.id, self.scopes.len() - 1 - i);
       }
     }
   }
@@ -120,9 +138,9 @@ impl ResLoc<AssignExpr> for Resolver<'_> {
 impl Visitor<VariableExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &VariableExpr) -> ResolveResult {
     if let Some(scope) = self.scopes.last() {
-      if !scope[&e.name.lexeme] {
+      if scope.get(&e.name.lexeme).is_none() || !scope[&e.name.lexeme] {
         return Err(ScriptError {
-          file: "TODO".into(),
+          file: self.evaluator.file.clone(),
           line: e.name.line,
           msg: String::from("can't read local variable in its own initializer"),
         });
@@ -167,6 +185,7 @@ impl Visitor<GroupingExpr, ResolveResult> for Resolver<'_> {
 
 impl Visitor<LiteralExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &LiteralExpr) -> ResolveResult {
+    println!("resolving literal expr: '{}'", e.value);
     Ok(())
   }
 }
@@ -181,6 +200,27 @@ impl Visitor<LogicalExpr, ResolveResult> for Resolver<'_> {
 impl Visitor<UnaryExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &UnaryExpr) -> ResolveResult {
     self.resolve(&*e.right)
+  }
+}
+
+impl Visitor<ClosureExpr, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, e: &ClosureExpr) -> ResolveResult {
+    self.resolve(e)
+  }
+}
+
+impl Visitor<RangeExpr, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, e: &RangeExpr) -> ResolveResult {
+    self.resolve(&*e.begin)?;
+    self.resolve(&*e.end)
+  }
+}
+
+impl Visitor<TernaryExpr, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, e: &TernaryExpr) -> ResolveResult {
+    self.resolve(&*e.condition)?;
+    self.resolve(&*e.if_true)?;
+    self.resolve(&*e.if_false)
   }
 }
 
@@ -248,5 +288,18 @@ impl Visitor<WhileStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &WhileStmt) -> ResolveResult {
     self.resolve(&s.condition)?;
     self.resolve(&s.body)
+  }
+}
+
+impl Visitor<LoadStmt, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, s: &LoadStmt) -> ResolveResult {
+    println!("resolving load stmt");
+    self.resolve(&s.path)
+  }
+}
+
+impl Visitor<LoadrStmt, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, s: &LoadrStmt) -> ResolveResult {
+    self.resolve(&s.path)
   }
 }

@@ -1,3 +1,9 @@
+
+
+fn something() {
+
+}
+
 fn load_func() {
   return 1;
 }
