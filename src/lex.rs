@@ -139,7 +139,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, ScriptError> 
   let keywords = basic_keywords();
 
   let mut tokens = Vec::new();
-  let mut line = 0;
+  let mut line = 1;
   let mut current_pos = 0usize;
 
   let bytes = src.as_bytes();
@@ -317,7 +317,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, ScriptError> 
 
   Ok(AnalyzeResult {
     tokens,
-    lines_analyzed: line,
+    lines_analyzed: line - 1, // sub 1 b/c line starts at 1
   })
 }
 
@@ -393,24 +393,24 @@ fn next_is(bytes: &[u8], curr_pos: usize, test: char) -> bool {
 mod tests {
   use super::*;
 
-  const GOOD_SRC: &str = r#"let var_1 = "some value";"#;
+  const GOOD_SRC: &str = "let var_1 = 1;";
 
   #[test]
   fn lexer_analyze_with_no_error_basic() {
     let result = analyze("test".into(), GOOD_SRC);
 
     let expected_tokens = vec![
-      Token::new(TokenType::Let, String::from("let"), None, 0),
-      Token::new(TokenType::Identifier, String::from("var_1"), None, 0),
-      Token::new(TokenType::Equal, String::from("="), None, 0),
+      Token::new(TokenType::Let, String::from("let"), None, 1),
+      Token::new(TokenType::Identifier, String::from("var_1"), None, 1),
+      Token::new(TokenType::Equal, String::from("="), None, 1),
       Token::new(
-        TokenType::StringLiteral,
-        String::from(r#""some value""#),
-        Some(Value::Str(String::from("some value"))),
-        0,
+        TokenType::NumberLiteral,
+        String::from("1"),
+        Some(Value::Num(1.0)),
+        1,
       ),
-      Token::new(TokenType::Semicolon, String::from(";"), None, 0),
-      Token::new(TokenType::Eof, String::from("EOF"), None, 0),
+      Token::new(TokenType::Semicolon, String::from(";"), None, 1),
+      Token::new(TokenType::Eof, String::from("EOF"), None, 1),
     ];
 
     match result {
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(res.lines_analyzed, 0);
         assert_eq!(res.tokens, expected_tokens);
       }
-      Err(_) => panic!(),
+      Err(_) => panic!("failed to pass lexical analysis"),
     }
   }
 }

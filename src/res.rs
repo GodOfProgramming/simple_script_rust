@@ -106,7 +106,7 @@ impl Res<ClosureExpr> for Resolver<'_> {
 impl Res<Expr> for Resolver<'_> {
   type Return = ResolveResult;
   fn resolve(&mut self, e: &Expr) -> Self::Return {
-    println!("resolving expr");
+    println!("{} ({})", file!(), line!());
     expr::accept(e, self)
   }
 }
@@ -137,6 +137,7 @@ impl ResLoc<AssignExpr> for Resolver<'_> {
 
 impl Visitor<VariableExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &VariableExpr) -> ResolveResult {
+    println!("{} ({}): {} ({})", file!(), line!(), e.name, e.name.line);
     if let Some(scope) = self.scopes.last() {
       if scope.get(&e.name.lexeme).is_none() || !scope[&e.name.lexeme] {
         return Err(ScriptError {
@@ -185,7 +186,7 @@ impl Visitor<GroupingExpr, ResolveResult> for Resolver<'_> {
 
 impl Visitor<LiteralExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &LiteralExpr) -> ResolveResult {
-    println!("resolving literal expr: '{}'", e.value);
+    println!("{} ({})", file!(), line!());
     Ok(())
   }
 }
@@ -293,7 +294,7 @@ impl Visitor<WhileStmt, ResolveResult> for Resolver<'_> {
 
 impl Visitor<LoadStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &LoadStmt) -> ResolveResult {
-    println!("resolving load stmt");
+    println!("{} ({})", file!(), line!());
     self.resolve(&s.path)
   }
 }
