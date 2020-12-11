@@ -24,8 +24,9 @@ fn main() {
 }
 
 fn help(inter: Interpreter) -> bool {
-  const HELP_SCRIPT: &str = include_str!("help.ss");
-  if let Err(err) = inter.exec("help.ss", HELP_SCRIPT) {
+  const HELP_SCRIPT: &str = "help.ss";
+  const HELP_SCRIPT_SRC: &str = include_str!("help.ss");
+  if let Err(err) = inter.exec(&HELP_SCRIPT.into(), HELP_SCRIPT_SRC) {
     println!("error with help script: {}", err);
     false
   } else {
@@ -38,7 +39,8 @@ fn run_file(inter: Interpreter, args: Vec<String>) -> bool {
   if p.exists() {
     match fs::read_to_string(p) {
       Ok(contents) => {
-        if let Err(err) = inter.exec(&args[1], &contents) {
+        let file = args[1].clone();
+        if let Err(err) = inter.exec(&file.into(), &contents) {
           println!("{}", err);
           return false;
         }

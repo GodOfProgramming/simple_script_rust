@@ -2,6 +2,7 @@ use crate::env::EnvRef;
 use crate::types::Value;
 use std::ffi::OsString;
 use std::fmt::{self, Display};
+use std::fs;
 use std::io::{self, Write};
 
 pub mod types;
@@ -51,7 +52,7 @@ impl Default for Interpreter {
 }
 
 impl Interpreter {
-  pub fn default_with_test_support() -> Self {
+  pub fn new_with_test_support() -> Self {
     let mut i = Interpreter::default();
 
     builtin::test::enable(&mut i.globals);
@@ -63,11 +64,20 @@ impl Interpreter {
     self.globals.define(name.to_string(), value);
   }
 
-  pub fn exec(&self, script_name: &str, src: &str) -> Result<Value, ScriptError> {
-    let analysis = lex::analyze(script_name.into(), src)?;
-    let program = ast::parse(script_name.into(), &analysis.tokens)?;
-    let value = ast::exec(script_name.into(), self.globals.snapshot(), program)?;
+  pub fn exec(&self, script_name: &OsString, src: &str) -> Result<Value, ScriptError> {
+    let analysis = lex::analyze(script_name.clone(), src)?;
+    let program = ast::parse(script_name.clone(), &analysis.tokens)?;
+    let value = ast::exec(script_name.clone(), self.globals.snapshot(), program)?;
     Ok(value)
+  }
+
+  pub fn exec_file(&self, file: &OsString) -> Result<Value, ScriptError> {
+    let src = fs::read_to_string(file).map_err(|err| ScriptError {
+      file: file.into(),
+      line: 0,
+      msg: format!("could not read file: {}", err),
+    })?;
+    self.exec(file, &src)
   }
 
   pub fn cli(&mut self) -> bool {
@@ -142,13 +152,13 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_script_logic() {
+  fn test_load_stmts() {
     const TEST_SCRIPT_FILE: &str = "examples/test_scripts.ss";
     const TEST_SCRIPT_SRC: &str = include_str!("../examples/test_scripts.ss");
 
-    let i = Interpreter::default_with_test_support();
+    let i = Interpreter::new_with_test_support();
 
-    if let Err(e) = i.exec(TEST_SCRIPT_FILE, TEST_SCRIPT_SRC) {
+    if let Err(e) = i.exec(&TEST_SCRIPT_FILE.into(), TEST_SCRIPT_SRC) {
       panic!("test script improperly written: {}", e);
     }
   }
@@ -179,7 +189,7 @@ mod tests {
     ];
 
     for (res, test) in results.into_iter().zip(tests.into_iter()) {
-      handle_result(res, i.exec("test", test))
+      handle_result(res, i.exec(&"test".into(), test))
     }
   }
 
@@ -192,10 +202,10 @@ mod tests {
     let i1 = Interpreter::default();
     let mut i2 = Interpreter::default();
 
-    let closure = i1.exec("test", CLOSURE_INIT_SCRIPT).unwrap();
+    let closure = i1.exec(&"test".into(), CLOSURE_INIT_SCRIPT).unwrap();
     i2.set_var(&String::from("closure"), closure);
 
-    handle_result(Value::Num(3.0), i2.exec("test", CLOSURE_CALL_SCRIPT));
+    handle_result(Value::Num(3.0), i2.exec(&"test".into(), CLOSURE_CALL_SCRIPT));
   }
 
   fn handle_result(expected: Value, res: ExecResult) {

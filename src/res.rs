@@ -28,7 +28,7 @@ impl<'eval> Resolver<'eval> {
   fn new(evaluator: &'eval mut Evaluator) -> Self {
     Self {
       evaluator,
-      scopes: Vec::new(),
+      scopes: vec![HashMap::new()],
     }
   }
 
@@ -40,10 +40,20 @@ impl<'eval> Resolver<'eval> {
     self.scopes.pop();
   }
 
-  fn declare(&mut self, name: &Token) {
+  fn declare(&mut self, name: &Token) -> Result<(), ScriptError> {
     if let Some(scope) = self.scopes.last_mut() {
-      scope.insert(name.lexeme.clone(), false);
+      if scope.insert(name.lexeme.clone(), false).is_some() {
+        return Err(ScriptError {
+          file: self.evaluator.file.clone(),
+          line: name.line,
+          msg: format!(
+            "variable in scope already declared with name '{}'",
+            name.lexeme
+          ),
+        });
+      }
     }
+    Ok(())
   }
 
   fn define(&mut self, name: &Token) {
@@ -80,7 +90,7 @@ impl Res<FunctionStmt> for Resolver<'_> {
   fn resolve(&mut self, s: &FunctionStmt) -> Self::Return {
     self.begin_scope();
     for param in s.params.iter() {
-      self.declare(param);
+      self.declare(param)?;
       self.define(param);
     }
     self.resolve(&*s.body)?;
@@ -94,7 +104,7 @@ impl Res<ClosureExpr> for Resolver<'_> {
   fn resolve(&mut self, e: &ClosureExpr) -> Self::Return {
     self.begin_scope();
     for param in e.params.iter() {
-      self.declare(param);
+      self.declare(param)?;
       self.define(param);
     }
     self.resolve(&*e.body)?;
@@ -244,7 +254,7 @@ impl Visitor<BlockStmt, ResolveResult> for Resolver<'_> {
 
 impl Visitor<VarStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &VarStmt) -> ResolveResult {
-    self.declare(&s.name);
+    self.declare(&s.name)?;
     if let Some(i) = &s.initializer {
       self.resolve(i)?;
     }
@@ -255,7 +265,7 @@ impl Visitor<VarStmt, ResolveResult> for Resolver<'_> {
 
 impl Visitor<FunctionStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &FunctionStmt) -> ResolveResult {
-    self.declare(&s.name);
+    self.declare(&s.name)?;
     self.define(&s.name);
     self.resolve(s)
   }
@@ -309,5 +319,73 @@ impl Visitor<LoadStmt, ResolveResult> for Resolver<'_> {
 impl Visitor<LoadrStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &LoadrStmt) -> ResolveResult {
     self.resolve(&s.path)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::Interpreter;
+
+  #[test]
+  fn resolver_should_not_allow_variable_in_parent_scope_to_be_replaced_in_function_after_redeclaration_in_child_scope(
+  ) {
+    const SRC: &str = r#"
+    let a = "global";
+    {
+      fn check_a_fn() {
+        assert(a, "global");
+      }
+
+      let check_a_closure = || {
+        assert(a, "global");
+      };
+
+      check_a_fn();
+      check_a_closure();
+
+      let a = "local";
+
+      check_a_fn();
+      check_a_closure();
+    }
+    "#;
+    let i = Interpreter::new_with_test_support();
+    assert!(i.exec(&"test".into(), SRC).is_ok());
+  }
+
+  #[test]
+  fn resolver_should_not_allow_two_variables_with_the_same_name_globally() {
+    const SRC: &str = r#"
+    let a = "true";
+    let a = "false";
+    "#;
+    let i = Interpreter::new_with_test_support();
+    let res = i.exec(&"test".into(), SRC);
+
+    match res {
+      Ok(v) => panic!("failed to detect duplicate variable, value: {}", v),
+      Err(e) => {
+        assert_eq!(e.msg, "variable in scope already declared with name 'a'");
+      }
+    };
+  }
+
+  #[test]
+  fn resolver_should_not_allow_two_variables_with_the_same_name_in_functions() {
+    const SRC: &str = r#"
+    fn foo() {
+      let a = "true";
+      let a = "false";
+    }
+    "#;
+    let i = Interpreter::new_with_test_support();
+    let res = i.exec(&"test".into(), SRC);
+
+    match res {
+      Ok(v) => panic!("failed to detect duplicate variable, value: {}", v),
+      Err(e) => {
+        assert_eq!(e.msg, "variable in scope already declared with name 'a'");
+      }
+    };
   }
 }
