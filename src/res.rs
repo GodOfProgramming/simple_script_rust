@@ -106,7 +106,7 @@ impl Res<ClosureExpr> for Resolver<'_> {
 impl Res<Expr> for Resolver<'_> {
   type Return = ResolveResult;
   fn resolve(&mut self, e: &Expr) -> Self::Return {
-    println!("{} ({})", file!(), line!());
+    println!("{} ({}): resolving expr", file!(), line!());
     expr::accept(e, self)
   }
 }
@@ -139,12 +139,14 @@ impl Visitor<VariableExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &VariableExpr) -> ResolveResult {
     println!("{} ({}): {} ({})", file!(), line!(), e.name, e.name.line);
     if let Some(scope) = self.scopes.last() {
-      if scope.get(&e.name.lexeme).is_none() || !scope[&e.name.lexeme] {
-        return Err(ScriptError {
-          file: self.evaluator.file.clone(),
-          line: e.name.line,
-          msg: String::from("can't read local variable in its own initializer"),
-        });
+      if let Some(v) = scope.get(&e.name.lexeme) {
+        if !v {
+          return Err(ScriptError {
+            file: self.evaluator.file.clone(),
+            line: e.name.line,
+            msg: String::from("can't read local variable in its own initializer"),
+          });
+        }
       }
     }
 
@@ -185,8 +187,8 @@ impl Visitor<GroupingExpr, ResolveResult> for Resolver<'_> {
 }
 
 impl Visitor<LiteralExpr, ResolveResult> for Resolver<'_> {
-  fn visit(&mut self, _: &LiteralExpr) -> ResolveResult {
-    println!("{} ({})", file!(), line!());
+  fn visit(&mut self, e: &LiteralExpr) -> ResolveResult {
+    println!("{} ({}): at literal: {}", file!(), line!(), e.value);
     Ok(())
   }
 }

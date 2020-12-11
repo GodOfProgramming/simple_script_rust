@@ -675,6 +675,7 @@ impl Evaluator {
 
   pub fn lookup_variable(&self, name: &Token, id: usize) -> ExprEvalResult {
     match if let Some(depth) = self.locals.get(&id) {
+      println!("looking up {} at depth {}", name.lexeme, depth);
       self.env.lookup_at(*depth, &name.lexeme)
     } else {
       self.env.lookup(&name.lexeme)
