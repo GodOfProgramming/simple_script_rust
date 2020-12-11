@@ -18,7 +18,7 @@ configs = JSON.parse(contents, symbolize_names: true).map do |file, cfg|
       OpenStruct.new(
         name: e[:name],
         struct_name: e[:name] + cfg[:name],
-        visit_fn: "visit_#{e[:name].underscore}_#{cfg[:name].underscore}",
+        visit_fn: "visit",
         members: e[:members].map do |m|
           OpenStruct.new(name: m[:name], type: m[:type])
         end

@@ -1,62 +1,26 @@
 use crate::env::EnvRef;
 use crate::expr::{
   self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GroupingExpr, LiteralExpr,
-  LogicalExpr, RangeExpr, TernaryExpr, UnaryExpr, VariableExpr, Visitor as ExprVisitor,
+  LogicalExpr, RangeExpr, TernaryExpr, UnaryExpr, VariableExpr,
 };
-use crate::lex::{self, LexicalErr, Token, TokenType};
+use crate::lex::{self, Token, TokenType};
+use crate::res;
 use crate::stmt::{
   self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
-  ReturnStmt, Stmt, VarStmt, Visitor as StmtVisitor, WhileStmt,
+  ReturnStmt, Stmt, VarStmt, WhileStmt,
 };
-use crate::types::{CallErr, Closure, ScriptFunction, Value, Values};
+use crate::types::{Function, Value, Values, Visitor};
+use crate::ScriptError;
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
-use std::fmt::{self, Display};
 use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-pub struct AstErr {
-  pub file: OsString,
-  pub line: usize,
-  pub msg: String,
-}
-
-impl Display for AstErr {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(
-      f,
-      "{} ({}): {}",
-      self.file.to_string_lossy(),
-      self.line,
-      self.msg
-    )
-  }
-}
-
-impl From<LexicalErr> for AstErr {
-  fn from(err: LexicalErr) -> Self {
-    Self {
-      file: err.file,
-      line: err.line,
-      msg: err.msg,
-    }
-  }
-}
-
-impl From<CallErr> for AstErr {
-  fn from(err: CallErr) -> Self {
-    Self {
-      file: err.file,
-      line: err.line,
-      msg: err.msg,
-    }
-  }
-}
-
-type ParseResult = Result<Vec<Stmt>, AstErr>;
-type StatementResult = Result<Stmt, AstErr>;
-type ExprResult = Result<Expr, AstErr>;
+type ParseResult = Result<Vec<Stmt>, ScriptError>;
+type StatementResult = Result<Stmt, ScriptError>;
+type ExprResult = Result<Expr, ScriptError>;
 
 pub fn parse(file: OsString, tokens: &[Token]) -> ParseResult {
   let mut parser = Parser::new(file, tokens);
@@ -67,6 +31,8 @@ struct Parser<'tokens> {
   file: OsString,
   tokens: &'tokens [Token],
   current: usize,
+  statement_id: usize,
+  expression_id: usize,
 }
 
 impl<'tokens> Parser<'tokens> {
@@ -75,7 +41,21 @@ impl<'tokens> Parser<'tokens> {
       file,
       tokens,
       current: 0,
+      statement_id: 0,
+      expression_id: 0,
     }
+  }
+
+  fn next_stmt_id(&mut self) -> usize {
+    let id = self.statement_id;
+    self.statement_id += 1;
+    id
+  }
+
+  fn next_expr_id(&mut self) -> usize {
+    let id = self.expression_id;
+    self.expression_id += 1;
+    id
   }
 
   fn parse(&mut self) -> ParseResult {
@@ -112,7 +92,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     self.consume(TokenType::Semicolon, "expected ';' after variable decl")?;
-    Ok(Stmt::new_var(name, expr))
+    Ok(Stmt::new_var(name, expr, self.next_stmt_id()))
   }
 
   fn fn_decl(&mut self, kind: &str) -> StatementResult {
@@ -141,7 +121,12 @@ impl<'tokens> Parser<'tokens> {
 
     let body = self.block()?;
 
-    Ok(Stmt::new_function(name, Rc::new(params), Rc::new(body)))
+    Ok(Stmt::new_function(
+      name,
+      Rc::new(params),
+      Rc::new(body),
+      self.next_stmt_id(),
+    ))
   }
 
   fn statement(&mut self) -> StatementResult {
@@ -156,7 +141,7 @@ impl<'tokens> Parser<'tokens> {
     } else if self.match_token(&[TokenType::If]) {
       self.if_statement()
     } else if self.match_token(&[TokenType::LeftBrace]) {
-      Ok(Stmt::new_block(self.block()?))
+      Ok(Stmt::new_block(self.block()?, self.next_stmt_id()))
     } else if self.match_token(&[TokenType::Load]) {
       self.load_statement()
     } else if self.match_token(&[TokenType::Loadr]) {
@@ -169,7 +154,7 @@ impl<'tokens> Parser<'tokens> {
   fn print_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_print(expr))
+    Ok(Stmt::new_print(expr, self.next_stmt_id()))
   }
 
   fn return_statement(&mut self) -> StatementResult {
@@ -180,7 +165,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     self.consume(TokenType::Semicolon, "expected ';' after return value")?;
-    Ok(Stmt::new_return(keyword, value))
+    Ok(Stmt::new_return(keyword, value, self.next_stmt_id()))
   }
 
   fn for_statement(&mut self) -> StatementResult {
@@ -198,17 +183,21 @@ impl<'tokens> Parser<'tokens> {
     let increment = self.expression()?;
     self.consume(TokenType::LeftBrace, "Expect '{' after increment")?;
 
-    let body = Stmt::new_block(vec![
-      initializer,
-      Stmt::new_while(
-        token,
-        condition,
-        vec![
-          Stmt::new_block(self.block()?),
-          Stmt::new_expression(increment),
-        ],
-      ),
-    ]);
+    let body = Stmt::new_block(
+      vec![
+        initializer,
+        Stmt::new_while(
+          token,
+          condition,
+          vec![
+            Stmt::new_block(self.block()?, self.next_stmt_id()),
+            Stmt::new_expression(increment, self.next_stmt_id()),
+          ],
+          self.next_stmt_id(),
+        ),
+      ],
+      self.next_stmt_id(),
+    );
 
     Ok(body)
   }
@@ -218,7 +207,7 @@ impl<'tokens> Parser<'tokens> {
     let condition = self.expression()?;
     self.consume(TokenType::LeftBrace, "missing '{' after if condition")?;
     let body = self.block()?;
-    Ok(Stmt::new_while(token, condition, body))
+    Ok(Stmt::new_while(token, condition, body, self.next_stmt_id()))
   }
 
   fn if_statement(&mut self) -> StatementResult {
@@ -229,11 +218,14 @@ impl<'tokens> Parser<'tokens> {
 
     if self.match_token(&[TokenType::Else]) {
       if_false = if self.match_token(&[TokenType::LeftBrace]) {
-        Some(Box::new(Stmt::new_block(self.block()?)))
+        Some(Box::new(Stmt::new_block(
+          self.block()?,
+          self.next_stmt_id(),
+        )))
       } else if self.match_token(&[TokenType::If]) {
         Some(Box::new(self.if_statement()?))
       } else {
-        return Err(AstErr {
+        return Err(ScriptError {
           file: self.file.clone(),
           line: self.peek().line,
           msg: format!("invalid token after token {}", self.peek()),
@@ -241,27 +233,32 @@ impl<'tokens> Parser<'tokens> {
       };
     }
 
-    Ok(Stmt::new_if(condition, if_true, if_false))
+    Ok(Stmt::new_if(
+      condition,
+      if_true,
+      if_false,
+      self.next_stmt_id(),
+    ))
   }
 
   fn expr_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_expression(expr))
+    Ok(Stmt::new_expression(expr, self.next_stmt_id()))
   }
 
   fn load_statement(&mut self) -> StatementResult {
     let load = self.previous();
     let file = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_load(load, file))
+    Ok(Stmt::new_load(load, file, self.next_stmt_id()))
   }
 
   fn loadr_statement(&mut self) -> StatementResult {
     let loadr = self.previous();
     let file = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_loadr(loadr, file))
+    Ok(Stmt::new_loadr(loadr, file, self.next_stmt_id()))
   }
 
   fn expression(&mut self) -> ExprResult {
@@ -275,7 +272,7 @@ impl<'tokens> Parser<'tokens> {
     if self.match_token(&[TokenType::Comma]) {
       let op = self.previous();
       let right = self._list()?;
-      expr = Expr::new_binary(Box::new(expr), op, Box::new(right));
+      expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_expr_id());
     }
 
     Ok(expr)
@@ -288,7 +285,12 @@ impl<'tokens> Parser<'tokens> {
       let if_true = self.expression()?;
       self.consume(TokenType::Colon, "expected ':' for conditional operator")?;
       let if_false = self.expression()?;
-      expr = Expr::new_ternary(Box::new(expr), Box::new(if_true), Box::new(if_false));
+      expr = Expr::new_ternary(
+        Box::new(expr),
+        Box::new(if_true),
+        Box::new(if_false),
+        self.next_expr_id(),
+      );
     }
 
     Ok(expr)
@@ -302,9 +304,13 @@ impl<'tokens> Parser<'tokens> {
       let value = self.assignment()?;
 
       if let Expr::Variable(v) = expr {
-        Ok(Expr::new_assign(v.name, Box::new(value)))
+        Ok(Expr::new_assign(
+          v.name,
+          Box::new(value),
+          self.next_expr_id(),
+        ))
       } else {
-        Err(AstErr {
+        Err(ScriptError {
           file: self.file.clone(),
           line: equals.line,
           msg: String::from("invalid assignment target"),
@@ -321,7 +327,7 @@ impl<'tokens> Parser<'tokens> {
     if self.match_token(&[TokenType::Range]) {
       let token = self.previous();
       let end = self.or()?;
-      begin = Expr::new_range(Box::new(begin), token, Box::new(end));
+      begin = Expr::new_range(Box::new(begin), token, Box::new(end), self.next_expr_id());
     }
 
     Ok(begin)
@@ -387,18 +393,18 @@ impl<'tokens> Parser<'tokens> {
       let prev = self.previous();
 
       if let Some(v) = &prev.literal {
-        return Ok(Expr::new_literal(Value::from(v)));
+        return Ok(Expr::new_literal(Value::from(v), self.next_expr_id()));
       }
     }
 
     if self.match_token(&[TokenType::Identifier]) {
-      return Ok(Expr::new_variable(self.previous()));
+      return Ok(Expr::new_variable(self.previous(), self.next_expr_id()));
     }
 
     if self.match_token(&[TokenType::LeftParen]) {
       let expr = self.expression()?;
       self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
-      return Ok(Expr::new_grouping(Box::new(expr)));
+      return Ok(Expr::new_grouping(Box::new(expr), self.next_expr_id()));
     }
 
     if self.match_token(&[TokenType::Pipe]) {
@@ -419,12 +425,16 @@ impl<'tokens> Parser<'tokens> {
 
       let body = self.block()?;
 
-      return Ok(Expr::new_closure(Rc::new(params), Rc::new(body)));
+      return Ok(Expr::new_closure(
+        Rc::new(params),
+        Rc::new(body),
+        self.next_expr_id(),
+      ));
     }
 
     // TODO proper error handling
 
-    Err(AstErr {
+    Err(ScriptError {
       file: self.file.clone(),
       line: self.peek().line,
       msg: String::from("could not find valid primary token"),
@@ -442,7 +452,7 @@ impl<'tokens> Parser<'tokens> {
     while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
-      expr = Expr::new_logical(Box::new(expr), op, Box::new(right));
+      expr = Expr::new_logical(Box::new(expr), op, Box::new(right), self.next_expr_id());
     }
 
     Ok(expr)
@@ -459,7 +469,7 @@ impl<'tokens> Parser<'tokens> {
     while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
-      expr = Expr::new_binary(Box::new(expr), op, Box::new(right));
+      expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_expr_id());
     }
 
     Ok(expr)
@@ -473,13 +483,13 @@ impl<'tokens> Parser<'tokens> {
     if self.match_token(types) {
       let op = self.previous();
       let right = self.unary()?;
-      Ok(Expr::new_unary(op, Box::new(right)))
+      Ok(Expr::new_unary(op, Box::new(right), self.next_expr_id()))
     } else {
       next(self)
     }
   }
 
-  fn block(&mut self) -> Result<Vec<Stmt>, AstErr> {
+  fn block(&mut self) -> Result<Vec<Stmt>, ScriptError> {
     let mut v = Vec::new();
 
     while !self.check(TokenType::RightBrace) && !self.is_at_end() {
@@ -526,11 +536,11 @@ impl<'tokens> Parser<'tokens> {
     self.tokens[self.current - 1].clone()
   }
 
-  fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<Token, AstErr> {
+  fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<Token, ScriptError> {
     if self.check(token_type) {
       Ok(self.advance())
     } else {
-      Err(AstErr {
+      Err(ScriptError {
         file: self.file.clone(),
         line: self.peek().line,
         msg: String::from(msg),
@@ -577,7 +587,12 @@ impl<'tokens> Parser<'tokens> {
 
     let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments")?;
 
-    Ok(Expr::new_call(Box::new(callee), paren, args))
+    Ok(Expr::new_call(
+      Box::new(callee),
+      paren,
+      args,
+      self.next_expr_id(),
+    ))
   }
 }
 
@@ -586,11 +601,12 @@ pub enum StatementType {
   Return(Value),
 }
 
-type ExprEvalResult = Result<Value, AstErr>;
-pub type StmtEvalResult = Result<StatementType, AstErr>;
+type ExprEvalResult = Result<Value, ScriptError>;
+pub type StmtEvalResult = Result<StatementType, ScriptError>;
 
 pub fn exec(file: OsString, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
   let mut e = Evaluator::new(file, globals.snapshot());
+  res::resolve(&mut e, &prgm)?;
   let mut res = StatementType::Regular(Value::Nil);
 
   for stmt in prgm.iter() {
@@ -606,11 +622,16 @@ pub fn exec(file: OsString, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult 
 pub struct Evaluator {
   pub file: OsString,
   pub env: EnvRef,
+  locals: HashMap<usize, usize>,
 }
 
 impl Evaluator {
   fn new(file: OsString, env: EnvRef) -> Self {
-    Self { file, env }
+    Self {
+      file,
+      env,
+      locals: HashMap::new(),
+    }
   }
 
   fn eval_expr(&mut self, e: &Expr) -> ExprEvalResult {
@@ -648,6 +669,25 @@ impl Evaluator {
     result
   }
 
+  pub fn resolve(&mut self, id: usize, depth: usize) {
+    self.locals.insert(id, depth);
+  }
+
+  pub fn lookup_variable(&self, name: &Token, id: usize) -> ExprEvalResult {
+    match if let Some(depth) = self.locals.get(&id) {
+      self.env.lookup_at(*depth, &name.lexeme)
+    } else {
+      self.env.lookup(&name.lexeme)
+    } {
+      Some(v) => Ok(v),
+      None => Err(ScriptError {
+        file: self.file.clone(),
+        line: name.line,
+        msg: format!("used uninitialized variable '{}'", name.lexeme),
+      }),
+    }
+  }
+
   fn is_truthy(&mut self, v: &Value) -> bool {
     if *v == Value::Nil {
       return false;
@@ -661,17 +701,21 @@ impl Evaluator {
   }
 }
 
-impl StmtVisitor<StmtEvalResult> for Evaluator {
-  fn visit_expression_stmt(&mut self, e: &ExpressionStmt) -> StmtEvalResult {
+impl Visitor<ExpressionStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, e: &ExpressionStmt) -> StmtEvalResult {
     Ok(StatementType::Regular(self.eval_expr(&e.expr)?))
   }
+}
 
-  fn visit_print_stmt(&mut self, e: &PrintStmt) -> StmtEvalResult {
+impl Visitor<PrintStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, e: &PrintStmt) -> StmtEvalResult {
     println!("{}", self.eval_expr(&e.expr)?);
     Ok(StatementType::Regular(Value::Nil))
   }
+}
 
-  fn visit_var_stmt(&mut self, e: &VarStmt) -> StmtEvalResult {
+impl Visitor<VarStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, e: &VarStmt) -> StmtEvalResult {
     let mut value = Value::Nil;
 
     if let Some(i) = &e.initializer {
@@ -682,12 +726,19 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
 
     Ok(StatementType::Regular(Value::Nil))
   }
+}
 
-  fn visit_block_stmt(&mut self, e: &BlockStmt) -> StmtEvalResult {
-    self.eval_block(&e.statements,  EnvRef::new_with_enclosing(self.env.snapshot()))
+impl Visitor<BlockStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, e: &BlockStmt) -> StmtEvalResult {
+    self.eval_block(
+      &e.statements,
+      EnvRef::new_with_enclosing(self.env.snapshot()),
+    )
   }
+}
 
-  fn visit_if_stmt(&mut self, e: &IfStmt) -> StmtEvalResult {
+impl Visitor<IfStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, e: &IfStmt) -> StmtEvalResult {
     let result = self.eval_expr(&e.condition)?;
     if self.is_truthy(&result) {
       self.eval_block(&e.if_true, self.env.snapshot())
@@ -697,8 +748,10 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
       Ok(StatementType::Regular(Value::Nil))
     }
   }
+}
 
-  fn visit_while_stmt(&mut self, e: &WhileStmt) -> StmtEvalResult {
+impl Visitor<WhileStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, e: &WhileStmt) -> StmtEvalResult {
     let mut result = StatementType::Regular(Value::Nil);
 
     loop {
@@ -717,19 +770,23 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
 
     Ok(result)
   }
+}
 
-  fn visit_function_stmt(&mut self, e: &FunctionStmt) -> StmtEvalResult {
+impl Visitor<FunctionStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, e: &FunctionStmt) -> StmtEvalResult {
     let name = e.name.lexeme.clone();
-    let func = ScriptFunction::new(FunctionStmt::new(
-      e.name.clone(),
+    let func = Function::new_script(
+      e.name.lexeme.clone(),
       Rc::clone(&e.params),
       Rc::clone(&e.body),
-    ));
-    self.env.define(name, Value::Callee(Rc::new(func)));
+    );
+    self.env.define(name, Value::Callee(func));
     Ok(StatementType::Regular(Value::Nil))
   }
+}
 
-  fn visit_return_stmt(&mut self, s: &ReturnStmt) -> StmtEvalResult {
+impl Visitor<ReturnStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, s: &ReturnStmt) -> StmtEvalResult {
     let mut value = Value::Nil;
     if let Some(e) = &s.value {
       value = self.eval_expr(e)?;
@@ -737,8 +794,10 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
 
     Ok(StatementType::Return(value))
   }
+}
 
-  fn visit_load_stmt(&mut self, s: &LoadStmt) -> StmtEvalResult {
+impl Visitor<LoadStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, s: &LoadStmt) -> StmtEvalResult {
     let path = self.eval_expr(&s.path)?;
     if let Value::Str(path) = path {
       match fs::read_to_string(&path) {
@@ -748,25 +807,27 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
           let result = exec(path.into(), self.env.snapshot(), program)?;
           Ok(StatementType::Regular(result))
         }
-        Err(err) => Err(AstErr {
+        Err(err) => Err(ScriptError {
           file: self.file.clone(),
           line: s.load.line,
           msg: format!("failed loading file {}: {}", path, err),
         }),
       }
     } else {
-      Err(AstErr {
+      Err(ScriptError {
         file: self.file.clone(),
         line: s.load.line,
         msg: "cannot load non string value".to_string(),
       })
     }
   }
+}
 
-  fn visit_loadr_stmt(&mut self, s: &LoadrStmt) -> StmtEvalResult {
+impl Visitor<LoadrStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, s: &LoadrStmt) -> StmtEvalResult {
     let path = self.eval_expr(&s.path)?;
     if let Value::Str(path) = path {
-      let mut wd: PathBuf = env::current_dir().map_err(|_| AstErr {
+      let mut wd: PathBuf = env::current_dir().map_err(|_| ScriptError {
         file: self.file.clone(),
         line: s.loadr.line,
         msg: "unable to check current working directory".to_string(),
@@ -782,14 +843,14 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
           let result = exec(path.into(), self.env.snapshot(), program)?;
           Ok(StatementType::Regular(result))
         }
-        Err(err) => Err(AstErr {
+        Err(err) => Err(ScriptError {
           file: self.file.clone(),
           line: s.loadr.line,
           msg: format!("failed loading file {}: {}", wd.as_path().display(), err),
         }),
       }
     } else {
-      Err(AstErr {
+      Err(ScriptError {
         file: self.file.clone(),
         line: s.loadr.line,
         msg: "cannot load non string value".to_string(),
@@ -798,8 +859,8 @@ impl StmtVisitor<StmtEvalResult> for Evaluator {
   }
 }
 
-impl ExprVisitor<ExprEvalResult> for Evaluator {
-  fn visit_binary_expr(&mut self, e: &BinaryExpr) -> ExprEvalResult {
+impl Visitor<BinaryExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &BinaryExpr) -> ExprEvalResult {
     let left = self.eval_expr(&e.left)?;
     let right = self.eval_expr(&e.right)?;
 
@@ -824,7 +885,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
           TokenType::GreaterEq => Ok(Value::Bool(l >= r)),
           TokenType::LessThan => Ok(Value::Bool(l < r)),
           TokenType::LessEq => Ok(Value::Bool(l <= r)),
-          _ => Err(AstErr {
+          _ => Err(ScriptError {
             file: self.file.clone(),
             line: e.operator.line,
             msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
@@ -848,7 +909,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       }
     }
 
-    Err(AstErr {
+    Err(ScriptError {
       file: self.file.clone(),
       line: e.operator.line,
       msg: format!(
@@ -857,8 +918,10 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       ),
     })
   }
+}
 
-  fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> ExprEvalResult {
+impl Visitor<TernaryExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &TernaryExpr) -> ExprEvalResult {
     let result = self.eval_expr(&e.condition)?;
 
     if self.is_truthy(&result) {
@@ -867,16 +930,22 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       self.eval_expr(&e.if_false)
     }
   }
+}
 
-  fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> ExprEvalResult {
+impl Visitor<GroupingExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &GroupingExpr) -> ExprEvalResult {
     self.eval_expr(&e.expression)
   }
+}
 
-  fn visit_literal_expr(&mut self, e: &LiteralExpr) -> ExprEvalResult {
+impl Visitor<LiteralExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &LiteralExpr) -> ExprEvalResult {
     Ok(e.value.clone())
   }
+}
 
-  fn visit_unary_expr(&mut self, e: &UnaryExpr) -> ExprEvalResult {
+impl Visitor<UnaryExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &UnaryExpr) -> ExprEvalResult {
     let right = self.eval_expr(&e.right)?;
 
     match e.operator.token_type {
@@ -885,7 +954,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
         if let Value::Num(n) = right {
           Ok(Value::Num(-n))
         } else {
-          Err(AstErr {
+          Err(ScriptError {
             file: self.file.clone(),
             line: e.operator.line,
             msg: format!("invalid negation on type {}", right),
@@ -898,43 +967,52 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
         } else if let Value::Str(s) = right {
           match s.parse() {
             Ok(n) => Ok(Value::Num(n)),
-            Err(err) => Err(AstErr {
+            Err(err) => Err(ScriptError {
               file: self.file.clone(),
               line: e.operator.line,
               msg: format!("string parse error: {}", err),
             }),
           }
         } else {
-          Err(AstErr {
+          Err(ScriptError {
             file: self.file.clone(),
             line: e.operator.line,
             msg: format!("invalid absolution on type {}", right),
           })
         }
       }
-      _ => Err(AstErr {
+      _ => Err(ScriptError {
         file: self.file.clone(),
         line: e.operator.line,
         msg: format!("invalid unary operator {}", e.operator),
       }),
     }
   }
+}
 
-  fn visit_variable_expr(&mut self, e: &VariableExpr) -> ExprEvalResult {
-    match self.env.lookup(&e.name.lexeme) {
-      Some(v) => Ok(v),
-      None => Err(AstErr {
-        file: self.file.clone(),
-        line: e.name.line,
-        msg: format!("used uninitialized variable '{}'", e.name.lexeme),
-      }),
-    }
+impl Visitor<VariableExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &VariableExpr) -> ExprEvalResult {
+    self.lookup_variable(&e.name, e.id)
   }
+}
 
-  fn visit_assign_expr(&mut self, e: &AssignExpr) -> ExprEvalResult {
+impl Visitor<AssignExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &AssignExpr) -> ExprEvalResult {
     let value = self.eval_expr(&e.value)?;
-    if let Err(msg) = self.env.assign(e.name.lexeme.clone(), value.clone()) {
-      return Err(AstErr {
+
+    if let Some(depth) = self.locals.get(&e.id) {
+      if let Err(msg) = self
+        .env
+        .assign_at(*depth, e.name.lexeme.clone(), value.clone())
+      {
+        return Err(ScriptError {
+          file: self.file.clone(),
+          line: e.name.line,
+          msg: format!("assignment error: {}", msg),
+        });
+      }
+    } else if let Err(msg) = self.env.assign(e.name.lexeme.clone(), value.clone()) {
+      return Err(ScriptError {
         file: self.file.clone(),
         line: e.name.line,
         msg: format!("assignment error: {}", msg),
@@ -942,8 +1020,10 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
     }
     Ok(value)
   }
+}
 
-  fn visit_logical_expr(&mut self, e: &LogicalExpr) -> ExprEvalResult {
+impl Visitor<LogicalExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &LogicalExpr) -> ExprEvalResult {
     let left = self.eval_expr(&e.left)?;
 
     match e.operator.token_type {
@@ -958,7 +1038,7 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
         }
       }
       _ => {
-        return Err(AstErr {
+        return Err(ScriptError {
           file: self.file.clone(),
           line: e.operator.line,
           msg: String::from("invalid attempt for logical comparison"),
@@ -968,8 +1048,10 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
 
     self.eval_expr(&e.right)
   }
+}
 
-  fn visit_range_expr(&mut self, e: &RangeExpr) -> ExprEvalResult {
+impl Visitor<RangeExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &RangeExpr) -> ExprEvalResult {
     let begin = self.eval_expr(&e.begin)?;
     let end = self.eval_expr(&e.end)?;
 
@@ -983,14 +1065,16 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       }
     }
 
-    Err(AstErr {
+    Err(ScriptError {
       file: self.file.clone(),
       line: e.token.line,
       msg: String::from("expected number with range expression"),
     })
   }
+}
 
-  fn visit_call_expr(&mut self, e: &CallExpr) -> ExprEvalResult {
+impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &CallExpr) -> ExprEvalResult {
     let callee = self.eval_expr(&e.callee)?;
 
     if let Value::Callee(func) = callee {
@@ -1000,18 +1084,51 @@ impl ExprVisitor<ExprEvalResult> for Evaluator {
       }
       Ok(func.call(self, args, e.paren.line)?)
     } else {
-      Err(AstErr {
+      Err(ScriptError {
         file: self.file.clone(),
         line: e.paren.line,
         msg: format!("can't call type {}", callee),
       })
     }
   }
+}
 
-  fn visit_closure_expr(&mut self, e: &ClosureExpr) -> ExprEvalResult {
-    Ok(Value::Callee(Rc::new(Closure::new(
-      ClosureExpr::new(Rc::clone(&e.params), Rc::clone(&e.body)),
+impl Visitor<ClosureExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &ClosureExpr) -> ExprEvalResult {
+    Ok(Value::Callee(Function::new_closure(
+      Rc::clone(&e.params),
+      Rc::clone(&e.body),
       self.env.snapshot(),
-    ))))
+    )))
+  }
+}
+
+#[cfg(Test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_parser_load_stmt() {
+    const test_name: &str = "test_parser_load_stmt";
+    const script: &str = "load \"some_file.ss\"";
+    let analysis = lex::analyze(test_name, script).unwrap();
+    let res = parse(test_name, analysis).unwrap();
+
+    assert_eq!(res.len(), 1);
+    if let Stmt::Load(load) = res.first() {
+      assert_eq!(load.id, 1);
+      if let Expr::Literal(e) = load.path {
+        assert_eq!(e.id, 1);
+        if let Value::Str(s) = e.value {
+          assert_eq!(s, String::from("some_file.ss"));
+        } else {
+          panic!("load path not string literal: {}", e.value);
+        }
+      } else {
+        panic!("load path not literal value");
+      }
+    } else {
+      panic!("load statement is not correct");
+    }
   }
 }

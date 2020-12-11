@@ -1,6 +1,6 @@
 use crate::lex::Token;
 use crate::stmt::Stmt;
-use crate::types::Value;
+use crate::types::{Value, Visitor};
 use std::rc::Rc;
 
 pub enum Expr {
@@ -18,65 +18,86 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn new_closure(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>) -> Self {
-        Self::Closure(ClosureExpr::new(params, body))
+    pub fn new_closure(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>, id: usize) -> Self {
+        Self::Closure(ClosureExpr::new(params, body, id))
     }
-    pub fn new_range(begin: Box<Expr>, token: Token, end: Box<Expr>) -> Self {
-        Self::Range(RangeExpr::new(begin, token, end))
+    pub fn new_range(begin: Box<Expr>, token: Token, end: Box<Expr>, id: usize) -> Self {
+        Self::Range(RangeExpr::new(begin, token, end, id))
     }
-    pub fn new_logical(left: Box<Expr>, operator: Token, right: Box<Expr>) -> Self {
-        Self::Logical(LogicalExpr::new(left, operator, right))
+    pub fn new_logical(left: Box<Expr>, operator: Token, right: Box<Expr>, id: usize) -> Self {
+        Self::Logical(LogicalExpr::new(left, operator, right, id))
     }
-    pub fn new_assign(name: Token, value: Box<Expr>) -> Self {
-        Self::Assign(AssignExpr::new(name, value))
+    pub fn new_assign(name: Token, value: Box<Expr>, id: usize) -> Self {
+        Self::Assign(AssignExpr::new(name, value, id))
     }
-    pub fn new_binary(left: Box<Expr>, operator: Token, right: Box<Expr>) -> Self {
-        Self::Binary(BinaryExpr::new(left, operator, right))
+    pub fn new_binary(left: Box<Expr>, operator: Token, right: Box<Expr>, id: usize) -> Self {
+        Self::Binary(BinaryExpr::new(left, operator, right, id))
     }
-    pub fn new_ternary(condition: Box<Expr>, if_true: Box<Expr>, if_false: Box<Expr>) -> Self {
-        Self::Ternary(TernaryExpr::new(condition, if_true, if_false))
+    pub fn new_ternary(
+        condition: Box<Expr>,
+
+        if_true: Box<Expr>,
+
+        if_false: Box<Expr>,
+        id: usize,
+    ) -> Self {
+        Self::Ternary(TernaryExpr::new(condition, if_true, if_false, id))
     }
-    pub fn new_call(callee: Box<Expr>, paren: Token, args: Vec<Expr>) -> Self {
-        Self::Call(CallExpr::new(callee, paren, args))
+    pub fn new_call(callee: Box<Expr>, paren: Token, args: Vec<Expr>, id: usize) -> Self {
+        Self::Call(CallExpr::new(callee, paren, args, id))
     }
-    pub fn new_grouping(expression: Box<Expr>) -> Self {
-        Self::Grouping(GroupingExpr::new(expression))
+    pub fn new_grouping(expression: Box<Expr>, id: usize) -> Self {
+        Self::Grouping(GroupingExpr::new(expression, id))
     }
-    pub fn new_literal(value: Value) -> Self {
-        Self::Literal(LiteralExpr::new(value))
+    pub fn new_literal(value: Value, id: usize) -> Self {
+        Self::Literal(LiteralExpr::new(value, id))
     }
-    pub fn new_unary(operator: Token, right: Box<Expr>) -> Self {
-        Self::Unary(UnaryExpr::new(operator, right))
+    pub fn new_unary(operator: Token, right: Box<Expr>, id: usize) -> Self {
+        Self::Unary(UnaryExpr::new(operator, right, id))
     }
-    pub fn new_variable(name: Token) -> Self {
-        Self::Variable(VariableExpr::new(name))
+    pub fn new_variable(name: Token, id: usize) -> Self {
+        Self::Variable(VariableExpr::new(name, id))
     }
 }
 
-pub fn accept<R>(e: &Expr, visitor: &mut dyn Visitor<R>) -> R {
+pub fn accept<V, R>(e: &Expr, visitor: &mut V) -> R
+where
+    V: Visitor<ClosureExpr, R>
+        + Visitor<RangeExpr, R>
+        + Visitor<LogicalExpr, R>
+        + Visitor<AssignExpr, R>
+        + Visitor<BinaryExpr, R>
+        + Visitor<TernaryExpr, R>
+        + Visitor<CallExpr, R>
+        + Visitor<GroupingExpr, R>
+        + Visitor<LiteralExpr, R>
+        + Visitor<UnaryExpr, R>
+        + Visitor<VariableExpr, R>,
+{
     match e {
-        Expr::Closure(x) => visitor.visit_closure_expr(&x),
-        Expr::Range(x) => visitor.visit_range_expr(&x),
-        Expr::Logical(x) => visitor.visit_logical_expr(&x),
-        Expr::Assign(x) => visitor.visit_assign_expr(&x),
-        Expr::Binary(x) => visitor.visit_binary_expr(&x),
-        Expr::Ternary(x) => visitor.visit_ternary_expr(&x),
-        Expr::Call(x) => visitor.visit_call_expr(&x),
-        Expr::Grouping(x) => visitor.visit_grouping_expr(&x),
-        Expr::Literal(x) => visitor.visit_literal_expr(&x),
-        Expr::Unary(x) => visitor.visit_unary_expr(&x),
-        Expr::Variable(x) => visitor.visit_variable_expr(&x),
+        Expr::Closure(x) => visitor.visit(x),
+        Expr::Range(x) => visitor.visit(x),
+        Expr::Logical(x) => visitor.visit(x),
+        Expr::Assign(x) => visitor.visit(x),
+        Expr::Binary(x) => visitor.visit(x),
+        Expr::Ternary(x) => visitor.visit(x),
+        Expr::Call(x) => visitor.visit(x),
+        Expr::Grouping(x) => visitor.visit(x),
+        Expr::Literal(x) => visitor.visit(x),
+        Expr::Unary(x) => visitor.visit(x),
+        Expr::Variable(x) => visitor.visit(x),
     }
 }
 
 pub struct ClosureExpr {
     pub params: Rc<Vec<Token>>,
     pub body: Rc<Vec<Stmt>>,
+    pub id: usize,
 }
 
 impl ClosureExpr {
-    pub fn new(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>) -> Self {
-        Self { params, body }
+    pub fn new(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>, id: usize) -> Self {
+        Self { params, body, id }
     }
 }
 
@@ -84,11 +105,17 @@ pub struct RangeExpr {
     pub begin: Box<Expr>,
     pub token: Token,
     pub end: Box<Expr>,
+    pub id: usize,
 }
 
 impl RangeExpr {
-    pub fn new(begin: Box<Expr>, token: Token, end: Box<Expr>) -> Self {
-        Self { begin, token, end }
+    pub fn new(begin: Box<Expr>, token: Token, end: Box<Expr>, id: usize) -> Self {
+        Self {
+            begin,
+            token,
+            end,
+            id,
+        }
     }
 }
 
@@ -96,14 +123,16 @@ pub struct LogicalExpr {
     pub left: Box<Expr>,
     pub operator: Token,
     pub right: Box<Expr>,
+    pub id: usize,
 }
 
 impl LogicalExpr {
-    pub fn new(left: Box<Expr>, operator: Token, right: Box<Expr>) -> Self {
+    pub fn new(left: Box<Expr>, operator: Token, right: Box<Expr>, id: usize) -> Self {
         Self {
             left,
             operator,
             right,
+            id,
         }
     }
 }
@@ -111,11 +140,12 @@ impl LogicalExpr {
 pub struct AssignExpr {
     pub name: Token,
     pub value: Box<Expr>,
+    pub id: usize,
 }
 
 impl AssignExpr {
-    pub fn new(name: Token, value: Box<Expr>) -> Self {
-        Self { name, value }
+    pub fn new(name: Token, value: Box<Expr>, id: usize) -> Self {
+        Self { name, value, id }
     }
 }
 
@@ -123,14 +153,16 @@ pub struct BinaryExpr {
     pub left: Box<Expr>,
     pub operator: Token,
     pub right: Box<Expr>,
+    pub id: usize,
 }
 
 impl BinaryExpr {
-    pub fn new(left: Box<Expr>, operator: Token, right: Box<Expr>) -> Self {
+    pub fn new(left: Box<Expr>, operator: Token, right: Box<Expr>, id: usize) -> Self {
         Self {
             left,
             operator,
             right,
+            id,
         }
     }
 }
@@ -139,14 +171,16 @@ pub struct TernaryExpr {
     pub condition: Box<Expr>,
     pub if_true: Box<Expr>,
     pub if_false: Box<Expr>,
+    pub id: usize,
 }
 
 impl TernaryExpr {
-    pub fn new(condition: Box<Expr>, if_true: Box<Expr>, if_false: Box<Expr>) -> Self {
+    pub fn new(condition: Box<Expr>, if_true: Box<Expr>, if_false: Box<Expr>, id: usize) -> Self {
         Self {
             condition,
             if_true,
             if_false,
+            id,
         }
     }
 }
@@ -155,69 +189,65 @@ pub struct CallExpr {
     pub callee: Box<Expr>,
     pub paren: Token,
     pub args: Vec<Expr>,
+    pub id: usize,
 }
 
 impl CallExpr {
-    pub fn new(callee: Box<Expr>, paren: Token, args: Vec<Expr>) -> Self {
+    pub fn new(callee: Box<Expr>, paren: Token, args: Vec<Expr>, id: usize) -> Self {
         Self {
             callee,
             paren,
             args,
+            id,
         }
     }
 }
 
 pub struct GroupingExpr {
     pub expression: Box<Expr>,
+    pub id: usize,
 }
 
 impl GroupingExpr {
-    pub fn new(expression: Box<Expr>) -> Self {
-        Self { expression }
+    pub fn new(expression: Box<Expr>, id: usize) -> Self {
+        Self { expression, id }
     }
 }
 
 pub struct LiteralExpr {
     pub value: Value,
+    pub id: usize,
 }
 
 impl LiteralExpr {
-    pub fn new(value: Value) -> Self {
-        Self { value }
+    pub fn new(value: Value, id: usize) -> Self {
+        Self { value, id }
     }
 }
 
 pub struct UnaryExpr {
     pub operator: Token,
     pub right: Box<Expr>,
+    pub id: usize,
 }
 
 impl UnaryExpr {
-    pub fn new(operator: Token, right: Box<Expr>) -> Self {
-        Self { operator, right }
+    pub fn new(operator: Token, right: Box<Expr>, id: usize) -> Self {
+        Self {
+            operator,
+            right,
+            id,
+        }
     }
 }
 
 pub struct VariableExpr {
     pub name: Token,
+    pub id: usize,
 }
 
 impl VariableExpr {
-    pub fn new(name: Token) -> Self {
-        Self { name }
+    pub fn new(name: Token, id: usize) -> Self {
+        Self { name, id }
     }
-}
-
-pub trait Visitor<R> {
-    fn visit_closure_expr(&mut self, e: &ClosureExpr) -> R;
-    fn visit_range_expr(&mut self, e: &RangeExpr) -> R;
-    fn visit_logical_expr(&mut self, e: &LogicalExpr) -> R;
-    fn visit_assign_expr(&mut self, e: &AssignExpr) -> R;
-    fn visit_binary_expr(&mut self, e: &BinaryExpr) -> R;
-    fn visit_ternary_expr(&mut self, e: &TernaryExpr) -> R;
-    fn visit_call_expr(&mut self, e: &CallExpr) -> R;
-    fn visit_grouping_expr(&mut self, e: &GroupingExpr) -> R;
-    fn visit_literal_expr(&mut self, e: &LiteralExpr) -> R;
-    fn visit_unary_expr(&mut self, e: &UnaryExpr) -> R;
-    fn visit_variable_expr(&mut self, e: &VariableExpr) -> R;
 }

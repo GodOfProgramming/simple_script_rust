@@ -2,11 +2,15 @@ use std::fs::{self, ReadDir};
 use std::process::Command;
 
 fn main() {
-  Command::new("ruby").arg("tools/ast_gen.rb").status().unwrap();
+  if !cfg!(windows) {
+    Command::new("ruby")
+      .arg("tools/ast_gen.rb")
+      .status()
+      .unwrap();
 
-  rerun_dir("tools");
-  rerun_dir("config");
-
+    rerun_dir("tools");
+    rerun_dir("config");
+  }
 }
 
 fn rerun_dir(dir: &str) {

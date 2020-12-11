@@ -3,7 +3,7 @@
     "name": "Expr",
     "uses": [
       "crate::lex::Token",
-      "crate::types::Value",
+      "crate::types::{Value, Visitor}",
       "crate::stmt::Stmt",
       "std::rc::Rc"
     ],
@@ -166,6 +166,7 @@
     "uses": [
       "crate::expr::Expr",
       "crate::lex::Token",
+      "crate::types::Visitor",
       "std::rc::Rc"
     ],
     "enums": [

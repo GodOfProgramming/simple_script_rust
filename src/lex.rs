@@ -1,4 +1,5 @@
 use crate::types::Value;
+use crate::ScriptError;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::{self, Debug, Display};
@@ -123,25 +124,12 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
   map
 }
 
-#[derive(Debug)]
-pub struct LexicalErr {
-  pub file: OsString,
-  pub line: usize,
-  pub msg: String,
-}
-
-impl Display for LexicalErr {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} ({}): {}", self.file.to_string_lossy(), self.line, self.msg)
-  }
-}
-
 pub struct AnalyzeResult {
   pub tokens: Vec<Token>,
   pub lines_analyzed: usize,
 }
 
-pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
+pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, ScriptError> {
   enum TokenResult {
     Valid(TokenType),
     Skip,
@@ -151,7 +139,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
   let keywords = basic_keywords();
 
   let mut tokens = Vec::new();
-  let mut line = 0;
+  let mut line = 1;
   let mut current_pos = 0usize;
 
   let bytes = src.as_bytes();
@@ -240,7 +228,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
           }
           current_pos += 1;
         } {
-          return Err(LexicalErr {
+          return Err(ScriptError {
             file,
             msg: String::from(r#"missing closing " for string"#),
             line,
@@ -313,7 +301,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
       match create_token(&bytes, start_pos, current_pos, token_type) {
         Ok(info) => tokens.push(Token::new(info.token_type, info.lexeme, info.literal, line)),
         Err(err) => {
-          return Err(LexicalErr {
+          return Err(ScriptError {
             file,
             msg: err,
             line,
@@ -321,11 +309,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
         }
       }
     } else if let TokenResult::Error { msg, line } = token {
-      return Err(LexicalErr {
-        file,
-        msg,
-        line,
-      });
+      return Err(ScriptError { file, msg, line });
     }
   }
 
@@ -333,7 +317,7 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, LexicalErr> {
 
   Ok(AnalyzeResult {
     tokens,
-    lines_analyzed: line,
+    lines_analyzed: line - 1, // sub 1 b/c line starts at 1
   })
 }
 
@@ -409,24 +393,24 @@ fn next_is(bytes: &[u8], curr_pos: usize, test: char) -> bool {
 mod tests {
   use super::*;
 
-  const GOOD_SRC: &str = r#"let var_1 = "some value";"#;
+  const GOOD_SRC: &str = "let var_1 = 1;";
 
   #[test]
   fn lexer_analyze_with_no_error_basic() {
     let result = analyze("test".into(), GOOD_SRC);
 
     let expected_tokens = vec![
-      Token::new(TokenType::Let, String::from("let"), None, 0),
-      Token::new(TokenType::Identifier, String::from("var_1"), None, 0),
-      Token::new(TokenType::Equal, String::from("="), None, 0),
+      Token::new(TokenType::Let, String::from("let"), None, 1),
+      Token::new(TokenType::Identifier, String::from("var_1"), None, 1),
+      Token::new(TokenType::Equal, String::from("="), None, 1),
       Token::new(
-        TokenType::StringLiteral,
-        String::from(r#""some value""#),
-        Some(Value::Str(String::from("some value"))),
-        0,
+        TokenType::NumberLiteral,
+        String::from("1"),
+        Some(Value::Num(1.0)),
+        1,
       ),
-      Token::new(TokenType::Semicolon, String::from(";"), None, 0),
-      Token::new(TokenType::Eof, String::from("EOF"), None, 0),
+      Token::new(TokenType::Semicolon, String::from(";"), None, 1),
+      Token::new(TokenType::Eof, String::from("EOF"), None, 1),
     ];
 
     match result {
@@ -434,7 +418,7 @@ mod tests {
         assert_eq!(res.lines_analyzed, 0);
         assert_eq!(res.tokens, expected_tokens);
       }
-      Err(_) => panic!(),
+      Err(_) => panic!("failed to pass lexical analysis"),
     }
   }
 }
