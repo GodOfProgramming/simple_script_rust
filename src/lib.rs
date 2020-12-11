@@ -46,6 +46,7 @@ impl Default for Interpreter {
 
     builtin::time::enable(&mut globals);
     builtin::meta::enable(&mut globals);
+    builtin::sys::enable(&mut globals);
 
     Interpreter { globals }
   }
@@ -122,7 +123,7 @@ impl Interpreter {
           println!(
             "{} ({}): {}",
             err.file.to_string_lossy(),
-            err.line + line_number,
+            err.line + line_number - 1,
             err.msg
           );
           continue;
@@ -137,7 +138,7 @@ impl Interpreter {
         Err(err) => println!(
           "{} ({}): {}",
           err.file.to_string_lossy(),
-          err.line + line_number,
+          err.line + line_number - 1,
           err.msg
         ),
       }
