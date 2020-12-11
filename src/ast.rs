@@ -9,7 +9,7 @@ use crate::stmt::{
   self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
   ReturnStmt, Stmt, VarStmt, WhileStmt,
 };
-use crate::types::{Closure, ScriptFunction, Value, Values, Visitor};
+use crate::types::{Function, Value, Values, Visitor};
 use crate::ScriptError;
 use std::collections::HashMap;
 use std::env;
@@ -775,13 +775,12 @@ impl Visitor<WhileStmt, StmtEvalResult> for Evaluator {
 impl Visitor<FunctionStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, e: &FunctionStmt) -> StmtEvalResult {
     let name = e.name.lexeme.clone();
-    let func = ScriptFunction::new(FunctionStmt::new(
-      e.name.clone(),
+    let func = Function::new_script(
+      e.name.lexeme.clone(),
       Rc::clone(&e.params),
       Rc::clone(&e.body),
-      e.id,
-    ));
-    self.env.define(name, Value::Callee(Rc::new(func)));
+    );
+    self.env.define(name, Value::Callee(func));
     Ok(StatementType::Regular(Value::Nil))
   }
 }
@@ -1096,10 +1095,11 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
 
 impl Visitor<ClosureExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &ClosureExpr) -> ExprEvalResult {
-    Ok(Value::Callee(Rc::new(Closure::new(
-      ClosureExpr::new(Rc::clone(&e.params), Rc::clone(&e.body), e.id),
+    Ok(Value::Callee(Function::new_closure(
+      Rc::clone(&e.params),
+      Rc::clone(&e.body),
       self.env.snapshot(),
-    ))))
+    )))
   }
 }
 

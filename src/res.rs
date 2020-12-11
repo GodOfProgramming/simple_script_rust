@@ -185,7 +185,7 @@ impl Visitor<GroupingExpr, ResolveResult> for Resolver<'_> {
 }
 
 impl Visitor<LiteralExpr, ResolveResult> for Resolver<'_> {
-  fn visit(&mut self, e: &LiteralExpr) -> ResolveResult {
+  fn visit(&mut self, _: &LiteralExpr) -> ResolveResult {
     println!("{} ({})", file!(), line!());
     Ok(())
   }

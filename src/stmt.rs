@@ -4,234 +4,220 @@ use crate::types::Visitor;
 use std::rc::Rc;
 
 pub enum Stmt {
-    Return(ReturnStmt),
-    Function(FunctionStmt),
-    While(WhileStmt),
-    If(IfStmt),
-    Block(BlockStmt),
-    Expression(ExpressionStmt),
-    Print(PrintStmt),
-    Load(LoadStmt),
-    Loadr(LoadrStmt),
-    Var(VarStmt),
+  Return(ReturnStmt),
+  Function(FunctionStmt),
+  While(WhileStmt),
+  If(IfStmt),
+  Block(BlockStmt),
+  Expression(ExpressionStmt),
+  Print(PrintStmt),
+  Load(LoadStmt),
+  Loadr(LoadrStmt),
+  Var(VarStmt),
 }
 
 impl Stmt {
-    pub fn new_return(keyword: Token, value: Option<Expr>, id: usize) -> Self {
-        Self::Return(ReturnStmt::new(keyword, value, id))
-    }
-    pub fn new_function(
-        name: Token,
+  pub fn new_return(keyword: Token, value: Option<Expr>, id: usize) -> Self {
+    Self::Return(ReturnStmt::new(keyword, value, id))
+  }
+  pub fn new_function(name: Token, params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>, id: usize) -> Self {
+    Self::Function(FunctionStmt::new(name, params, body, id))
+  }
+  pub fn new_while(token: Token, condition: Expr, body: Vec<Stmt>, id: usize) -> Self {
+    Self::While(WhileStmt::new(token, condition, body, id))
+  }
+  pub fn new_if(
+    condition: Expr,
 
-        params: Rc<Vec<Token>>,
+    if_true: Vec<Stmt>,
 
-        body: Rc<Vec<Stmt>>,
-        id: usize,
-    ) -> Self {
-        Self::Function(FunctionStmt::new(name, params, body, id))
-    }
-    pub fn new_while(token: Token, condition: Expr, body: Vec<Stmt>, id: usize) -> Self {
-        Self::While(WhileStmt::new(token, condition, body, id))
-    }
-    pub fn new_if(
-        condition: Expr,
-
-        if_true: Vec<Stmt>,
-
-        if_false: Option<Box<Stmt>>,
-        id: usize,
-    ) -> Self {
-        Self::If(IfStmt::new(condition, if_true, if_false, id))
-    }
-    pub fn new_block(statements: Vec<Stmt>, id: usize) -> Self {
-        Self::Block(BlockStmt::new(statements, id))
-    }
-    pub fn new_expression(expr: Expr, id: usize) -> Self {
-        Self::Expression(ExpressionStmt::new(expr, id))
-    }
-    pub fn new_print(expr: Expr, id: usize) -> Self {
-        Self::Print(PrintStmt::new(expr, id))
-    }
-    pub fn new_load(load: Token, path: Expr, id: usize) -> Self {
-        Self::Load(LoadStmt::new(load, path, id))
-    }
-    pub fn new_loadr(loadr: Token, path: Expr, id: usize) -> Self {
-        Self::Loadr(LoadrStmt::new(loadr, path, id))
-    }
-    pub fn new_var(name: Token, initializer: Option<Expr>, id: usize) -> Self {
-        Self::Var(VarStmt::new(name, initializer, id))
-    }
+    if_false: Option<Box<Stmt>>,
+    id: usize,
+  ) -> Self {
+    Self::If(IfStmt::new(condition, if_true, if_false, id))
+  }
+  pub fn new_block(statements: Vec<Stmt>, id: usize) -> Self {
+    Self::Block(BlockStmt::new(statements, id))
+  }
+  pub fn new_expression(expr: Expr, id: usize) -> Self {
+    Self::Expression(ExpressionStmt::new(expr, id))
+  }
+  pub fn new_print(expr: Expr, id: usize) -> Self {
+    Self::Print(PrintStmt::new(expr, id))
+  }
+  pub fn new_load(load: Token, path: Expr, id: usize) -> Self {
+    Self::Load(LoadStmt::new(load, path, id))
+  }
+  pub fn new_loadr(loadr: Token, path: Expr, id: usize) -> Self {
+    Self::Loadr(LoadrStmt::new(loadr, path, id))
+  }
+  pub fn new_var(name: Token, initializer: Option<Expr>, id: usize) -> Self {
+    Self::Var(VarStmt::new(name, initializer, id))
+  }
 }
 
 pub fn accept<V, R>(e: &Stmt, visitor: &mut V) -> R
 where
-    V: Visitor<ReturnStmt, R>
-        + Visitor<FunctionStmt, R>
-        + Visitor<WhileStmt, R>
-        + Visitor<IfStmt, R>
-        + Visitor<BlockStmt, R>
-        + Visitor<ExpressionStmt, R>
-        + Visitor<PrintStmt, R>
-        + Visitor<LoadStmt, R>
-        + Visitor<LoadrStmt, R>
-        + Visitor<VarStmt, R>,
+  V: Visitor<ReturnStmt, R>
+    + Visitor<FunctionStmt, R>
+    + Visitor<WhileStmt, R>
+    + Visitor<IfStmt, R>
+    + Visitor<BlockStmt, R>
+    + Visitor<ExpressionStmt, R>
+    + Visitor<PrintStmt, R>
+    + Visitor<LoadStmt, R>
+    + Visitor<LoadrStmt, R>
+    + Visitor<VarStmt, R>,
 {
-    match e {
-        Stmt::Return(x) => visitor.visit(x),
-        Stmt::Function(x) => visitor.visit(x),
-        Stmt::While(x) => visitor.visit(x),
-        Stmt::If(x) => visitor.visit(x),
-        Stmt::Block(x) => visitor.visit(x),
-        Stmt::Expression(x) => visitor.visit(x),
-        Stmt::Print(x) => visitor.visit(x),
-        Stmt::Load(x) => visitor.visit(x),
-        Stmt::Loadr(x) => visitor.visit(x),
-        Stmt::Var(x) => visitor.visit(x),
-    }
+  match e {
+    Stmt::Return(x) => visitor.visit(x),
+    Stmt::Function(x) => visitor.visit(x),
+    Stmt::While(x) => visitor.visit(x),
+    Stmt::If(x) => visitor.visit(x),
+    Stmt::Block(x) => visitor.visit(x),
+    Stmt::Expression(x) => visitor.visit(x),
+    Stmt::Print(x) => visitor.visit(x),
+    Stmt::Load(x) => visitor.visit(x),
+    Stmt::Loadr(x) => visitor.visit(x),
+    Stmt::Var(x) => visitor.visit(x),
+  }
 }
 
 pub struct ReturnStmt {
-    pub keyword: Token,
-    pub value: Option<Expr>,
-    pub id: usize,
+  pub keyword: Token,
+  pub value: Option<Expr>,
+  pub id: usize,
 }
 
 impl ReturnStmt {
-    pub fn new(keyword: Token, value: Option<Expr>, id: usize) -> Self {
-        Self { keyword, value, id }
-    }
+  pub fn new(keyword: Token, value: Option<Expr>, id: usize) -> Self {
+    Self { keyword, value, id }
+  }
 }
 
 pub struct FunctionStmt {
-    pub name: Token,
-    pub params: Rc<Vec<Token>>,
-    pub body: Rc<Vec<Stmt>>,
-    pub id: usize,
+  pub name: Token,
+  pub params: Rc<Vec<Token>>,
+  pub body: Rc<Vec<Stmt>>,
+  pub id: usize,
 }
 
 impl FunctionStmt {
-    pub fn new(name: Token, params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>, id: usize) -> Self {
-        Self {
-            name,
-            params,
-            body,
-            id,
-        }
+  pub fn new(name: Token, params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>, id: usize) -> Self {
+    Self {
+      name,
+      params,
+      body,
+      id,
     }
+  }
 }
 
 pub struct WhileStmt {
-    pub token: Token,
-    pub condition: Expr,
-    pub body: Vec<Stmt>,
-    pub id: usize,
+  pub token: Token,
+  pub condition: Expr,
+  pub body: Vec<Stmt>,
+  pub id: usize,
 }
 
 impl WhileStmt {
-    pub fn new(token: Token, condition: Expr, body: Vec<Stmt>, id: usize) -> Self {
-        Self {
-            token,
-            condition,
-            body,
-            id,
-        }
+  pub fn new(token: Token, condition: Expr, body: Vec<Stmt>, id: usize) -> Self {
+    Self {
+      token,
+      condition,
+      body,
+      id,
     }
+  }
 }
 
 pub struct IfStmt {
-    pub condition: Expr,
-    pub if_true: Vec<Stmt>,
-    pub if_false: Option<Box<Stmt>>,
-    pub id: usize,
+  pub condition: Expr,
+  pub if_true: Vec<Stmt>,
+  pub if_false: Option<Box<Stmt>>,
+  pub id: usize,
 }
 
 impl IfStmt {
-    pub fn new(
-        condition: Expr,
-
-        if_true: Vec<Stmt>,
-
-        if_false: Option<Box<Stmt>>,
-        id: usize,
-    ) -> Self {
-        Self {
-            condition,
-            if_true,
-            if_false,
-            id,
-        }
+  pub fn new(condition: Expr, if_true: Vec<Stmt>, if_false: Option<Box<Stmt>>, id: usize) -> Self {
+    Self {
+      condition,
+      if_true,
+      if_false,
+      id,
     }
+  }
 }
 
 pub struct BlockStmt {
-    pub statements: Vec<Stmt>,
-    pub id: usize,
+  pub statements: Vec<Stmt>,
+  pub id: usize,
 }
 
 impl BlockStmt {
-    pub fn new(statements: Vec<Stmt>, id: usize) -> Self {
-        Self { statements, id }
-    }
+  pub fn new(statements: Vec<Stmt>, id: usize) -> Self {
+    Self { statements, id }
+  }
 }
 
 pub struct ExpressionStmt {
-    pub expr: Expr,
-    pub id: usize,
+  pub expr: Expr,
+  pub id: usize,
 }
 
 impl ExpressionStmt {
-    pub fn new(expr: Expr, id: usize) -> Self {
-        Self { expr, id }
-    }
+  pub fn new(expr: Expr, id: usize) -> Self {
+    Self { expr, id }
+  }
 }
 
 pub struct PrintStmt {
-    pub expr: Expr,
-    pub id: usize,
+  pub expr: Expr,
+  pub id: usize,
 }
 
 impl PrintStmt {
-    pub fn new(expr: Expr, id: usize) -> Self {
-        Self { expr, id }
-    }
+  pub fn new(expr: Expr, id: usize) -> Self {
+    Self { expr, id }
+  }
 }
 
 pub struct LoadStmt {
-    pub load: Token,
-    pub path: Expr,
-    pub id: usize,
+  pub load: Token,
+  pub path: Expr,
+  pub id: usize,
 }
 
 impl LoadStmt {
-    pub fn new(load: Token, path: Expr, id: usize) -> Self {
-        Self { load, path, id }
-    }
+  pub fn new(load: Token, path: Expr, id: usize) -> Self {
+    Self { load, path, id }
+  }
 }
 
 pub struct LoadrStmt {
-    pub loadr: Token,
-    pub path: Expr,
-    pub id: usize,
+  pub loadr: Token,
+  pub path: Expr,
+  pub id: usize,
 }
 
 impl LoadrStmt {
-    pub fn new(loadr: Token, path: Expr, id: usize) -> Self {
-        Self { loadr, path, id }
-    }
+  pub fn new(loadr: Token, path: Expr, id: usize) -> Self {
+    Self { loadr, path, id }
+  }
 }
 
 pub struct VarStmt {
-    pub name: Token,
-    pub initializer: Option<Expr>,
-    pub id: usize,
+  pub name: Token,
+  pub initializer: Option<Expr>,
+  pub id: usize,
 }
 
 impl VarStmt {
-    pub fn new(name: Token, initializer: Option<Expr>, id: usize) -> Self {
-        Self {
-            name,
-            initializer,
-            id,
-        }
+  pub fn new(name: Token, initializer: Option<Expr>, id: usize) -> Self {
+    Self {
+      name,
+      initializer,
+      id,
     }
+  }
 }

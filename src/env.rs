@@ -51,6 +51,7 @@ impl Env {
   }
 }
 
+#[derive(Clone)]
 pub struct EnvRef {
   env: Rc<RefCell<Env>>,
 }

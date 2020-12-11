@@ -1,7 +1,7 @@
 use crate::ast::{Evaluator, StatementType};
 use crate::env::EnvRef;
-use crate::expr::ClosureExpr;
-use crate::stmt::FunctionStmt;
+use crate::lex::Token;
+use crate::stmt::Stmt;
 use crate::ScriptError;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
@@ -13,7 +13,7 @@ pub enum Value {
   Str(String),
   Num(f64),
   List(Values),
-  Callee(Rc<dyn Callable>),
+  Callee(Function),
 }
 
 impl Value {
@@ -111,59 +111,87 @@ impl PartialEq for Value {
   }
 }
 
+type NativeFnResult = Result<Value, String>;
+type NativeFn = fn(EnvRef, &[Value]) -> NativeFnResult;
+
+#[derive(Clone)]
+pub enum Function {
+  Native {
+    name: String,
+    airity: usize,
+    func: NativeFn,
+  },
+  Script {
+    name: String,
+    params: Rc<Vec<Token>>,
+    body: Rc<Vec<Stmt>>,
+  },
+  Closure {
+    params: Rc<Vec<Token>>,
+    body: Rc<Vec<Stmt>>,
+    env: EnvRef,
+  },
+}
+
 pub type CallResult = Result<Value, ScriptError>;
 
-pub trait Callable: Display {
-  fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult;
-}
+pub trait Callable {}
 
-pub type NativeResult = Result<Value, String>;
-pub type NativeClosure = fn(EnvRef, Vec<Value>) -> NativeResult;
-
-pub struct NativeFunction {
-  airity: usize,
-  func: NativeClosure,
-}
-
-impl NativeFunction {
-  pub fn new(airity: usize, func: NativeClosure) -> Self {
-    Self { airity, func }
+impl Function {
+  pub fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
+    match self {
+      Function::Native { name: _, airity, func } => {
+        Function::call_native_fn(airity, func, evaluator, &args, line)
+      }
+      Function::Script { name: _, params, body } => {
+        Function::call_script_fn(params, body, evaluator, args, line)
+      }
+      Function::Closure { params, body, env } => {
+        Function::call_closure_fn(params, body, env, evaluator, args, line)
+      }
+    }
   }
-}
 
-impl Display for NativeFunction {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "<native function>")
+  pub fn new_native(name: String, airity: usize, func: NativeFn) -> Self {
+    Self::Native { name, airity, func }
   }
-}
 
-impl Callable for NativeFunction {
-  fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
-    if self.airity < args.len() {
+  pub fn new_script(name: String, params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>) -> Self {
+    Self::Script { name, params, body }
+  }
+
+  pub fn new_closure(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>, env: EnvRef) -> Self {
+    Self::Closure { params, body, env }
+  }
+
+  fn call_native_fn(
+    airity: &usize,
+    func: &NativeFn,
+    e: &mut Evaluator,
+    args: &[Value],
+    line: usize,
+  ) -> CallResult {
+    if *airity < args.len() {
       return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
           "too many arguments, expected {}, got {}",
-          self.airity,
+          airity,
           args.len()
         ),
       });
     }
 
-    if self.airity > args.len() {
+    if *airity > args.len() {
       return Err(ScriptError {
         file: e.file.clone(),
         line,
-        msg: format!(
-          "too few arguments, expected {}, got {}",
-          self.airity,
-          args.len(),
-        ),
+        msg: format!("too few arguments, expected {}, got {}", airity, args.len(),),
       });
     }
 
-    match (self.func)(e.env.snapshot(), args) {
+    match (func)(e.env.snapshot(), args) {
       Ok(v) => Ok(v),
       Err(msg) => Err(ScriptError {
         file: e.file.clone(),
@@ -172,46 +200,33 @@ impl Callable for NativeFunction {
       }),
     }
   }
-}
 
-pub struct ScriptFunction {
-  pub func: FunctionStmt,
-}
-
-impl ScriptFunction {
-  pub fn new(func: FunctionStmt) -> ScriptFunction {
-    ScriptFunction { func }
-  }
-}
-
-impl Display for ScriptFunction {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "<fn {}>", self.func.name)
-  }
-}
-
-impl Callable for ScriptFunction {
-  fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
-    let func = &self.func;
-    if func.params.len() < args.len() {
+  fn call_script_fn(
+    params: &[Token],
+    body: &[Stmt],
+    e: &mut Evaluator,
+    args: Vec<Value>,
+    line: usize,
+  ) -> CallResult {
+    if params.len() < args.len() {
       return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
           "too many arguments, expected {}, got {}",
-          func.params.len(),
+          params.len(),
           args.len()
         ),
       });
     }
 
-    if func.params.len() > args.len() {
+    if params.len() > args.len() {
       return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
           "too few arguments, expected {}, got {}",
-          func.params.len(),
+          params.len(),
           args.len(),
         ),
       });
@@ -219,74 +234,77 @@ impl Callable for ScriptFunction {
 
     let mut env = EnvRef::new_with_enclosing(e.env.snapshot());
 
-    for (param, arg) in func.params.iter().zip(args.iter()) {
+    for (param, arg) in params.iter().zip(args.iter()) {
       env.define(param.lexeme.clone(), arg.clone())
     }
 
-    Ok(match e.eval_block(&func.body, env)? {
+    Ok(match e.eval_block(&body, env)? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,
     })
   }
-}
 
-pub struct Closure {
-  pub exec: ClosureExpr,
-  env: EnvRef,
-}
-
-impl Closure {
-  pub fn new(exec: ClosureExpr, env: EnvRef) -> Self {
-    Self { exec, env }
-  }
-}
-
-impl Display for Closure {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "<closure>")
-  }
-}
-
-impl Callable for Closure {
-  fn call(&self, e: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
-    let func = &self.exec;
-    if func.params.len() < args.len() {
+  fn call_closure_fn(
+    params: &[Token],
+    body: &[Stmt],
+    env: &EnvRef,
+    e: &mut Evaluator,
+    args: Vec<Value>,
+    line: usize,
+  ) -> CallResult {
+    if params.len() < args.len() {
       return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
           "too many arguments, expected {}, got {}",
-          func.params.len(),
+          params.len(),
           args.len()
         ),
       });
     }
 
-    if func.params.len() > args.len() {
+    if params.len() > args.len() {
       return Err(ScriptError {
         file: e.file.clone(),
         line,
         msg: format!(
           "too few arguments, expected {}, got {}",
-          func.params.len(),
+          params.len(),
           args.len(),
         ),
       });
     }
 
-    let mut env = EnvRef::new_with_enclosing(self.env.snapshot());
+    let mut env = EnvRef::new_with_enclosing(env.snapshot());
 
-    for (param, arg) in func.params.iter().zip(args.iter()) {
+    for (param, arg) in params.iter().zip(args.iter()) {
       env.define(param.lexeme.clone(), arg.clone())
     }
 
-    Ok(match e.eval_block(&func.body, env)? {
+    Ok(match e.eval_block(&body, env)? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,
     })
   }
 }
 
+impl Display for Function {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Native { name, airity: _, func: _ } => {
+        write!(f, "<nf {}>", name)
+      }
+      Self::Script { name, params: _, body: _ } => {
+        write!(f, "<fn {}>", name)
+      }
+      _ => {
+        write!(f, "<closure>")
+      }
+    }
+  }
+}
+
 pub trait Visitor<T, R> {
-    fn visit(&mut self, e: &T) -> R;
+  fn visit(&mut self, e: &T) -> R;
 }
