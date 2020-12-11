@@ -22,6 +22,7 @@ pub fn resolve(evaluator: &mut Evaluator, statements: &Vec<Stmt>) -> ResolveResu
 struct Resolver<'eval> {
   evaluator: &'eval mut Evaluator,
   scopes: Vec<HashMap<String, bool>>,
+  function_depth: usize,
 }
 
 impl<'eval> Resolver<'eval> {
@@ -29,6 +30,7 @@ impl<'eval> Resolver<'eval> {
     Self {
       evaluator,
       scopes: vec![HashMap::new()],
+      function_depth: 0,
     }
   }
 
@@ -38,6 +40,16 @@ impl<'eval> Resolver<'eval> {
 
   fn end_scope(&mut self) {
     self.scopes.pop();
+  }
+
+  fn begin_function(&mut self) {
+    self.function_depth += 1;
+    self.begin_scope();
+  }
+
+  fn end_function(&mut self) {
+    self.function_depth -= 1;
+    self.end_scope();
   }
 
   fn declare(&mut self, name: &Token) -> Result<(), ScriptError> {
@@ -88,13 +100,13 @@ impl Res<Stmt> for Resolver<'_> {
 impl Res<FunctionStmt> for Resolver<'_> {
   type Return = ResolveResult;
   fn resolve(&mut self, s: &FunctionStmt) -> Self::Return {
-    self.begin_scope();
+    self.begin_function();
     for param in s.params.iter() {
       self.declare(param)?;
       self.define(param);
     }
     self.resolve(&*s.body)?;
-    self.end_scope();
+    self.end_function();
     Ok(())
   }
 }
@@ -102,13 +114,13 @@ impl Res<FunctionStmt> for Resolver<'_> {
 impl Res<ClosureExpr> for Resolver<'_> {
   type Return = ResolveResult;
   fn resolve(&mut self, e: &ClosureExpr) -> Self::Return {
-    self.begin_scope();
+    self.begin_function();
     for param in e.params.iter() {
       self.declare(param)?;
       self.define(param);
     }
     self.resolve(&*e.body)?;
-    self.end_scope();
+    self.end_function();
     Ok(())
   }
 }
@@ -296,6 +308,13 @@ impl Visitor<PrintStmt, ResolveResult> for Resolver<'_> {
 
 impl Visitor<ReturnStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &ReturnStmt) -> ResolveResult {
+    if self.function_depth == 0 {
+      return Err(ScriptError {
+        file: self.evaluator.file.clone(),
+        line: s.keyword.line,
+        msg: String::from("can't return outside of a function"),
+      })
+    }
     if let Some(v) = &s.value {
       self.resolve(v)?;
     }
@@ -363,7 +382,7 @@ mod tests {
     let res = i.exec(&"test".into(), SRC);
 
     match res {
-      Ok(v) => panic!("failed to detect duplicate variable, value: {}", v),
+      Ok(_) => panic!("failed to detect duplicate variable"),
       Err(e) => {
         assert_eq!(e.msg, "variable in scope already declared with name 'a'");
       }
@@ -382,10 +401,37 @@ mod tests {
     let res = i.exec(&"test".into(), SRC);
 
     match res {
-      Ok(v) => panic!("failed to detect duplicate variable, value: {}", v),
+      Ok(_) => panic!("failed to detect duplicate variable"),
       Err(e) => {
         assert_eq!(e.msg, "variable in scope already declared with name 'a'");
       }
     };
+  }
+
+  #[test]
+  fn resolver_should_not_allow_a_return_statement_outside_of_a_function() {
+    const SRC: &str = r#"
+    return true;
+    "#;
+    let i = Interpreter::new_with_test_support();
+    let res = i.exec(&"test".into(), SRC);
+
+    match res {
+      Ok(_) => panic!("failed to detect external return statement"),
+      Err(e) => {
+        assert_eq!(e.msg, "can't return outside of a function");
+      }
+    };
+  }
+
+  #[test]
+  fn resolver_should_allow_a_return_statement_inside_of_a_function() {
+    const SRC: &str = r#"
+    fn some_func() {
+      return true;
+    }
+    "#;
+    let i = Interpreter::new_with_test_support();
+    assert!(i.exec(&"test".into(), SRC).is_ok());
   }
 }
