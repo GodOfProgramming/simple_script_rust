@@ -106,7 +106,6 @@ impl Res<ClosureExpr> for Resolver<'_> {
 impl Res<Expr> for Resolver<'_> {
   type Return = ResolveResult;
   fn resolve(&mut self, e: &Expr) -> Self::Return {
-    println!("{} ({}): resolving expr", file!(), line!());
     expr::accept(e, self)
   }
 }
@@ -117,9 +116,15 @@ trait ResLoc<T> {
 
 impl ResLoc<VariableExpr> for Resolver<'_> {
   fn resolve_local(&mut self, e: &VariableExpr, name: &Token) {
-    for (i, scope) in self.scopes.iter().rev().enumerate() {
-      if scope.get(&name.lexeme).is_some() {
-        self.evaluator.resolve(e.id, self.scopes.len() - 1 - i);
+    // will be empty when using variables defined external to scripts
+    if !self.scopes.is_empty() {
+      for i in (0..self.scopes.len() - 1).rev() {
+        let scope = &self.scopes[i];
+        if scope.get(&name.lexeme).is_some() {
+          let depth = self.scopes.len() - 1 - i;
+          self.evaluator.resolve(e.id, depth);
+          break;
+        }
       }
     }
   }
@@ -127,9 +132,12 @@ impl ResLoc<VariableExpr> for Resolver<'_> {
 
 impl ResLoc<AssignExpr> for Resolver<'_> {
   fn resolve_local(&mut self, e: &AssignExpr, name: &Token) {
-    for (i, scope) in self.scopes.iter().rev().enumerate() {
+    for i in (0..self.scopes.len() - 1).rev() {
+      let scope = &self.scopes[i];
       if scope.get(&name.lexeme).is_some() {
-        self.evaluator.resolve(e.id, self.scopes.len() - 1 - i);
+        let depth = self.scopes.len() - 1 - self.scopes.len() - i;
+        self.evaluator.resolve(e.id, depth);
+        break;
       }
     }
   }
@@ -137,7 +145,6 @@ impl ResLoc<AssignExpr> for Resolver<'_> {
 
 impl Visitor<VariableExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &VariableExpr) -> ResolveResult {
-    println!("{} ({}): {} ({})", file!(), line!(), e.name, e.name.line);
     if let Some(scope) = self.scopes.last() {
       if let Some(v) = scope.get(&e.name.lexeme) {
         if !v {
@@ -187,8 +194,7 @@ impl Visitor<GroupingExpr, ResolveResult> for Resolver<'_> {
 }
 
 impl Visitor<LiteralExpr, ResolveResult> for Resolver<'_> {
-  fn visit(&mut self, e: &LiteralExpr) -> ResolveResult {
-    println!("{} ({}): at literal: {}", file!(), line!(), e.value);
+  fn visit(&mut self, _: &LiteralExpr) -> ResolveResult {
     Ok(())
   }
 }
@@ -296,7 +302,6 @@ impl Visitor<WhileStmt, ResolveResult> for Resolver<'_> {
 
 impl Visitor<LoadStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &LoadStmt) -> ResolveResult {
-    println!("{} ({})", file!(), line!());
     self.resolve(&s.path)
   }
 }

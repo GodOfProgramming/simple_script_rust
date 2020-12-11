@@ -79,7 +79,6 @@ impl EnvRef {
   }
 
   pub fn define(&mut self, name: String, value: Value) {
-    println!("defining {}", name);
     self.env.borrow_mut().define(name, value);
   }
 
@@ -87,20 +86,14 @@ impl EnvRef {
     self.env.borrow().lookup(name)
   }
 
-  pub fn lookup_at(&self, depth: usize, name: &str) -> Option<Value> {
-    println!("current env: {}", self);
-    println!("checking for {} at depth {}", name, depth);
-    if let Some(envref) = EnvRef::ancestor(depth, Some(self)) {
-      println!("ancestor found at depth {}", depth);
+  pub fn lookup_at(&self, distance: usize, name: &str) -> Option<Value> {
+    if let Some(envref) = self.ancestor(distance) {
       if let Some(v) = envref.env.borrow().scope.get(name) {
-        println!("value found at depth {}", depth);
         Some(v.clone())
       } else {
-        println!("value not found at depth {}", depth);
         None
       }
     } else {
-      println!("ancestor not found at depth {}", depth);
       None
     }
   }
@@ -110,38 +103,32 @@ impl EnvRef {
   }
 
   pub fn assign_at(&mut self, depth: usize, name: String, value: Value) -> Result<(), String> {
-    if let Some(envref) = EnvRef::ancestor(depth, Some(self)) {
+    if let Some(envref) = self.ancestor(depth) {
       envref.env.borrow_mut().assign(name, value)
     } else {
       Err(format!("assignment of undefined variable '{}'", name))
     }
   }
 
-  fn ancestor(depth: usize, enclosing: Option<&EnvRef>) -> Option<EnvRef> {
-    if depth == 0 {
-      println!("depth at 0");
-      if let Some(enclosing) = enclosing {
-        Some(enclosing.snapshot())
-      } else {
-        None
+  fn ancestor(&self, distance: usize) -> Option<EnvRef> {
+    let mut env = Rc::clone(&self.env);
+    for _ in 0..distance {
+      let mut tmp = None;
+      if let Some(enc) = &env.borrow().enclosing {
+        tmp = Some(Rc::clone(&enc.env));
       }
-    } else if let Some(enc) = enclosing {
-      println!("depth at {}", depth);
-      if let Some(enc) = &enc.env.borrow().enclosing {
-        EnvRef::ancestor(depth - 1, Some(enc))
-      } else {
-        None
-      }
-    } else {
-      None
+      env = tmp?;
     }
+    Some(EnvRef { env })
   }
 
   fn fmt_indent(&self, f: &mut fmt::Formatter<'_>, indents: usize) -> fmt::Result {
-    writeln!(f, "enclosing: {}", indents);
+    let tabs = "\t".repeat(indents);
+    writeln!(f, "{}enclosing: {} {{", tabs, indents)?;
     for (k, v) in self.env.borrow().scope.iter() {
-      writeln!(f, "{}{} = {}", "\t".repeat(indents), k, v)?;
+      writeln!(f, "{}{} = {}", "\t".repeat(indents + 1), k, v)?;
     }
+    writeln!(f, "{}}}", tabs)?;
     if let Some(enc) = &self.env.borrow().enclosing {
       enc.fmt_indent(f, indents + 1)?;
     }

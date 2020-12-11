@@ -26,7 +26,7 @@ fn main() {
 fn help(inter: Interpreter) -> bool {
   const HELP_SCRIPT: &str = include_str!("help.ss");
   if let Err(err) = inter.exec("help.ss", HELP_SCRIPT) {
-    println!("this shouldn't happen: {}", err);
+    println!("error with help script: {}", err);
     false
   } else {
     true

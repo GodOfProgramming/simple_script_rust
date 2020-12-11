@@ -28,7 +28,7 @@ impl Display for Value {
       Value::Nil => write!(f, "nil"),
       Value::Bool(b) => write!(f, "{}", b),
       Value::Num(n) => write!(f, "{}", n),
-      Value::Str(s) => write!(f, "\"{}\"", s),
+      Value::Str(s) => write!(f, "{}", s),
       Value::List(l) => write!(f, "{}", l),
       Value::Callee(c) => write!(f, "{}", c),
     }
