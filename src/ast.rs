@@ -1,7 +1,7 @@
 use crate::env::EnvRef;
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GroupingExpr, LiteralExpr,
-  LogicalExpr, RangeExpr, TernaryExpr, UnaryExpr, VariableExpr,
+  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, LiteralExpr,
+  LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
 };
 use crate::lex::{self, Token, TokenType};
 use crate::res;
@@ -46,15 +46,9 @@ impl<'tokens> Parser<'tokens> {
     }
   }
 
-  fn next_stmt_id(&mut self) -> usize {
+  fn next_id(&mut self) -> usize {
     let id = self.statement_id;
     self.statement_id += 1;
-    id
-  }
-
-  fn next_expr_id(&mut self) -> usize {
-    let id = self.expression_id;
-    self.expression_id += 1;
     id
   }
 
@@ -94,7 +88,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     self.consume(TokenType::Semicolon, "expected ';' after variable decl")?;
-    Ok(Stmt::new_var(name, expr, self.next_stmt_id()))
+    Ok(Stmt::new_var(name, expr, self.next_id()))
   }
 
   fn fn_decl(&mut self, kind: &str) -> StatementResult {
@@ -127,7 +121,7 @@ impl<'tokens> Parser<'tokens> {
       name,
       Rc::new(params),
       Rc::new(body),
-      self.next_stmt_id(),
+      self.next_id(),
     ))
   }
 
@@ -137,12 +131,20 @@ impl<'tokens> Parser<'tokens> {
 
     let mut methods = Vec::new();
     while !self.check(TokenType::RightBrace) && !self.is_at_end() {
-      methods.push(self.fn_decl("method")?);
+      if self.match_token(&[TokenType::Fn]) {
+        methods.push(self.fn_decl("method")?);
+      } else {
+        return Err(ScriptError {
+          file: self.file.clone(),
+          line: name.line,
+          msg: String::from("invalid token found"),
+        });
+      }
     }
 
     self.consume(TokenType::RightBrace, "expect '}' after class body")?;
 
-    Ok(Stmt::new_class(name, methods, self.next_stmt_id()))
+    Ok(Stmt::new_class(name, methods, self.next_id()))
   }
 
   fn statement(&mut self) -> StatementResult {
@@ -157,7 +159,7 @@ impl<'tokens> Parser<'tokens> {
     } else if self.match_token(&[TokenType::If]) {
       self.if_statement()
     } else if self.match_token(&[TokenType::LeftBrace]) {
-      Ok(Stmt::new_block(self.block()?, self.next_stmt_id()))
+      Ok(Stmt::new_block(self.block()?, self.next_id()))
     } else if self.match_token(&[TokenType::Load]) {
       self.load_statement()
     } else if self.match_token(&[TokenType::Loadr]) {
@@ -170,7 +172,7 @@ impl<'tokens> Parser<'tokens> {
   fn print_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_print(expr, self.next_stmt_id()))
+    Ok(Stmt::new_print(expr, self.next_id()))
   }
 
   fn return_statement(&mut self) -> StatementResult {
@@ -181,7 +183,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     self.consume(TokenType::Semicolon, "expected ';' after return value")?;
-    Ok(Stmt::new_return(keyword, value, self.next_stmt_id()))
+    Ok(Stmt::new_return(keyword, value, self.next_id()))
   }
 
   fn for_statement(&mut self) -> StatementResult {
@@ -206,13 +208,13 @@ impl<'tokens> Parser<'tokens> {
           token,
           condition,
           vec![
-            Stmt::new_block(self.block()?, self.next_stmt_id()),
-            Stmt::new_expression(increment, self.next_stmt_id()),
+            Stmt::new_block(self.block()?, self.next_id()),
+            Stmt::new_expression(increment, self.next_id()),
           ],
-          self.next_stmt_id(),
+          self.next_id(),
         ),
       ],
-      self.next_stmt_id(),
+      self.next_id(),
     );
 
     Ok(body)
@@ -223,7 +225,7 @@ impl<'tokens> Parser<'tokens> {
     let condition = self.expression()?;
     self.consume(TokenType::LeftBrace, "missing '{' after if condition")?;
     let body = self.block()?;
-    Ok(Stmt::new_while(token, condition, body, self.next_stmt_id()))
+    Ok(Stmt::new_while(token, condition, body, self.next_id()))
   }
 
   fn if_statement(&mut self) -> StatementResult {
@@ -234,10 +236,7 @@ impl<'tokens> Parser<'tokens> {
 
     if self.match_token(&[TokenType::Else]) {
       if_false = if self.match_token(&[TokenType::LeftBrace]) {
-        Some(Box::new(Stmt::new_block(
-          self.block()?,
-          self.next_stmt_id(),
-        )))
+        Some(Box::new(Stmt::new_block(self.block()?, self.next_id())))
       } else if self.match_token(&[TokenType::If]) {
         Some(Box::new(self.if_statement()?))
       } else {
@@ -249,32 +248,27 @@ impl<'tokens> Parser<'tokens> {
       };
     }
 
-    Ok(Stmt::new_if(
-      condition,
-      if_true,
-      if_false,
-      self.next_stmt_id(),
-    ))
+    Ok(Stmt::new_if(condition, if_true, if_false, self.next_id()))
   }
 
   fn expr_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_expression(expr, self.next_stmt_id()))
+    Ok(Stmt::new_expression(expr, self.next_id()))
   }
 
   fn load_statement(&mut self) -> StatementResult {
     let load = self.previous();
     let file = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_load(load, file, self.next_stmt_id()))
+    Ok(Stmt::new_load(load, file, self.next_id()))
   }
 
   fn loadr_statement(&mut self) -> StatementResult {
     let loadr = self.previous();
     let file = self.expression()?;
     self.consume(TokenType::Semicolon, "expected ';' after value")?;
-    Ok(Stmt::new_loadr(loadr, file, self.next_stmt_id()))
+    Ok(Stmt::new_loadr(loadr, file, self.next_id()))
   }
 
   fn expression(&mut self) -> ExprResult {
@@ -288,7 +282,7 @@ impl<'tokens> Parser<'tokens> {
     if self.match_token(&[TokenType::Comma]) {
       let op = self.previous();
       let right = self._list()?;
-      expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_expr_id());
+      expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_id());
     }
 
     Ok(expr)
@@ -305,7 +299,7 @@ impl<'tokens> Parser<'tokens> {
         Box::new(expr),
         Box::new(if_true),
         Box::new(if_false),
-        self.next_expr_id(),
+        self.next_id(),
       );
     }
 
@@ -320,10 +314,13 @@ impl<'tokens> Parser<'tokens> {
       let value = self.assignment()?;
 
       if let Expr::Variable(v) = expr {
-        Ok(Expr::new_assign(
-          v.name,
+        Ok(Expr::new_assign(v.name, Box::new(value), self.next_id()))
+      } else if let Expr::Get(g) = expr {
+        Ok(Expr::new_set(
+          g.object,
+          g.name,
           Box::new(value),
-          self.next_expr_id(),
+          self.next_id(),
         ))
       } else {
         Err(ScriptError {
@@ -343,7 +340,7 @@ impl<'tokens> Parser<'tokens> {
     if self.match_token(&[TokenType::Range]) {
       let token = self.previous();
       let end = self.or()?;
-      begin = Expr::new_range(Box::new(begin), token, Box::new(end), self.next_expr_id());
+      begin = Expr::new_range(Box::new(begin), token, Box::new(end), self.next_id());
     }
 
     Ok(begin)
@@ -391,8 +388,15 @@ impl<'tokens> Parser<'tokens> {
   fn call(&mut self) -> ExprResult {
     let mut expr = self.primary()?;
 
-    while self.match_token(&[TokenType::LeftParen]) {
-      expr = self.finish_call(expr)?;
+    loop {
+      if self.match_token(&[TokenType::LeftParen]) {
+        expr = self.finish_call(expr)?;
+      } else if self.match_token(&[TokenType::Dot]) {
+        let name = self.consume(TokenType::Identifier, "expected property name after '.'")?;
+        expr = Expr::Get(GetExpr::new(Box::new(expr), name, self.next_id()));
+      } else {
+        break;
+      }
     }
 
     Ok(expr)
@@ -409,18 +413,18 @@ impl<'tokens> Parser<'tokens> {
       let prev = self.previous();
 
       if let Some(v) = &prev.literal {
-        return Ok(Expr::new_literal(Value::from(v), self.next_expr_id()));
+        return Ok(Expr::new_literal(Value::from(v), self.next_id()));
       }
     }
 
     if self.match_token(&[TokenType::Identifier]) {
-      return Ok(Expr::new_variable(self.previous(), self.next_expr_id()));
+      return Ok(Expr::new_variable(self.previous(), self.next_id()));
     }
 
     if self.match_token(&[TokenType::LeftParen]) {
       let expr = self.expression()?;
       self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
-      return Ok(Expr::new_grouping(Box::new(expr), self.next_expr_id()));
+      return Ok(Expr::new_grouping(Box::new(expr), self.next_id()));
     }
 
     if self.match_token(&[TokenType::Pipe]) {
@@ -444,7 +448,7 @@ impl<'tokens> Parser<'tokens> {
       return Ok(Expr::new_closure(
         Rc::new(params),
         Rc::new(body),
-        self.next_expr_id(),
+        self.next_id(),
       ));
     }
 
@@ -465,7 +469,7 @@ impl<'tokens> Parser<'tokens> {
     while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
-      expr = Expr::new_logical(Box::new(expr), op, Box::new(right), self.next_expr_id());
+      expr = Expr::new_logical(Box::new(expr), op, Box::new(right), self.next_id());
     }
 
     Ok(expr)
@@ -481,7 +485,7 @@ impl<'tokens> Parser<'tokens> {
     while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
-      expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_expr_id());
+      expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_id());
     }
 
     Ok(expr)
@@ -495,7 +499,7 @@ impl<'tokens> Parser<'tokens> {
     if self.match_token(types) {
       let op = self.previous();
       let right = self.unary()?;
-      Ok(Expr::new_unary(op, Box::new(right), self.next_expr_id()))
+      Ok(Expr::new_unary(op, Box::new(right), self.next_id()))
     } else {
       next(self)
     }
@@ -603,7 +607,7 @@ impl<'tokens> Parser<'tokens> {
       Box::new(callee),
       paren,
       args,
-      self.next_expr_id(),
+      self.next_id(),
     ))
   }
 }
@@ -753,11 +757,14 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, s: &ClassStmt) -> StmtEvalResult {
     self.env.define(s.name.lexeme.clone(), Value::Nil);
     let class = Value::Class(s.name.lexeme.clone());
-    self.env.assign(s.name.lexeme.clone(), class).map_err(|err| ScriptError {
-      file: self.file.clone(),
-      line: s.name.line,
-      msg: format!("error assigning class: {}", err),
-    })?;
+    self
+      .env
+      .assign(s.name.lexeme.clone(), class)
+      .map_err(|err| ScriptError {
+        file: self.file.clone(),
+        line: s.name.line,
+        msg: format!("error assigning class: {}", err),
+      })?;
 
     Ok(StatementType::Regular(Value::Nil))
   }
@@ -1076,6 +1083,28 @@ impl Visitor<LogicalExpr, ExprEvalResult> for Evaluator {
   }
 }
 
+impl Visitor<SetExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &SetExpr) -> ExprEvalResult {
+    let obj = self.eval_expr(&e.object)?;
+
+    if let Value::Instance {
+      instance_of: _,
+      mut env,
+    } = obj
+    {
+      let value = self.eval_expr(&e.value)?;
+      env.define(e.name.lexeme.clone(), value.clone());
+      Ok(value)
+    } else {
+      Err(ScriptError {
+        file: self.file.clone(),
+        line: e.name.line,
+        msg: String::from("only instances have properties"),
+      })
+    }
+  }
+}
+
 impl Visitor<RangeExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &RangeExpr) -> ExprEvalResult {
     let begin = self.eval_expr(&e.begin)?;
@@ -1109,11 +1138,35 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
         args.push(self.eval_expr(arg)?);
       }
       Ok(func.call(self, args, e.paren.line)?)
+    } else if let Value::Class(s) = callee {
+      let instance = Value::Instance {
+        instance_of: s.clone(),
+        env: self.env.snapshot(),
+      };
+      Ok(instance)
     } else {
       Err(ScriptError {
         file: self.file.clone(),
         line: e.paren.line,
         msg: format!("can't call type {}", callee),
+      })
+    }
+  }
+}
+
+impl Visitor<GetExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &GetExpr) -> ExprEvalResult {
+    if let Value::Instance {
+      instance_of: _,
+      env,
+    } = self.eval_expr(&e.object)?
+    {
+      Ok(env.get(&e.name.lexeme.clone()))
+    } else {
+      Err(ScriptError {
+        file: self.file.clone(),
+        line: e.name.line,
+        msg: String::from("only instances have properties"),
       })
     }
   }

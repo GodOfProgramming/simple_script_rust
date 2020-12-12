@@ -98,6 +98,14 @@ impl EnvRef {
     }
   }
 
+  pub fn get(&self, name: &str) -> Value {
+    if let Some(v) = self.env.borrow().scope.get(name) {
+      v.clone()
+    } else {
+      Value::Nil
+    }
+  }
+
   pub fn assign(&mut self, name: String, value: Value) -> Result<(), String> {
     self.env.borrow_mut().assign(name, value)
   }

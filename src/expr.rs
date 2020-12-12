@@ -7,10 +7,12 @@ pub enum Expr {
     Closure(ClosureExpr),
     Range(RangeExpr),
     Logical(LogicalExpr),
+    Set(SetExpr),
     Assign(AssignExpr),
     Binary(BinaryExpr),
     Ternary(TernaryExpr),
     Call(CallExpr),
+    Get(GetExpr),
     Grouping(GroupingExpr),
     Literal(LiteralExpr),
     Unary(UnaryExpr),
@@ -26,6 +28,9 @@ impl Expr {
     }
     pub fn new_logical(left: Box<Expr>, operator: Token, right: Box<Expr>, id: usize) -> Self {
         Self::Logical(LogicalExpr::new(left, operator, right, id))
+    }
+    pub fn new_set(object: Box<Expr>, name: Token, value: Box<Expr>, id: usize) -> Self {
+        Self::Set(SetExpr::new(object, name, value, id))
     }
     pub fn new_assign(name: Token, value: Box<Expr>, id: usize) -> Self {
         Self::Assign(AssignExpr::new(name, value, id))
@@ -46,6 +51,9 @@ impl Expr {
     pub fn new_call(callee: Box<Expr>, paren: Token, args: Vec<Expr>, id: usize) -> Self {
         Self::Call(CallExpr::new(callee, paren, args, id))
     }
+    pub fn new_get(object: Box<Expr>, name: Token, id: usize) -> Self {
+        Self::Get(GetExpr::new(object, name, id))
+    }
     pub fn new_grouping(expression: Box<Expr>, id: usize) -> Self {
         Self::Grouping(GroupingExpr::new(expression, id))
     }
@@ -65,10 +73,12 @@ where
     V: Visitor<ClosureExpr, R>
         + Visitor<RangeExpr, R>
         + Visitor<LogicalExpr, R>
+        + Visitor<SetExpr, R>
         + Visitor<AssignExpr, R>
         + Visitor<BinaryExpr, R>
         + Visitor<TernaryExpr, R>
         + Visitor<CallExpr, R>
+        + Visitor<GetExpr, R>
         + Visitor<GroupingExpr, R>
         + Visitor<LiteralExpr, R>
         + Visitor<UnaryExpr, R>
@@ -78,10 +88,12 @@ where
         Expr::Closure(x) => visitor.visit(x),
         Expr::Range(x) => visitor.visit(x),
         Expr::Logical(x) => visitor.visit(x),
+        Expr::Set(x) => visitor.visit(x),
         Expr::Assign(x) => visitor.visit(x),
         Expr::Binary(x) => visitor.visit(x),
         Expr::Ternary(x) => visitor.visit(x),
         Expr::Call(x) => visitor.visit(x),
+        Expr::Get(x) => visitor.visit(x),
         Expr::Grouping(x) => visitor.visit(x),
         Expr::Literal(x) => visitor.visit(x),
         Expr::Unary(x) => visitor.visit(x),
@@ -132,6 +144,24 @@ impl LogicalExpr {
             left,
             operator,
             right,
+            id,
+        }
+    }
+}
+
+pub struct SetExpr {
+    pub object: Box<Expr>,
+    pub name: Token,
+    pub value: Box<Expr>,
+    pub id: usize,
+}
+
+impl SetExpr {
+    pub fn new(object: Box<Expr>, name: Token, value: Box<Expr>, id: usize) -> Self {
+        Self {
+            object,
+            name,
+            value,
             id,
         }
     }
@@ -200,6 +230,18 @@ impl CallExpr {
             args,
             id,
         }
+    }
+}
+
+pub struct GetExpr {
+    pub object: Box<Expr>,
+    pub name: Token,
+    pub id: usize,
+}
+
+impl GetExpr {
+    pub fn new(object: Box<Expr>, name: Token, id: usize) -> Self {
+        Self { object, name, id }
     }
 }
 

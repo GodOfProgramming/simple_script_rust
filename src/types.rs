@@ -15,6 +15,7 @@ pub enum Value {
   List(Values),
   Callee(Function),
   Class(String),
+  Instance { instance_of: String, env: EnvRef },
 }
 
 impl Value {
@@ -33,6 +34,10 @@ impl Display for Value {
       Value::List(l) => write!(f, "{}", l),
       Value::Callee(c) => write!(f, "{}", c),
       Value::Class(s) => write!(f, "<class {}>", s),
+      Value::Instance {
+        instance_of,
+        env: _,
+      } => write!(f, "<instance of {}>", instance_of),
     }
   }
 }
@@ -113,6 +118,13 @@ impl PartialEq for Value {
           false
         }
       }
+      Value::Instance {
+        instance_of: _,
+        env: _,
+      } => {
+        // TODO call == method
+        panic!("unimplemented");
+      }
       Value::Nil => {
         matches!(other, Value::Nil)
       }
@@ -143,8 +155,6 @@ pub enum Function {
 }
 
 pub type CallResult = Result<Value, ScriptError>;
-
-pub trait Callable {}
 
 impl Function {
   pub fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {

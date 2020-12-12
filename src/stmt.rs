@@ -1,6 +1,6 @@
 use crate::expr::Expr;
 use crate::lex::Token;
-use crate::types::{Function, Visitor};
+use crate::types::Visitor;
 use std::rc::Rc;
 
 pub enum Stmt {

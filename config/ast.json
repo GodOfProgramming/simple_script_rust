@@ -56,6 +56,23 @@
         ]
       },
       {
+        "name": "Set",
+        "members": [
+          {
+            "name": "object",
+            "type": "Box<Expr>"
+          },
+          {
+            "name": "name",
+            "type": "Token"
+          },
+          {
+            "name": "value",
+            "type": "Box<Expr>"
+          }
+        ]
+      },
+      {
         "name": "Assign",
         "members": [
           {
@@ -116,6 +133,19 @@
           {
             "name": "args",
             "type": "Vec<Expr>"
+          }
+        ]
+      },
+      {
+        "name": "Get",
+        "members": [
+          {
+            "name": "object",
+            "type": "Box<Expr>"
+          },
+          {
+            "name": "name",
+            "type": "Token"
           }
         ]
       },

@@ -1,12 +1,12 @@
 use crate::ast::Evaluator;
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GroupingExpr, LiteralExpr,
-  LogicalExpr, RangeExpr, TernaryExpr, UnaryExpr, VariableExpr,
+  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, LiteralExpr,
+  LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
 };
 use crate::lex::Token;
 use crate::stmt::{
-  self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
-  ReturnStmt, Stmt, VarStmt, WhileStmt, ClassStmt,
+  self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
+  ReturnStmt, Stmt, VarStmt, WhileStmt,
 };
 use crate::types::Visitor;
 use crate::ScriptError;
@@ -209,6 +209,12 @@ impl Visitor<CallExpr, ResolveResult> for Resolver<'_> {
   }
 }
 
+impl Visitor<GetExpr, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, e: &GetExpr) -> ResolveResult {
+    self.resolve(&*e.object)
+  }
+}
+
 impl Visitor<GroupingExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &GroupingExpr) -> ResolveResult {
     self.resolve(&*e.expression)
@@ -225,6 +231,13 @@ impl Visitor<LogicalExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &LogicalExpr) -> ResolveResult {
     self.resolve(&*e.left)?;
     self.resolve(&*e.right)
+  }
+}
+
+impl Visitor<SetExpr, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, e: &SetExpr) -> ResolveResult {
+    self.resolve(&*e.value)?;
+    self.resolve(&*e.object)
   }
 }
 
@@ -321,7 +334,7 @@ impl Visitor<ReturnStmt, ResolveResult> for Resolver<'_> {
         file: self.evaluator.file.clone(),
         line: s.keyword.line,
         msg: String::from("can't return outside of a function"),
-      })
+      });
     }
     if let Some(v) = &s.value {
       self.resolve(v)?;
