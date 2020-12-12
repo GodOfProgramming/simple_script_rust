@@ -14,14 +14,8 @@ pub enum Value {
   Num(f64),
   List(Values),
   Callee(Function),
-  Class {
-    name: String,
-    methods: EnvRef,
-  },
-  Instance {
-    instance_of: String,
-    env: EnvRef,
-  },
+  Class { name: String, methods: EnvRef },
+  Instance { instance_of: String, env: EnvRef },
 }
 
 impl Value {
@@ -163,7 +157,6 @@ pub enum Function {
   Closure {
     params: Rc<Vec<Token>>,
     body: Rc<Vec<Stmt>>,
-    env: EnvRef,
   },
 }
 
@@ -182,8 +175,8 @@ impl Function {
         params,
         body,
       } => Function::call_script_fn(params, body, evaluator, args, line),
-      Function::Closure { params, body, env } => {
-        Function::call_closure_fn(params, body, env, evaluator, args, line)
+      Function::Closure { params, body } => {
+        Function::call_closure_fn(params, body, evaluator, args, line)
       }
     }
   }
@@ -196,8 +189,8 @@ impl Function {
     Self::Script { name, params, body }
   }
 
-  pub fn new_closure(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>, env: EnvRef) -> Self {
-    Self::Closure { params, body, env }
+  pub fn new_closure(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>) -> Self {
+    Self::Closure { params, body }
   }
 
   fn call_native_fn(
@@ -283,7 +276,6 @@ impl Function {
   fn call_closure_fn(
     params: &[Token],
     body: &[Stmt],
-    env: &EnvRef,
     e: &mut Evaluator,
     args: Vec<Value>,
     line: usize,
@@ -312,7 +304,7 @@ impl Function {
       });
     }
 
-    let mut env = EnvRef::new_with_enclosing(env.snapshot());
+    let mut env = EnvRef::new_with_enclosing(e.env.snapshot());
 
     for (param, arg) in params.iter().zip(args.iter()) {
       env.define(param.lexeme.clone(), arg.clone());

@@ -1203,7 +1203,6 @@ impl Visitor<ClosureExpr, ExprEvalResult> for Evaluator {
     Ok(Value::Callee(Function::new_closure(
       Rc::clone(&e.params),
       Rc::clone(&e.body),
-      EnvRef::new_with_enclosing(self.env.snapshot()),
     )))
   }
 }

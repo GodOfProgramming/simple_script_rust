@@ -281,11 +281,9 @@ impl Visitor<ClassStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &ClassStmt) -> ResolveResult {
     self.declare(&s.name)?;
     self.define(&s.name);
-
     self.begin_scope();
     self.resolve(&s.methods)?;
     self.end_scope();
-
     Ok(())
   }
 }

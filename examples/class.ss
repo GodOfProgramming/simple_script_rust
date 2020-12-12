@@ -1,18 +1,18 @@
 let x = 100;
 
+fn foo() {
+  print "fn " + x;
+}
+
 class Test {
   fn foo() {
-    print x;
+    print "class " + x;
   }
 }
 
-fn foo() {
-  print x;
-}
-
-let test = Test();
-
 {
+  let test = Test();
+
   let x = 200;
   test.foo();
   foo();
