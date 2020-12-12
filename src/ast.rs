@@ -756,7 +756,33 @@ impl Visitor<BlockStmt, StmtEvalResult> for Evaluator {
 impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, s: &ClassStmt) -> StmtEvalResult {
     self.env.define(s.name.lexeme.clone(), Value::Nil);
-    let class = Value::Class(s.name.lexeme.clone());
+    let mut env = EnvRef::new_with_enclosing(self.env.snapshot());
+    for method in s.methods.iter() {
+      if let Stmt::Function(s) = method {
+        let func = Function::Script {
+          name: s.name.lexeme.clone(),
+          params: Rc::clone(&s.params),
+          body: Rc::clone(&s.body),
+        };
+        if env.define(s.name.lexeme.clone(), Value::Callee(func)) {
+          return Err(ScriptError {
+            file: self.file.clone(),
+            line: s.name.line,
+            msg: format!("redeclaration of class method {}", s.name.lexeme),
+          });
+        }
+      } else {
+        return Err(ScriptError {
+          file: self.file.clone(),
+          line: s.name.line,
+          msg: format!("invalid declaration inside <class {}> body", s.name.lexeme),
+        });
+      }
+    }
+    let class = Value::Class {
+      name: s.name.lexeme.clone(),
+      methods: env,
+    };
     self
       .env
       .assign(s.name.lexeme.clone(), class)
@@ -774,7 +800,7 @@ impl Visitor<IfStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, e: &IfStmt) -> StmtEvalResult {
     let result = self.eval_expr(&e.condition)?;
     if self.is_truthy(&result) {
-      self.eval_block(&e.if_true, self.env.snapshot())
+      self.eval_block(&e.if_true, EnvRef::new_with_enclosing(self.env.snapshot()))
     } else if let Some(if_false) = &e.if_false {
       self.eval_stmt(&if_false)
     } else {
@@ -792,7 +818,7 @@ impl Visitor<WhileStmt, StmtEvalResult> for Evaluator {
       if !self.is_truthy(&res) {
         break;
       }
-      match self.eval_block(&e.body, self.env.snapshot())? {
+      match self.eval_block(&e.body, EnvRef::new_with_enclosing(self.env.snapshot()))? {
         StatementType::Regular(v) => result = StatementType::Regular(v),
         StatementType::Return(v) => {
           result = StatementType::Return(v);
@@ -1138,10 +1164,10 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
         args.push(self.eval_expr(arg)?);
       }
       Ok(func.call(self, args, e.paren.line)?)
-    } else if let Value::Class(s) = callee {
+    } else if let Value::Class { name, methods } = callee {
       let instance = Value::Instance {
-        instance_of: s.clone(),
-        env: self.env.snapshot(),
+        instance_of: name.clone(),
+        env: methods.snapshot(),
       };
       Ok(instance)
     } else {
@@ -1177,7 +1203,7 @@ impl Visitor<ClosureExpr, ExprEvalResult> for Evaluator {
     Ok(Value::Callee(Function::new_closure(
       Rc::clone(&e.params),
       Rc::clone(&e.body),
-      self.env.snapshot(),
+      EnvRef::new_with_enclosing(self.env.snapshot()),
     )))
   }
 }

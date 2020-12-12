@@ -14,8 +14,14 @@ pub enum Value {
   Num(f64),
   List(Values),
   Callee(Function),
-  Class(String),
-  Instance { instance_of: String, env: EnvRef },
+  Class {
+    name: String,
+    methods: EnvRef,
+  },
+  Instance {
+    instance_of: String,
+    env: EnvRef,
+  },
 }
 
 impl Value {
@@ -33,7 +39,7 @@ impl Display for Value {
       Value::Str(s) => write!(f, "{}", s),
       Value::List(l) => write!(f, "{}", l),
       Value::Callee(c) => write!(f, "{}", c),
-      Value::Class(s) => write!(f, "<class {}>", s),
+      Value::Class { name, methods: _ } => write!(f, "<class {}>", name),
       Value::Instance {
         instance_of,
         env: _,
@@ -111,8 +117,15 @@ impl PartialEq for Value {
         }
       }
       Value::Callee(_) => false, // TODO figure this out
-      Value::Class(a) => {
-        if let Value::Class(b) = other {
+      Value::Class {
+        name: a,
+        methods: _,
+      } => {
+        if let Value::Class {
+          name: b,
+          methods: _,
+        } = other
+        {
           a == b
         } else {
           false
@@ -258,7 +271,7 @@ impl Function {
     let mut env = EnvRef::new_with_enclosing(e.env.snapshot());
 
     for (param, arg) in params.iter().zip(args.iter()) {
-      env.define(param.lexeme.clone(), arg.clone())
+      env.define(param.lexeme.clone(), arg.clone());
     }
 
     Ok(match e.eval_block(&body, env)? {
@@ -302,7 +315,7 @@ impl Function {
     let mut env = EnvRef::new_with_enclosing(env.snapshot());
 
     for (param, arg) in params.iter().zip(args.iter()) {
-      env.define(param.lexeme.clone(), arg.clone())
+      env.define(param.lexeme.clone(), arg.clone());
     }
 
     Ok(match e.eval_block(&body, env)? {

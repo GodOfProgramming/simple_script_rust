@@ -26,8 +26,8 @@ impl Env {
     }
   }
 
-  fn define(&mut self, name: String, value: Value) {
-    self.scope.insert(name, value);
+  fn define(&mut self, name: String, value: Value) -> bool {
+    self.scope.insert(name, value).is_some()
   }
 
   fn lookup(&self, name: &str) -> Option<Value> {
@@ -78,8 +78,9 @@ impl EnvRef {
     }
   }
 
-  pub fn define(&mut self, name: String, value: Value) {
-    self.env.borrow_mut().define(name, value);
+  // returns true if variable was already defined
+  pub fn define(&mut self, name: String, value: Value) -> bool {
+    self.env.borrow_mut().define(name, value)
   }
 
   pub fn lookup(&self, name: &str) -> Option<Value> {

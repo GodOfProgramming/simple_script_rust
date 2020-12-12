@@ -281,6 +281,11 @@ impl Visitor<ClassStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &ClassStmt) -> ResolveResult {
     self.declare(&s.name)?;
     self.define(&s.name);
+
+    self.begin_scope();
+    self.resolve(&s.methods)?;
+    self.end_scope();
+
     Ok(())
   }
 }
@@ -371,6 +376,14 @@ mod tests {
   ) {
     const SRC: &str = r#"
     let a = "global";
+
+    class Test {
+      fn check_a_fn() {
+        assert(a, "global");
+      }
+    }
+
+    let g = Test();
     {
       fn check_a_fn() {
         assert(a, "global");
@@ -380,17 +393,52 @@ mod tests {
         assert(a, "global");
       };
 
+      let l1 = Test();
+
       check_a_fn();
       check_a_closure();
+
+      g.check_a_fn();
+      l1.check_a_fn();
 
       let a = "local";
 
       check_a_fn();
       check_a_closure();
+
+      g.check_a_fn();
+      l1.check_a_fn();
+
+      let l2 = Test();
+
+      l2.check_a_fn();
+
+      class Test2 {
+        fn check_a_fn() {
+          assert(a, "local");
+        }
+      }
+
+      fn check_a_fn_again() {
+        assert(a, "local");
+      }
+
+      let check_a_closure_again = || {
+        assert(a, "local");
+      };
+
+      check_a_fn_again();
+      check_a_closure_again();
+
+      let t3 = Test2();
+
+      t3.check_a_fn();
     }
     "#;
     let i = Interpreter::new_with_test_support();
-    assert!(i.exec(&"test".into(), SRC).is_ok());
+    if let Err(err) = i.exec(&"test".into(), SRC) {
+      panic!(format!("{}", err));
+    }
   }
 
   #[test]

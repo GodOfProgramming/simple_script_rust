@@ -1,14 +1,19 @@
+let x = 100;
+
 class Test {
+  fn foo() {
+    print x;
+  }
 }
 
-fn new_test() {
-  let t = Test();
-  t.x = 1;
-  t.y = 2;
-  return t;
+fn foo() {
+  print x;
 }
 
-let test = new_test();
+let test = Test();
 
-print test.x;
-print test.y;
+{
+  let x = 200;
+  test.foo();
+  foo();
+}
