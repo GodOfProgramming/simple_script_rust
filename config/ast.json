@@ -244,6 +244,19 @@
         ]
       },
       {
+        "name": "Class",
+        "members": [
+          {
+            "name": "name",
+            "type": "Token"
+          },
+          {
+            "name": "methods",
+            "type": "Vec<Stmt>"
+          }
+        ]
+      },
+      {
         "name": "Expression",
         "members": [
           {

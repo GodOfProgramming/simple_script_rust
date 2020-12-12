@@ -14,7 +14,7 @@ repository:
       - name: "keyword.control.simplescript"
         match: "\\b(and|else|for|if|or|return|while)\\b"
       - name: "keyword.declaration.simplescript"
-        match: "\\b(fn|let|struct)\\b"
+        match: "\\b(fn|let|class)\\b"
       - name: "keyword.variable.this.simplescript"
         match: "\\b(self)\\b"
       - name: "keyword.variable.super.simplescript"

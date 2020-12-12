@@ -14,6 +14,7 @@ pub enum Value {
   Num(f64),
   List(Values),
   Callee(Function),
+  Class(String),
 }
 
 impl Value {
@@ -31,6 +32,7 @@ impl Display for Value {
       Value::Str(s) => write!(f, "{}", s),
       Value::List(l) => write!(f, "{}", l),
       Value::Callee(c) => write!(f, "{}", c),
+      Value::Class(s) => write!(f, "<class {}>", s),
     }
   }
 }
@@ -104,6 +106,13 @@ impl PartialEq for Value {
         }
       }
       Value::Callee(_) => false, // TODO figure this out
+      Value::Class(a) => {
+        if let Value::Class(b) = other {
+          a == b
+        } else {
+          false
+        }
+      }
       Value::Nil => {
         matches!(other, Value::Nil)
       }
@@ -140,12 +149,16 @@ pub trait Callable {}
 impl Function {
   pub fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
     match self {
-      Function::Native { name: _, airity, func } => {
-        Function::call_native_fn(airity, func, evaluator, &args, line)
-      }
-      Function::Script { name: _, params, body } => {
-        Function::call_script_fn(params, body, evaluator, args, line)
-      }
+      Function::Native {
+        name: _,
+        airity,
+        func,
+      } => Function::call_native_fn(airity, func, evaluator, &args, line),
+      Function::Script {
+        name: _,
+        params,
+        body,
+      } => Function::call_script_fn(params, body, evaluator, args, line),
       Function::Closure { params, body, env } => {
         Function::call_closure_fn(params, body, env, evaluator, args, line)
       }
@@ -292,10 +305,18 @@ impl Function {
 impl Display for Function {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Self::Native { name, airity: _, func: _ } => {
+      Self::Native {
+        name,
+        airity: _,
+        func: _,
+      } => {
         write!(f, "<nf {}>", name)
       }
-      Self::Script { name, params: _, body: _ } => {
+      Self::Script {
+        name,
+        params: _,
+        body: _,
+      } => {
         write!(f, "<fn {}>", name)
       }
       _ => {

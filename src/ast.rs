@@ -6,7 +6,7 @@ use crate::expr::{
 use crate::lex::{self, Token, TokenType};
 use crate::res;
 use crate::stmt::{
-  self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
+  self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
   ReturnStmt, Stmt, VarStmt, WhileStmt,
 };
 use crate::types::{Function, Value, Values, Visitor};
@@ -73,6 +73,8 @@ impl<'tokens> Parser<'tokens> {
       self.var_decl()
     } else if self.match_token(&[TokenType::Fn]) {
       self.fn_decl("function")
+    } else if self.match_token(&[TokenType::Class]) {
+      self.class_decl()
     } else {
       self.statement()
     } {
@@ -127,6 +129,20 @@ impl<'tokens> Parser<'tokens> {
       Rc::new(body),
       self.next_stmt_id(),
     ))
+  }
+
+  fn class_decl(&mut self) -> StatementResult {
+    let name = self.consume(TokenType::Identifier, "expect class name")?;
+    self.consume(TokenType::LeftBrace, "expect '{' before class body")?;
+
+    let mut methods = Vec::new();
+    while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+      methods.push(self.fn_decl("method")?);
+    }
+
+    self.consume(TokenType::RightBrace, "expect '}' after class body")?;
+
+    Ok(Stmt::new_class(name, methods, self.next_stmt_id()))
   }
 
   fn statement(&mut self) -> StatementResult {
@@ -432,8 +448,6 @@ impl<'tokens> Parser<'tokens> {
       ));
     }
 
-    // TODO proper error handling
-
     Err(ScriptError {
       file: self.file.clone(),
       line: self.peek().line,
@@ -448,7 +462,6 @@ impl<'tokens> Parser<'tokens> {
   ) -> ExprResult {
     let mut expr = next(self)?;
 
-    // TODO stop cloning
     while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
@@ -465,7 +478,6 @@ impl<'tokens> Parser<'tokens> {
   ) -> ExprResult {
     let mut expr = next(self)?;
 
-    // TODO stop cloning
     while self.match_token(types) {
       let op = self.previous();
       let right = next(self)?;
@@ -734,6 +746,20 @@ impl Visitor<BlockStmt, StmtEvalResult> for Evaluator {
       &e.statements,
       EnvRef::new_with_enclosing(self.env.snapshot()),
     )
+  }
+}
+
+impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, s: &ClassStmt) -> StmtEvalResult {
+    self.env.define(s.name.lexeme.clone(), Value::Nil);
+    let class = Value::Class(s.name.lexeme.clone());
+    self.env.assign(s.name.lexeme.clone(), class).map_err(|err| ScriptError {
+      file: self.file.clone(),
+      line: s.name.line,
+      msg: format!("error assigning class: {}", err),
+    })?;
+
+    Ok(StatementType::Regular(Value::Nil))
   }
 }
 

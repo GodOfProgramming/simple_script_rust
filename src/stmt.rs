@@ -1,6 +1,6 @@
 use crate::expr::Expr;
 use crate::lex::Token;
-use crate::types::Visitor;
+use crate::types::{Function, Visitor};
 use std::rc::Rc;
 
 pub enum Stmt {
@@ -9,6 +9,7 @@ pub enum Stmt {
     While(WhileStmt),
     If(IfStmt),
     Block(BlockStmt),
+    Class(ClassStmt),
     Expression(ExpressionStmt),
     Print(PrintStmt),
     Load(LoadStmt),
@@ -46,6 +47,9 @@ impl Stmt {
     pub fn new_block(statements: Vec<Stmt>, id: usize) -> Self {
         Self::Block(BlockStmt::new(statements, id))
     }
+    pub fn new_class(name: Token, methods: Vec<Stmt>, id: usize) -> Self {
+        Self::Class(ClassStmt::new(name, methods, id))
+    }
     pub fn new_expression(expr: Expr, id: usize) -> Self {
         Self::Expression(ExpressionStmt::new(expr, id))
     }
@@ -70,6 +74,7 @@ where
         + Visitor<WhileStmt, R>
         + Visitor<IfStmt, R>
         + Visitor<BlockStmt, R>
+        + Visitor<ClassStmt, R>
         + Visitor<ExpressionStmt, R>
         + Visitor<PrintStmt, R>
         + Visitor<LoadStmt, R>
@@ -82,6 +87,7 @@ where
         Stmt::While(x) => visitor.visit(x),
         Stmt::If(x) => visitor.visit(x),
         Stmt::Block(x) => visitor.visit(x),
+        Stmt::Class(x) => visitor.visit(x),
         Stmt::Expression(x) => visitor.visit(x),
         Stmt::Print(x) => visitor.visit(x),
         Stmt::Load(x) => visitor.visit(x),
@@ -171,6 +177,18 @@ pub struct BlockStmt {
 impl BlockStmt {
     pub fn new(statements: Vec<Stmt>, id: usize) -> Self {
         Self { statements, id }
+    }
+}
+
+pub struct ClassStmt {
+    pub name: Token,
+    pub methods: Vec<Stmt>,
+    pub id: usize,
+}
+
+impl ClassStmt {
+    pub fn new(name: Token, methods: Vec<Stmt>, id: usize) -> Self {
+        Self { name, methods, id }
     }
 }
 

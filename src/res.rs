@@ -6,7 +6,7 @@ use crate::expr::{
 use crate::lex::Token;
 use crate::stmt::{
   self, BlockStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
-  ReturnStmt, Stmt, VarStmt, WhileStmt,
+  ReturnStmt, Stmt, VarStmt, WhileStmt, ClassStmt,
 };
 use crate::types::Visitor;
 use crate::ScriptError;
@@ -260,6 +260,14 @@ impl Visitor<BlockStmt, ResolveResult> for Resolver<'_> {
     self.begin_scope();
     self.resolve(&s.statements)?;
     self.end_scope();
+    Ok(())
+  }
+}
+
+impl Visitor<ClassStmt, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, s: &ClassStmt) -> ResolveResult {
+    self.declare(&s.name)?;
+    self.define(&s.name);
     Ok(())
   }
 }

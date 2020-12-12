@@ -2,9 +2,10 @@ program     		→ declaration* EOF ;
 
 ### Statements ###
 
-declaration 		→ fun_decl | var_decl | statement ;
+declaration 		→ struct_decl | fun_decl | var_decl | statement ;
 var_decl        → "var" IDENTIFIER ( "=" expression )? ";" ;
 fn_decl         → "fn" function ;
+struct_decl     → "class" IDENTIFIER "{" function* "}"
 function        → IDENTIFIER "(" parameters? ")" block ;
 parameters      → IDENTIFIER ( "," IDENTIFIER )* ;
 statement   		→ expr_stmt | for_stmt | if_stmt | print_stmt | return_stmt | while_stmt | block ;

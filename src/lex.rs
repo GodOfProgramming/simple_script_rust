@@ -114,7 +114,7 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
     map.insert("or", TokenType::Or);
     map.insert("print", TokenType::Print);
     map.insert("return", TokenType::Return);
-    map.insert("struct", TokenType::Class);
+    map.insert("class", TokenType::Class);
     map.insert("super", TokenType::Super);
     map.insert("this", TokenType::This);
     map.insert("true", TokenType::True);
