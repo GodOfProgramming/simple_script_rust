@@ -14,7 +14,7 @@ pub enum Stmt {
     Print(PrintStmt),
     Load(LoadStmt),
     Loadr(LoadrStmt),
-    Var(VarStmt),
+    Let(LetStmt),
 }
 
 impl Stmt {
@@ -62,8 +62,8 @@ impl Stmt {
     pub fn new_loadr(loadr: Token, path: Expr, id: usize) -> Self {
         Self::Loadr(LoadrStmt::new(loadr, path, id))
     }
-    pub fn new_var(name: Token, initializer: Option<Expr>, id: usize) -> Self {
-        Self::Var(VarStmt::new(name, initializer, id))
+    pub fn new_let(name: Token, initializer: Option<Expr>, id: usize) -> Self {
+        Self::Let(LetStmt::new(name, initializer, id))
     }
 }
 
@@ -79,7 +79,7 @@ where
         + Visitor<PrintStmt, R>
         + Visitor<LoadStmt, R>
         + Visitor<LoadrStmt, R>
-        + Visitor<VarStmt, R>,
+        + Visitor<LetStmt, R>,
 {
     match e {
         Stmt::Return(x) => visitor.visit(x),
@@ -92,7 +92,7 @@ where
         Stmt::Print(x) => visitor.visit(x),
         Stmt::Load(x) => visitor.visit(x),
         Stmt::Loadr(x) => visitor.visit(x),
-        Stmt::Var(x) => visitor.visit(x),
+        Stmt::Let(x) => visitor.visit(x),
     }
 }
 
@@ -238,13 +238,13 @@ impl LoadrStmt {
     }
 }
 
-pub struct VarStmt {
+pub struct LetStmt {
     pub name: Token,
     pub initializer: Option<Expr>,
     pub id: usize,
 }
 
-impl VarStmt {
+impl LetStmt {
     pub fn new(name: Token, initializer: Option<Expr>, id: usize) -> Self {
         Self {
             name,

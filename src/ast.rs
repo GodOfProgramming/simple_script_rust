@@ -6,8 +6,8 @@ use crate::expr::{
 use crate::lex::{self, Token, TokenType};
 use crate::res;
 use crate::stmt::{
-  self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
-  ReturnStmt, Stmt, VarStmt, WhileStmt,
+  self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LetStmt, LoadStmt, LoadrStmt,
+  PrintStmt, ReturnStmt, Stmt, WhileStmt,
 };
 use crate::types::{Function, Value, Values, Visitor};
 use crate::ScriptError;
@@ -31,8 +31,7 @@ struct Parser<'tokens> {
   file: OsString,
   tokens: &'tokens [Token],
   current: usize,
-  statement_id: usize,
-  expression_id: usize,
+  current_id: usize,
 }
 
 impl<'tokens> Parser<'tokens> {
@@ -41,14 +40,13 @@ impl<'tokens> Parser<'tokens> {
       file,
       tokens,
       current: 0,
-      statement_id: 0,
-      expression_id: 0,
+      current_id: 0,
     }
   }
 
   fn next_id(&mut self) -> usize {
-    let id = self.statement_id;
-    self.statement_id += 1;
+    let id = self.current_id;
+    self.current_id += 1;
     id
   }
 
@@ -63,20 +61,40 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn decl(&mut self) -> StatementResult {
-    match if self.match_token(&[TokenType::Let]) {
-      self.var_decl()
-    } else if self.match_token(&[TokenType::Fn]) {
-      self.fn_decl("function")
-    } else if self.match_token(&[TokenType::Class]) {
-      self.class_decl()
-    } else {
-      self.statement()
-    } {
+    match self.statement() {
       Ok(v) => Ok(v),
       Err(msg) => {
         self.sync();
         Err(msg)
       }
+    }
+  }
+
+  fn statement(&mut self) -> StatementResult {
+    if self.match_token(&[TokenType::Let]) {
+      self.var_decl()
+    } else if self.match_token(&[TokenType::Fn]) {
+      self.fn_decl("function")
+    } else if self.match_token(&[TokenType::Class]) {
+      self.class_decl()
+    } else if self.match_token(&[TokenType::Print]) {
+      self.print_statement()
+    } else if self.match_token(&[TokenType::Return]) {
+      self.return_statement()
+    } else if self.match_token(&[TokenType::For]) {
+      self.for_statement()
+    } else if self.match_token(&[TokenType::While]) {
+      self.while_statement()
+    } else if self.match_token(&[TokenType::If]) {
+      self.if_statement()
+    } else if self.match_token(&[TokenType::LeftBrace]) {
+      Ok(Stmt::new_block(self.block()?, self.next_id()))
+    } else if self.match_token(&[TokenType::Load]) {
+      self.load_statement()
+    } else if self.match_token(&[TokenType::Loadr]) {
+      self.loadr_statement()
+    } else {
+      self.expr_statement()
     }
   }
 
@@ -88,7 +106,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     self.consume(TokenType::Semicolon, "expected ';' after variable decl")?;
-    Ok(Stmt::new_var(name, expr, self.next_id()))
+    Ok(Stmt::new_let(name, expr, self.next_id()))
   }
 
   fn fn_decl(&mut self, kind: &str) -> StatementResult {
@@ -145,28 +163,6 @@ impl<'tokens> Parser<'tokens> {
     self.consume(TokenType::RightBrace, "expect '}' after class body")?;
 
     Ok(Stmt::new_class(name, methods, self.next_id()))
-  }
-
-  fn statement(&mut self) -> StatementResult {
-    if self.match_token(&[TokenType::Print]) {
-      self.print_statement()
-    } else if self.match_token(&[TokenType::Return]) {
-      self.return_statement()
-    } else if self.match_token(&[TokenType::For]) {
-      self.for_statement()
-    } else if self.match_token(&[TokenType::While]) {
-      self.while_statement()
-    } else if self.match_token(&[TokenType::If]) {
-      self.if_statement()
-    } else if self.match_token(&[TokenType::LeftBrace]) {
-      Ok(Stmt::new_block(self.block()?, self.next_id()))
-    } else if self.match_token(&[TokenType::Load]) {
-      self.load_statement()
-    } else if self.match_token(&[TokenType::Loadr]) {
-      self.loadr_statement()
-    } else {
-      self.expr_statement()
-    }
   }
 
   fn print_statement(&mut self) -> StatementResult {
@@ -642,7 +638,7 @@ pub struct Evaluator {
 }
 
 impl Evaluator {
-  fn new(file: OsString, env: EnvRef) -> Self {
+  pub fn new(file: OsString, env: EnvRef) -> Self {
     Self {
       file,
       env,
@@ -730,8 +726,8 @@ impl Visitor<PrintStmt, StmtEvalResult> for Evaluator {
   }
 }
 
-impl Visitor<VarStmt, StmtEvalResult> for Evaluator {
-  fn visit(&mut self, e: &VarStmt) -> StmtEvalResult {
+impl Visitor<LetStmt, StmtEvalResult> for Evaluator {
+  fn visit(&mut self, e: &LetStmt) -> StmtEvalResult {
     let mut value = Value::Nil;
 
     if let Some(i) = &e.initializer {
@@ -1207,32 +1203,55 @@ impl Visitor<ClosureExpr, ExprEvalResult> for Evaluator {
   }
 }
 
-#[cfg(Test)]
+#[cfg(test)]
 mod tests {
   use super::*;
 
-  #[test]
-  fn test_parser_load_stmt() {
-    const test_name: &str = "test_parser_load_stmt";
-    const script: &str = "load \"some_file.ss\"";
-    let analysis = lex::analyze(test_name, script).unwrap();
-    let res = parse(test_name, analysis).unwrap();
+  #[cfg(test)]
+  mod parser {
+    use super::*;
+    #[cfg(test)]
+    mod unit {
+      use super::*;
 
-    assert_eq!(res.len(), 1);
-    if let Stmt::Load(load) = res.first() {
-      assert_eq!(load.id, 1);
-      if let Expr::Literal(e) = load.path {
-        assert_eq!(e.id, 1);
-        if let Value::Str(s) = e.value {
-          assert_eq!(s, String::from("some_file.ss"));
-        } else {
-          panic!("load path not string literal: {}", e.value);
-        }
-      } else {
-        panic!("load path not literal value");
+      #[test]
+      fn parser_should_increment_id_on_next_id() {
+        let tokens = Vec::new();
+        let mut p = Parser::new("test".into(), &tokens);
+        assert_eq!(p.next_id(), 0);
+        assert_eq!(p.current_id, 1);
       }
-    } else {
-      panic!("load statement is not correct");
+
+      #[test]
+      fn test_parser_load_stmt() {
+        const TEST_NAME: &str = "test_parser_load_stmt";
+        const SCRIPT_SRC: &str = "load \"some_file.ss\";";
+        let analysis = lex::analyze(TEST_NAME.into(), SCRIPT_SRC);
+        assert!(analysis.is_ok());
+        let analysis = analysis.unwrap();
+        let res = parse(TEST_NAME.into(), &analysis.tokens);
+        assert!(res.is_ok());
+        let res = res.unwrap();
+
+        assert_eq!(res.len(), 1);
+        if let Stmt::Load(load) = res.first().unwrap() {
+          assert_eq!(load.id, 1);
+          if let Expr::Literal(e) = &load.path {
+            assert_eq!(e.id, 0);
+            if let Value::Str(s) = &e.value {
+              assert_eq!(*s, String::from("some_file.ss"));
+            } else {
+              panic!("load path not string literal: {}", e.value);
+            }
+          } else {
+            panic!("load path not literal value");
+          }
+        } else {
+          panic!("load statement is not correct");
+        }
+      }
     }
   }
+  #[cfg(test)]
+  mod evaluator {}
 }

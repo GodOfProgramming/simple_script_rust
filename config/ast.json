@@ -331,7 +331,7 @@
         ]
       },
       {
-        "name": "Var",
+        "name": "Let",
         "members": [
           {
             "name": "name",

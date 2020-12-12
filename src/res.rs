@@ -6,7 +6,7 @@ use crate::expr::{
 use crate::lex::Token;
 use crate::stmt::{
   self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
-  ReturnStmt, Stmt, VarStmt, WhileStmt,
+  ReturnStmt, Stmt, LetStmt, WhileStmt,
 };
 use crate::types::Visitor;
 use crate::ScriptError;
@@ -29,7 +29,7 @@ impl<'eval> Resolver<'eval> {
   fn new(evaluator: &'eval mut Evaluator) -> Self {
     Self {
       evaluator,
-      scopes: vec![HashMap::new()],
+      scopes: Vec::new(),
       function_depth: 0,
     }
   }
@@ -288,8 +288,8 @@ impl Visitor<ClassStmt, ResolveResult> for Resolver<'_> {
   }
 }
 
-impl Visitor<VarStmt, ResolveResult> for Resolver<'_> {
-  fn visit(&mut self, s: &VarStmt) -> ResolveResult {
+impl Visitor<LetStmt, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, s: &LetStmt) -> ResolveResult {
     self.declare(&s.name)?;
     if let Some(i) = &s.initializer {
       self.resolve(i)?;
@@ -367,12 +367,123 @@ impl Visitor<LoadrStmt, ResolveResult> for Resolver<'_> {
 
 #[cfg(test)]
 mod tests {
+  use super::*;
+  use crate::env::EnvRef;
+  use crate::lex::TokenType;
   use crate::Interpreter;
+  use std::rc::Rc;
 
-  #[test]
-  fn resolver_should_not_allow_variable_in_parent_scope_to_be_replaced_in_function_after_redeclaration_in_child_scope(
-  ) {
-    const SRC: &str = r#"
+  #[cfg(test)]
+  mod unit {
+    use super::*;
+    #[test]
+    fn resolver_should_push_a_scope_on_begin_scope() {
+      let env = EnvRef::default();
+      let mut e = Evaluator::new("test".into(), env);
+      let mut r = Resolver::new(&mut e);
+
+      r.begin_scope();
+      assert_eq!(r.scopes.len(), 1);
+    }
+
+    #[test]
+    fn resolver_should_pop_a_scope_on_end_scope() {
+      let env = EnvRef::default();
+      let mut e = Evaluator::new("test".into(), env);
+      let mut r = Resolver::new(&mut e);
+
+      r.begin_scope();
+      r.end_scope();
+      assert_eq!(r.scopes.len(), 0);
+    }
+
+    #[test]
+    fn resolver_should_increment_function_depth_and_push_scope_on_begin_function() {
+      let env = EnvRef::default();
+      let mut e = Evaluator::new("test".into(), env);
+      let mut r = Resolver::new(&mut e);
+      r.begin_function();
+      assert_eq!(r.function_depth, 1);
+      assert_eq!(r.scopes.len(), 1);
+    }
+
+    #[test]
+    fn resolver_should_decrement_function_depth_and_pop_scope_on_end_function() {
+      let env = EnvRef::default();
+      let mut e = Evaluator::new("test".into(), env);
+      let mut r = Resolver::new(&mut e);
+      r.begin_function();
+      r.end_function();
+      assert_eq!(r.function_depth, 0);
+      assert_eq!(r.scopes.len(), 0);
+    }
+
+    #[test]
+    fn resolver_should_declare_a_variable_only_if_it_was_not_previously_declared() {
+      let env = EnvRef::default();
+      let mut e = Evaluator::new("test".into(), env);
+      let mut r = Resolver::new(&mut e);
+
+      let token = Token::new(TokenType::Identifier, String::from("foo"), None, 1);
+
+      r.begin_scope();
+      assert!(r.declare(&token).is_ok());
+
+      if let Some(scope) = r.scopes.last() {
+        let value = scope.get(&String::from("foo"));
+        assert!(value.is_some());
+        if let Some(is_defined) = value {
+          assert!(!is_defined);
+        }
+      } else {
+        panic!("scope not pushed in test");
+      }
+    }
+
+    #[test]
+    fn resolver_should_not_declare_a_variable_if_it_was_previously_declared() {
+      let env = EnvRef::default();
+      let mut e = Evaluator::new("test".into(), env);
+      let mut r = Resolver::new(&mut e);
+
+      let token = Token::new(TokenType::Identifier, String::from("foo"), None, 1);
+
+      r.begin_scope();
+      assert!(r.declare(&token).is_ok());
+      assert!(r.declare(&token).is_err());
+    }
+
+    #[test]
+    fn resolving_a_function_stmt() {
+      let env = EnvRef::default();
+      let mut e = Evaluator::new("test".into(), env);
+      let mut r = Resolver::new(&mut e);
+
+      let func_name = Token::new(TokenType::Identifier, String::from("foo"), None, 1);
+      let param_name = Token::new(TokenType::Identifier, String::from("bar"), None, 2);
+      let local_name = Token::new(TokenType::Identifier, String::from("foobar"), None, 3);
+      let params = vec![param_name];
+      let body = vec![Stmt::Let(LetStmt::new(local_name, None, 4))];
+      let s = FunctionStmt::new(func_name, Rc::new(params), Rc::new(body), 5);
+
+      assert!(r.resolve(&s).is_ok());
+    }
+
+    #[test]
+    fn t() {
+      let env = EnvRef::default();
+      let mut e = Evaluator::new("test".into(), env);
+      let mut r = Resolver::new(&mut e);
+    }
+  }
+
+  #[cfg(test)]
+  mod integration {
+    use super::*;
+    #[test]
+    fn resolver_should_not_allow_variable_in_parent_scope_to_be_replaced_in_function_after_redeclaration_in_child_scope(
+    ) {
+      const SRC: &str = r#"
     let a = "global";
 
     class Test {
@@ -433,72 +544,73 @@ mod tests {
       t3.check_a_fn();
     }
     "#;
-    let i = Interpreter::new_with_test_support();
-    if let Err(err) = i.exec(&"test".into(), SRC) {
-      panic!(format!("{}", err));
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
     }
-  }
 
-  #[test]
-  fn resolver_should_not_allow_two_variables_with_the_same_name_globally() {
-    const SRC: &str = r#"
+    #[test]
+    fn resolver_should_not_allow_two_variables_with_the_same_name_globally() {
+      const SRC: &str = r#"
     let a = "true";
     let a = "false";
     "#;
-    let i = Interpreter::new_with_test_support();
-    let res = i.exec(&"test".into(), SRC);
+      let i = Interpreter::new_with_test_support();
+      let res = i.exec(&"test".into(), SRC);
 
-    match res {
-      Ok(_) => panic!("failed to detect duplicate variable"),
-      Err(e) => {
-        assert_eq!(e.msg, "variable in scope already declared with name 'a'");
-      }
-    };
-  }
+      match res {
+        Ok(_) => panic!("failed to detect duplicate variable"),
+        Err(e) => {
+          assert_eq!(e.msg, "variable in scope already declared with name 'a'");
+        }
+      };
+    }
 
-  #[test]
-  fn resolver_should_not_allow_two_variables_with_the_same_name_in_functions() {
-    const SRC: &str = r#"
+    #[test]
+    fn resolver_should_not_allow_two_variables_with_the_same_name_in_functions() {
+      const SRC: &str = r#"
     fn foo() {
       let a = "true";
       let a = "false";
     }
     "#;
-    let i = Interpreter::new_with_test_support();
-    let res = i.exec(&"test".into(), SRC);
+      let i = Interpreter::new_with_test_support();
+      let res = i.exec(&"test".into(), SRC);
 
-    match res {
-      Ok(_) => panic!("failed to detect duplicate variable"),
-      Err(e) => {
-        assert_eq!(e.msg, "variable in scope already declared with name 'a'");
-      }
-    };
-  }
+      match res {
+        Ok(_) => panic!("failed to detect duplicate variable"),
+        Err(e) => {
+          assert_eq!(e.msg, "variable in scope already declared with name 'a'");
+        }
+      };
+    }
 
-  #[test]
-  fn resolver_should_not_allow_a_return_statement_outside_of_a_function() {
-    const SRC: &str = r#"
+    #[test]
+    fn resolver_should_not_allow_a_return_statement_outside_of_a_function() {
+      const SRC: &str = r#"
     return true;
     "#;
-    let i = Interpreter::new_with_test_support();
-    let res = i.exec(&"test".into(), SRC);
+      let i = Interpreter::new_with_test_support();
+      let res = i.exec(&"test".into(), SRC);
 
-    match res {
-      Ok(_) => panic!("failed to detect external return statement"),
-      Err(e) => {
-        assert_eq!(e.msg, "can't return outside of a function");
-      }
-    };
-  }
+      match res {
+        Ok(_) => panic!("failed to detect external return statement"),
+        Err(e) => {
+          assert_eq!(e.msg, "can't return outside of a function");
+        }
+      };
+    }
 
-  #[test]
-  fn resolver_should_allow_a_return_statement_inside_of_a_function() {
-    const SRC: &str = r#"
+    #[test]
+    fn resolver_should_allow_a_return_statement_inside_of_a_function() {
+      const SRC: &str = r#"
     fn some_func() {
       return true;
     }
     "#;
-    let i = Interpreter::new_with_test_support();
-    assert!(i.exec(&"test".into(), SRC).is_ok());
+      let i = Interpreter::new_with_test_support();
+      assert!(i.exec(&"test".into(), SRC).is_ok());
+    }
   }
 }
