@@ -33,10 +33,6 @@
           "match": "\\b(fn|let|class)\\b"
         },
         {
-          "name": "keyword.variable.this.simplescript",
-          "match": "\\b(self)\\b"
-        },
-        {
           "name": "keyword.variable.super.simplescript",
           "match": "\\b(super)\\b"
         },

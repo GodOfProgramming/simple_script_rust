@@ -1286,7 +1286,6 @@ mod tests {
       }
 
       let test = Test();
-      print_env(test);
       test.test(200);
       "#;
 

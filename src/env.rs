@@ -1,4 +1,4 @@
-use crate::types::Value;
+use crate::types::{Airity, Function, NativeFn, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Display};
@@ -78,6 +78,13 @@ impl EnvRef {
     }
   }
 
+  pub fn define_native(&mut self, name: String, airity: Airity, func: NativeFn) {
+    self.define(
+      name.clone(),
+      Value::Callee(Function::new_native(name, airity, func)),
+    );
+  }
+
   // returns true if variable was already defined
   pub fn define(&mut self, name: String, value: Value) -> bool {
     self.env.borrow_mut().define(name, value)
@@ -133,7 +140,7 @@ impl EnvRef {
 
   fn fmt_indent(&self, f: &mut fmt::Formatter<'_>, indents: usize) -> fmt::Result {
     let tabs = "\t".repeat(indents);
-    writeln!(f, "{}enclosing: {} {{", tabs, indents)?;
+    writeln!(f, "{}scope: {} {{", tabs, indents)?;
     for (k, v) in self.env.borrow().scope.iter() {
       writeln!(f, "{}{} = {}", "\t".repeat(indents + 1), k, v)?;
     }

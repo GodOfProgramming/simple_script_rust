@@ -4,6 +4,7 @@ use crate::lex::Token;
 use crate::stmt::Stmt;
 use crate::ScriptError;
 use std::fmt::{self, Debug, Display};
+use std::ops::RangeInclusive;
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -148,14 +149,20 @@ impl PartialEq for Value {
   }
 }
 
-type NativeFnResult = Result<Value, String>;
-type NativeFn = fn(EnvRef, &[Value]) -> NativeFnResult;
+pub type NativeFnResult = Result<Value, String>;
+pub type NativeFn = fn(EnvRef, &[Value]) -> NativeFnResult;
+
+#[derive(Clone)]
+pub enum Airity {
+  Fixed(usize),
+  Range(RangeInclusive<usize>),
+}
 
 #[derive(Clone)]
 pub enum Function {
   Native {
     name: String,
-    airity: usize,
+    airity: Airity,
     func: NativeFn,
   },
   Script {
@@ -224,7 +231,7 @@ impl Function {
     }
   }
 
-  pub fn new_native(name: String, airity: usize, func: NativeFn) -> Self {
+  pub fn new_native(name: String, airity: Airity, func: NativeFn) -> Self {
     Self::Native { name, airity, func }
   }
 
@@ -263,28 +270,40 @@ impl Function {
   fn call_native_fn(
     e: &mut Evaluator,
     line: usize,
-    airity: &usize,
+    airity: &Airity,
     func: &NativeFn,
     args: &[Value],
   ) -> CallResult {
-    if *airity < args.len() {
-      return Err(ScriptError {
-        file: e.file.clone(),
-        line,
-        msg: format!(
-          "too many arguments, expected {}, got {}",
-          airity,
-          args.len()
-        ),
-      });
-    }
-
-    if *airity > args.len() {
-      return Err(ScriptError {
-        file: e.file.clone(),
-        line,
-        msg: format!("too few arguments, expected {}, got {}", airity, args.len(),),
-      });
+    match airity {
+      Airity::Fixed(len) => {
+        if *len < args.len() {
+          return Err(ScriptError {
+            file: e.file.clone(),
+            line,
+            msg: format!("too many arguments, expected {}, got {}", len, args.len()),
+          });
+        }
+        if *len > args.len() {
+          return Err(ScriptError {
+            file: e.file.clone(),
+            line,
+            msg: format!("too few arguments, expected {}, got {}", len, args.len(),),
+          });
+        }
+      }
+      Airity::Range(range) => {
+        if !range.contains(&args.len()) {
+          return Err(ScriptError {
+            file: e.file.clone(),
+            line,
+            msg: format!(
+              "invalid number of arguments, expected range {:?}, got {}",
+              range,
+              args.len(),
+            ),
+          });
+        }
+      }
     }
 
     match (func)(e.env.snapshot(), args) {
@@ -463,16 +482,10 @@ impl Function {
       env.define(param.lexeme.clone(), arg.clone());
     }
 
-    println!(">>>>>>\n{}<<<<<<", env);
-
-    let res = Ok(match e.eval_block(&body, env.snapshot())? {
+    Ok(match e.eval_block(&body, env.snapshot())? {
       StatementType::Regular(v) => v,
       StatementType::Return(v) => v,
-    });
-
-    println!(">>>>>>\n{}<<<<<<", env);
-
-    res
+    })
   }
 }
 

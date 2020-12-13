@@ -1,67 +1,49 @@
 use crate::ast;
 use crate::env::EnvRef;
 use crate::lex;
-use crate::types::Function;
-use crate::types::Value;
+use crate::types::{Airity, Value};
 
 pub fn enable(e: &mut EnvRef) {
-  e.define(
+  e.define_native(
     String::from("print_env"),
-    Value::Callee(Function::new_native(
-      String::from("print_env"),
-      1,
-      |env, args| {
-        if args.is_empty() {
-          println!("{}", env);
-        } else if let Value::Instance {
-          instance_of,
-          methods,
-          members,
-        } = &args[0]
-        {
-          println!(
-            "<instance of {}>\n<methods>\n{}<members>\n{}",
-            instance_of, methods, members
-          );
-        }
-        Ok(Value::Nil)
-      },
-    )),
+    Airity::Range(0..=1),
+    |env, args| {
+      if args.is_empty() {
+        println!("<current env>\n{}", env);
+      } else if let Value::Instance {
+        instance_of,
+        methods,
+        members,
+      } = &args[0]
+      {
+        println!(
+          "<instance of {}>\n<methods>\n{}<members>\n{}",
+          instance_of, methods, members
+        );
+      }
+      Ok(Value::Nil)
+    },
   );
 
-  e.define(
-    String::from("is_defined"),
-    Value::Callee(Function::new_native(
-      String::from("is_defined"),
-      1,
-      |env, args| {
-        if let Value::Str(name) = &args[0] {
-          match env.lookup(name) {
-            Some(_) => Ok(Value::Bool(true)),
-            None => Ok(Value::Bool(false)),
-          }
-        } else {
-          Err(String::from("value is not a string"))
-        }
-      },
-    )),
-  );
+  e.define_native(String::from("is_defined"), Airity::Fixed(1), |env, args| {
+    if let Value::Str(name) = &args[0] {
+      match env.lookup(name) {
+        Some(_) => Ok(Value::Bool(true)),
+        None => Ok(Value::Bool(false)),
+      }
+    } else {
+      Err(String::from("value is not a string"))
+    }
+  });
 
-  e.define(
-    String::from("exec"),
-    Value::Callee(Function::new_native(
-      String::from("exec"),
-      1,
-      |env, args| {
-        if let Value::Str(script) = &args[0] {
-          let analysis = lex::analyze("exec".into(), &script).map_err(|err| format!("{}", err))?;
-          let program =
-            ast::parse("exec".into(), &analysis.tokens).map_err(|err| format!("{}", err))?;
-          ast::exec("exec".into(), env.snapshot(), program).map_err(|err| format!("{}", err))
-        } else {
-          Err(String::from("value is not string"))
-        }
-      },
-    )),
-  );
+  e.define_native(String::from("exec"), Airity::Fixed(1), |env, args| {
+    if let Value::Str(script) = &args[0] {
+      let analysis = lex::analyze("exec".into(), &script).map_err(|err| format!("{}", err))?;
+      let program =
+        ast::parse("exec".into(), &analysis.tokens).map_err(|err| format!("{}", err))?;
+      ast::exec("exec".into(), env.snapshot(), program).map_err(|err| format!("{}", err))
+    } else {
+      Err(String::from("value is not string"))
+    }
+  });
 }
