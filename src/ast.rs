@@ -409,7 +409,7 @@ impl<'tokens> Parser<'tokens> {
       let prev = self.previous();
 
       if let Some(v) = &prev.literal {
-        return Ok(Expr::new_literal(Value::from(v), self.next_id()));
+        return Ok(Expr::new_literal(v.clone(), self.next_id()));
       }
     }
 

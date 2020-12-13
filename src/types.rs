@@ -26,12 +26,6 @@ pub enum Value {
   },
 }
 
-impl Value {
-  pub fn from(v: &Value) -> Value {
-    v.clone()
-  }
-}
-
 impl Display for Value {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
@@ -58,6 +52,7 @@ impl Values {
   pub fn new(values: Vec<Value>) -> Self {
     Self(values)
   }
+
 }
 
 impl Display for Values {
