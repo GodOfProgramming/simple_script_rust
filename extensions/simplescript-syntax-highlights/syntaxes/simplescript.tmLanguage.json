@@ -57,7 +57,7 @@
     "callables": {
       "patterns": [
         {
-          "match": "[A-Za-z_]\\w*\\(|\\)",
+          "match": "[A-Za-z_]\\w*\\(|\\)|\\|",
           "name": "support.function.simplescript"
         }
       ]

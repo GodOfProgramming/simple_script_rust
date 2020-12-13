@@ -752,14 +752,14 @@ impl Visitor<BlockStmt, StmtEvalResult> for Evaluator {
 impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, s: &ClassStmt) -> StmtEvalResult {
     self.env.define(s.name.lexeme.clone(), Value::Nil);
-    let mut env = EnvRef::default();
+    let mut env = EnvRef::new_with_enclosing(self.env.snapshot());
     for method in s.methods.iter() {
       if let Stmt::Function(s) = method {
-        let func = Function::Script {
-          name: s.name.lexeme.clone(),
-          params: Rc::clone(&s.params),
-          body: Rc::clone(&s.body),
-        };
+        let func = Function::new_script(
+          s.name.lexeme.clone(),
+          Rc::clone(&s.params),
+          Rc::clone(&s.body),
+        );
         if env.define(s.name.lexeme.clone(), Value::Callee(func)) {
           return Err(ScriptError {
             file: self.file.clone(),
@@ -1206,6 +1206,7 @@ impl Visitor<ClosureExpr, ExprEvalResult> for Evaluator {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::Interpreter;
 
   #[cfg(test)]
   mod parser {
@@ -1253,5 +1254,36 @@ mod tests {
     }
   }
   #[cfg(test)]
-  mod evaluator {}
+  mod evaluator {
+    use super::*;
+
+    #[test]
+    fn evaluation_should_pass_correct_variables_to_member_functions() {
+      const SRC: &str = r#"
+        let x = 100;
+
+        fn foo() {
+          assert(x, 100);
+        }
+
+        class Test {
+          fn test(x) {
+            assert(x, 200);
+          }
+        }
+
+        {
+          foo();
+
+          let test = Test();
+          test.test(200);
+        }
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+  }
 }

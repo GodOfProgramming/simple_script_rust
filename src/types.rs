@@ -169,14 +169,14 @@ impl Function {
         name: _,
         airity,
         func,
-      } => Function::call_native_fn(airity, func, evaluator, &args, line),
+      } => Function::call_native_fn(evaluator, line, airity, func, &args),
       Function::Script {
         name: _,
         params,
         body,
-      } => Function::call_script_fn(params, body, evaluator, args, line),
+      } => Function::call_script_fn(evaluator, line, params, body, args),
       Function::Closure { params, body } => {
-        Function::call_closure_fn(params, body, evaluator, args, line)
+        Function::call_closure_fn(evaluator, line, params, body, args)
       }
     }
   }
@@ -194,11 +194,11 @@ impl Function {
   }
 
   fn call_native_fn(
+    e: &mut Evaluator,
+    line: usize,
     airity: &usize,
     func: &NativeFn,
-    e: &mut Evaluator,
     args: &[Value],
-    line: usize,
   ) -> CallResult {
     if *airity < args.len() {
       return Err(ScriptError {
@@ -231,11 +231,11 @@ impl Function {
   }
 
   fn call_script_fn(
+    e: &mut Evaluator,
+    line: usize,
     params: &[Token],
     body: &[Stmt],
-    e: &mut Evaluator,
     args: Vec<Value>,
-    line: usize,
   ) -> CallResult {
     if params.len() < args.len() {
       return Err(ScriptError {
@@ -274,11 +274,11 @@ impl Function {
   }
 
   fn call_closure_fn(
+    e: &mut Evaluator,
+    line: usize,
     params: &[Token],
     body: &[Stmt],
-    e: &mut Evaluator,
     args: Vec<Value>,
-    line: usize,
   ) -> CallResult {
     if params.len() < args.len() {
       return Err(ScriptError {
@@ -334,7 +334,7 @@ impl Display for Function {
       } => {
         write!(f, "<fn {}>", name)
       }
-      _ => {
+      Self::Closure { params: _, body: _ } => {
         write!(f, "<closure>")
       }
     }

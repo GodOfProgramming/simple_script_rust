@@ -1,19 +1,13 @@
-let x = 100;
-
-fn foo() {
-  print "fn " + x;
-}
-
+let x = "global";
 class Test {
-  fn foo() {
-    print "class " + x;
+  fn test() {
+    let x = "local member";
+    return || {
+      return x;
+    };
   }
 }
 
-{
-  let test = Test();
-
-  let x = 200;
-  test.foo();
-  foo();
-}
+let t = Test();
+let func = t.test();
+print func();

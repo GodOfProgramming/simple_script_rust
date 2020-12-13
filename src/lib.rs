@@ -165,7 +165,7 @@ mod tests {
   }
 
   #[test]
-  fn test_exec() {
+  fn test_values() {
     const INTEGER_SCRIPT: &str = "12345;";
     const STRING_SCRIPT: &str = "\"some string\";";
     const TRUE_SCRIPT: &str = "true;";

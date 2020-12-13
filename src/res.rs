@@ -11,7 +11,6 @@ use crate::stmt::{
 use crate::types::Visitor;
 use crate::ScriptError;
 use std::collections::HashMap;
-use std::mem;
 
 pub type ResolveResult = Result<(), ScriptError>;
 
@@ -24,7 +23,6 @@ struct Resolver<'eval> {
   evaluator: &'eval mut Evaluator,
   scopes: Vec<HashMap<String, bool>>,
   function_depth: usize,
-  external_scopes: Vec<Vec<HashMap<String, bool>>>,
 }
 
 impl<'eval> Resolver<'eval> {
@@ -33,19 +31,6 @@ impl<'eval> Resolver<'eval> {
       evaluator,
       scopes: vec![HashMap::new()],
       function_depth: 0,
-      external_scopes: Vec::new(),
-    }
-  }
-
-  fn push_scope(&mut self) {
-    self
-      .external_scopes
-      .push(mem::replace(&mut self.scopes, Vec::new()))
-  }
-
-  fn pop_scope(&mut self) {
-    if let Some(last) = self.external_scopes.pop() {
-      self.scopes = last;
     }
   }
 
@@ -296,11 +281,9 @@ impl Visitor<ClassStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &ClassStmt) -> ResolveResult {
     self.declare(&s.name)?;
     self.define(&s.name);
-    self.push_scope();
     self.begin_scope();
     self.resolve(&s.methods)?;
     self.end_scope();
-    self.pop_scope();
     Ok(())
   }
 }
@@ -491,13 +474,6 @@ mod tests {
 
       assert!(r.resolve(&s).is_ok());
     }
-
-    #[test]
-    fn t() {
-      let env = EnvRef::default();
-      let mut e = Evaluator::new("test".into(), env);
-      let mut r = Resolver::new(&mut e);
-    }
   }
 
   #[cfg(test)]
@@ -544,13 +520,13 @@ mod tests {
     }
 
     #[test]
-    fn resolver_should_not_allow_variables_to_leak_into_class_methods() {
+    fn resolver_should_allow_variables_to_leak_into_class_methods() {
       const SRC: &str = r#"
       let var = "global";
 
       class Test {
         fn check_fn() {
-          assert(var, nil);
+          assert(var, "global");
         }
       }
 
@@ -581,6 +557,56 @@ mod tests {
       assert(t.x, "member");
       "#;
 
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_should_not_mixup_local_functions_and_class_member_functions() {
+      const SRC: &str = r#"
+      let x = "local";
+      class Test {
+        fn test() {
+          return 1;
+        }
+      }
+
+      fn test() {
+        return 2;
+      }
+
+      let t = Test();
+
+      assert(test(), 2);
+      assert(t.test(), 1);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+
+    #[test]
+    fn resolver_should_still_work_with_closures_declared_in_member_functions() {
+      const SRC: &str = r#"
+      let x = "global";
+      class Test {
+        fn test() {
+          let x = "local member";
+          return || {
+            return x;
+          };
+        }
+      }
+
+      let t = Test();
+      let func = t.test();
+      assert(func(), "local member");
+      "#;
       let i = Interpreter::new_with_test_support();
       if let Err(err) = i.exec(&"test".into(), SRC) {
         panic!(format!("{}", err));
