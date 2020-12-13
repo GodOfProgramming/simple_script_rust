@@ -6,6 +6,30 @@ use crate::types::Value;
 
 pub fn enable(e: &mut EnvRef) {
   e.define(
+    String::from("print_env"),
+    Value::Callee(Function::new_native(
+      String::from("print_env"),
+      1,
+      |env, args| {
+        if args.is_empty() {
+          println!("{}", env);
+        } else if let Value::Instance {
+          instance_of,
+          methods,
+          members,
+        } = &args[0]
+        {
+          println!(
+            "<instance of {}>\n<methods>\n{}<members>\n{}",
+            instance_of, methods, members
+          );
+        }
+        Ok(Value::Nil)
+      },
+    )),
+  );
+
+  e.define(
     String::from("is_defined"),
     Value::Callee(Function::new_native(
       String::from("is_defined"),

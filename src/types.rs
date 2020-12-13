@@ -14,8 +14,15 @@ pub enum Value {
   Num(f64),
   List(Values),
   Callee(Function),
-  Class { name: String, methods: EnvRef },
-  Instance { instance_of: String, env: EnvRef },
+  Class {
+    name: String,
+    methods: EnvRef,
+  },
+  Instance {
+    instance_of: String,
+    methods: EnvRef,
+    members: EnvRef,
+  },
 }
 
 impl Value {
@@ -36,7 +43,8 @@ impl Display for Value {
       Value::Class { name, methods: _ } => write!(f, "<class {}>", name),
       Value::Instance {
         instance_of,
-        env: _,
+        methods: _,
+        members: _,
       } => write!(f, "<instance of {}>", instance_of),
     }
   }
@@ -127,7 +135,8 @@ impl PartialEq for Value {
       }
       Value::Instance {
         instance_of: _,
-        env: _,
+        methods: _,
+        members: _,
       } => {
         // TODO call == method
         panic!("unimplemented");
@@ -416,14 +425,16 @@ impl Function {
       if let Some(instance) = &e.last_object {
         if let Value::Instance {
           instance_of,
-          env: instance_env,
+          methods,
+          members,
         } = instance
         {
           env.define(
             self_ref.lexeme.clone(),
             Value::Instance {
               instance_of: instance_of.clone(),
-              env: instance_env.snapshot(),
+              methods: methods.snapshot(),
+              members: members.snapshot(),
             },
           );
         } else {

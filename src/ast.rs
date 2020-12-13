@@ -761,7 +761,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
           s.name.lexeme.clone(),
           Rc::clone(&s.params),
           Rc::clone(&s.body),
-          EnvRef::new_with_enclosing(env.snapshot()),
+          env.snapshot(),
         );
         if env.define(s.name.lexeme.clone(), Value::Callee(func)) {
           return Err(ScriptError {
@@ -1115,11 +1115,12 @@ impl Visitor<SetExpr, ExprEvalResult> for Evaluator {
 
     if let Value::Instance {
       instance_of: _,
-      mut env,
+      methods: _,
+      mut members,
     } = obj
     {
       let value = self.eval_expr(&e.value)?;
-      env.define(e.name.lexeme.clone(), value.clone());
+      members.define(e.name.lexeme.clone(), value.clone());
       Ok(value)
     } else {
       Err(ScriptError {
@@ -1167,7 +1168,8 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
     } else if let Value::Class { name, methods } = callee {
       Ok(Value::Instance {
         instance_of: name,
-        env: methods.snapshot(),
+        methods: methods.snapshot(),
+        members: EnvRef::default(),
       })
     } else {
       Err(ScriptError {
@@ -1181,12 +1183,24 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
 
 impl Visitor<GetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &GetExpr) -> ExprEvalResult {
-    if let Value::Instance { instance_of, env } = self.eval_expr(&e.object)? {
+    if let Value::Instance {
+      instance_of,
+      methods,
+      members,
+    } = self.eval_expr(&e.object)?
+    {
       self.last_object = Some(Value::Instance {
         instance_of,
-        env: env.snapshot(),
+        methods: methods.snapshot(),
+        members: members.snapshot(),
       });
-      Ok(env.get(&e.name.lexeme.clone()))
+      Ok(if let Some(v) = methods.get(&e.name.lexeme.clone()) {
+        v
+      } else if let Some(v) = members.get(&e.name.lexeme.clone()) {
+        v
+      } else {
+        Value::Nil
+      })
     } else {
       Err(ScriptError {
         file: self.file.clone(),
@@ -1264,15 +1278,16 @@ mod tests {
     #[test]
     fn evaluation_should_pass_correct_variables_to_member_functions() {
       const SRC: &str = r#"
-        let x = 100;
-        class Test {
-          fn test(self, x) {
-            assert(x, 200);
-          }
+      let x = 100;
+      class Test {
+        fn test(self, x) {
+          assert(x, 200);
         }
+      }
 
-        let test = Test();
-        test.test(200);
+      let test = Test();
+      print_env(test);
+      test.test(200);
       "#;
 
       let i = Interpreter::new_with_test_support();

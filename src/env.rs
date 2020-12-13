@@ -99,11 +99,11 @@ impl EnvRef {
     }
   }
 
-  pub fn get(&self, name: &str) -> Value {
+  pub fn get(&self, name: &str) -> Option<Value> {
     if let Some(v) = self.env.borrow().scope.get(name) {
-      v.clone()
+      Some(v.clone())
     } else {
-      Value::Nil
+      None
     }
   }
 

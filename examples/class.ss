@@ -6,6 +6,7 @@ class Test {
 }
 
 let t = Test();
+print_env(t);
 t.test();
 
 print self.x;

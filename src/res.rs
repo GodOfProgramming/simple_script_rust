@@ -131,6 +131,7 @@ impl<'eval> Resolver<'eval> {
       let scope = &self.scopes[i];
       if scope.get(name).is_some() {
         let depth = self.scopes.len() - 1 - i;
+        println!("{}, depth {}", name, depth);
         self.evaluator.resolve(id, depth);
         break;
       }
