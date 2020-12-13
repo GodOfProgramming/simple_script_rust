@@ -634,6 +634,7 @@ pub fn exec(file: OsString, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult 
 pub struct Evaluator {
   pub file: OsString,
   pub env: EnvRef,
+  pub last_object: Option<Value>,
   locals: HashMap<usize, usize>,
 }
 
@@ -642,6 +643,7 @@ impl Evaluator {
     Self {
       file,
       env,
+      last_object: None,
       locals: HashMap::new(),
     }
   }
@@ -755,7 +757,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
     let mut env = EnvRef::new_with_enclosing(self.env.snapshot());
     for method in s.methods.iter() {
       if let Stmt::Function(s) = method {
-        let func = Function::new_script(
+        let func = Function::new_method(
           s.name.lexeme.clone(),
           Rc::clone(&s.params),
           Rc::clone(&s.body),
@@ -1163,11 +1165,10 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
       }
       Ok(func.call(self, args, e.paren.line)?)
     } else if let Value::Class { name, methods } = callee {
-      let instance = Value::Instance {
+      Ok(Value::Instance {
         instance_of: name,
         env: methods.snapshot(),
-      };
-      Ok(instance)
+      })
     } else {
       Err(ScriptError {
         file: self.file.clone(),
@@ -1180,11 +1181,11 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
 
 impl Visitor<GetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &GetExpr) -> ExprEvalResult {
-    if let Value::Instance {
-      instance_of: _,
-      env,
-    } = self.eval_expr(&e.object)?
-    {
+    if let Value::Instance { instance_of, env } = self.eval_expr(&e.object)? {
+      self.last_object = Some(Value::Instance {
+        instance_of,
+        env: env.snapshot(),
+      });
       Ok(env.get(&e.name.lexeme.clone()))
     } else {
       Err(ScriptError {
@@ -1265,7 +1266,7 @@ mod tests {
       const SRC: &str = r#"
         let x = 100;
         class Test {
-          fn test(x) {
+          fn test(self, x) {
             assert(x, 200);
           }
         }

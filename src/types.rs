@@ -160,6 +160,12 @@ pub enum Function {
     body: Rc<Vec<Stmt>>,
     env: EnvRef,
   },
+  Method {
+    name: String,
+    params: Rc<Vec<Token>>,
+    body: Rc<Vec<Stmt>>,
+    env: EnvRef,
+  },
 }
 
 pub type CallResult = Result<Value, ScriptError>;
@@ -193,6 +199,19 @@ impl Function {
         args,
         EnvRef::new_with_enclosing(env.snapshot()),
       ),
+      Function::Method {
+        name: _,
+        params,
+        body,
+        env,
+      } => Function::call_method(
+        evaluator,
+        line,
+        params,
+        body,
+        args,
+        EnvRef::new_with_enclosing(env.snapshot()),
+      ),
     }
   }
 
@@ -216,6 +235,20 @@ impl Function {
 
   pub fn new_closure(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>, env: EnvRef) -> Self {
     Self::Closure { params, body, env }
+  }
+
+  pub fn new_method(
+    name: String,
+    params: Rc<Vec<Token>>,
+    body: Rc<Vec<Stmt>>,
+    env: EnvRef,
+  ) -> Self {
+    Self::Method {
+      name,
+      params,
+      body,
+      env,
+    }
   }
 
   fn call_native_fn(
@@ -338,6 +371,98 @@ impl Function {
       StatementType::Return(v) => v,
     })
   }
+
+  fn call_method(
+    e: &mut Evaluator,
+    line: usize,
+    params: &[Token],
+    body: &[Stmt],
+    args: Vec<Value>,
+    mut env: EnvRef,
+  ) -> CallResult {
+    if params.is_empty() {
+      return Err(ScriptError {
+        file: e.file.clone(),
+        line,
+        msg: String::from("need at least one parameter for reference to self"),
+      });
+    }
+
+    if params.len() < args.len() {
+      return Err(ScriptError {
+        file: e.file.clone(),
+        line,
+        msg: format!(
+          "too many arguments, expected {}, got {}",
+          params.len(),
+          args.len()
+        ),
+      });
+    }
+
+    if params.len() - 1 > args.len() {
+      return Err(ScriptError {
+        file: e.file.clone(),
+        line,
+        msg: format!(
+          "too few arguments, expected {}, got {}",
+          params.len() - 1,
+          args.len(),
+        ),
+      });
+    }
+
+    if let Some(self_ref) = params.first() {
+      if let Some(instance) = &e.last_object {
+        if let Value::Instance {
+          instance_of,
+          env: instance_env,
+        } = instance
+        {
+          env.define(
+            self_ref.lexeme.clone(),
+            Value::Instance {
+              instance_of: instance_of.clone(),
+              env: instance_env.snapshot(),
+            },
+          );
+        } else {
+          return Err(ScriptError {
+            file: e.file.clone(),
+            line,
+            msg: String::from("calling method on non-objects is not allowed"),
+          });
+        }
+      } else {
+        return Err(ScriptError {
+          file: e.file.clone(),
+          line,
+          msg: String::from("method called on void space"),
+        });
+      }
+    } else {
+      return Err(ScriptError {
+        file: e.file.clone(),
+        line,
+        msg: String::from("need at least one parameter for reference to self"),
+      });
+    }
+
+    for (param, arg) in params.iter().skip(1).zip(args.iter()) {
+      env.define(param.lexeme.clone(), arg.clone());
+    }
+
+    println!(">>>>>>\n{}<<<<<<", env);
+
+    let res = Ok(match e.eval_block(&body, env.snapshot())? {
+      StatementType::Regular(v) => v,
+      StatementType::Return(v) => v,
+    });
+
+    println!(">>>>>>\n{}<<<<<<", env);
+
+    res
+  }
 }
 
 impl Display for Function {
@@ -347,24 +472,24 @@ impl Display for Function {
         name,
         airity: _,
         func: _,
-      } => {
-        write!(f, "<nf {}>", name)
-      }
+      } => write!(f, "<nf {}>", name),
       Self::Script {
         name,
         params: _,
         body: _,
         env: _,
-      } => {
-        write!(f, "<fn {}>", name)
-      }
+      } => write!(f, "<fn {}>", name),
       Self::Closure {
         params: _,
         body: _,
         env: _,
-      } => {
-        write!(f, "<closure>")
-      }
+      } => write!(f, "<closure>"),
+      Self::Method {
+        name,
+        params: _,
+        body: _,
+        env: _,
+      } => write!(f, "<m {}>", name),
     }
   }
 }

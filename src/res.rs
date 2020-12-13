@@ -553,7 +553,7 @@ mod tests {
       const SRC: &str = r#"
       let x = "local";
       class Test {
-        fn test() {
+        fn test(self) {
           return 1;
         }
       }
@@ -579,7 +579,7 @@ mod tests {
       const SRC: &str = r#"
       let x = "global";
       class Test {
-        fn test() {
+        fn test(self) {
           let x = "local member";
           return || {
             return x;
