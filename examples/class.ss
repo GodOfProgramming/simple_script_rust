@@ -8,6 +8,6 @@ class Test {
   }
 }
 
-let t = Test();
-let func = t.test();
-print func();
+# let t = Test();
+# let func = t.test();
+# print func();

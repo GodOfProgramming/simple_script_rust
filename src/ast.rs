@@ -1162,7 +1162,7 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
       Ok(func.call(self, args, e.paren.line)?)
     } else if let Value::Class { name, methods } = callee {
       let instance = Value::Instance {
-        instance_of: name.clone(),
+        instance_of: name,
         env: methods.snapshot(),
       };
       Ok(instance)

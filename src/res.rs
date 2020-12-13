@@ -16,7 +16,7 @@ pub type ResolveResult = Result<(), ScriptError>;
 
 pub fn resolve(evaluator: &mut Evaluator, statements: &Vec<Stmt>) -> ResolveResult {
   let mut resolver = Resolver::new(evaluator);
-  resolver.resolve(statements)
+  resolver.resolve_statements(statements)
 }
 
 struct Resolver<'eval> {
@@ -73,87 +73,56 @@ impl<'eval> Resolver<'eval> {
       scope.insert(name.lexeme.clone(), true);
     }
   }
-}
 
-trait Res<T> {
-  type Return;
-  fn resolve(&mut self, input: &T) -> Self::Return;
-}
-
-impl Res<Vec<Stmt>> for Resolver<'_> {
-  type Return = ResolveResult;
-  fn resolve(&mut self, statements: &Vec<Stmt>) -> Self::Return {
+  fn resolve_statements(&mut self, statements: &Vec<Stmt>) -> ResolveResult {
     for stmt in statements.iter() {
-      self.resolve(stmt)?;
+      self.resolve_statement(stmt)?;
     }
     Ok(())
   }
-}
 
-impl Res<Stmt> for Resolver<'_> {
-  type Return = ResolveResult;
-  fn resolve(&mut self, s: &Stmt) -> Self::Return {
+  fn resolve_statement(&mut self, s: &Stmt) -> ResolveResult {
     stmt::accept(s, self)
   }
-}
 
-impl Res<FunctionStmt> for Resolver<'_> {
-  type Return = ResolveResult;
-  fn resolve(&mut self, s: &FunctionStmt) -> Self::Return {
+  fn resolve_function(&mut self, s: &FunctionStmt) -> ResolveResult {
     self.begin_function();
     for param in s.params.iter() {
       self.declare(param)?;
       self.define(param);
     }
-    self.resolve(&*s.body)?;
+    self.resolve_statements(&*s.body)?;
     self.end_function();
     Ok(())
   }
-}
 
-impl Res<ClosureExpr> for Resolver<'_> {
-  type Return = ResolveResult;
-  fn resolve(&mut self, e: &ClosureExpr) -> Self::Return {
+  fn resolve_closure(&mut self, e: &ClosureExpr) -> ResolveResult {
     self.begin_function();
     for param in e.params.iter() {
       self.declare(param)?;
       self.define(param);
     }
-    self.resolve(&*e.body)?;
+    self.resolve_statements(&*e.body)?;
     self.end_function();
     Ok(())
   }
-}
 
-impl Res<Expr> for Resolver<'_> {
-  type Return = ResolveResult;
-  fn resolve(&mut self, e: &Expr) -> Self::Return {
+  fn resolve_expression(&mut self, e: &Expr) -> ResolveResult {
     expr::accept(e, self)
   }
-}
 
-trait ResLoc<T> {
-  fn resolve_local(&mut self, t: &T, name: &Token);
-}
-
-impl ResLoc<VariableExpr> for Resolver<'_> {
-  fn resolve_local(&mut self, e: &VariableExpr, name: &Token) {
-    // will be empty when using variables defined external to scripts
-    if !self.scopes.is_empty() {
-      for i in (0..self.scopes.len() - 1).rev() {
-        let scope = &self.scopes[i];
-        if scope.get(&name.lexeme).is_some() {
-          let depth = self.scopes.len() - 1 - i;
-          self.evaluator.resolve(e.id, depth);
-          break;
-        }
+  fn resolve_local_variable(&mut self, e: &VariableExpr, name: &Token) {
+    for i in (0..self.scopes.len() - 1).rev() {
+      let scope = &self.scopes[i];
+      if scope.get(&name.lexeme).is_some() {
+        let depth = self.scopes.len() - 1 - i;
+        self.evaluator.resolve(e.id, depth);
+        break;
       }
     }
   }
-}
 
-impl ResLoc<AssignExpr> for Resolver<'_> {
-  fn resolve_local(&mut self, e: &AssignExpr, name: &Token) {
+  fn resolve_local_assignment(&mut self, e: &AssignExpr, name: &Token) {
     for i in (0..self.scopes.len() - 1).rev() {
       let scope = &self.scopes[i];
       if scope.get(&name.lexeme).is_some() {
@@ -179,31 +148,31 @@ impl Visitor<VariableExpr, ResolveResult> for Resolver<'_> {
       }
     }
 
-    self.resolve_local(e, &e.name);
+    self.resolve_local_variable(e, &e.name);
     Ok(())
   }
 }
 
 impl Visitor<AssignExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &AssignExpr) -> ResolveResult {
-    self.resolve(&*e.value)?;
-    self.resolve_local(e, &e.name);
+    self.resolve_expression(&*e.value)?;
+    self.resolve_local_assignment(e, &e.name);
     Ok(())
   }
 }
 
 impl Visitor<BinaryExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &BinaryExpr) -> ResolveResult {
-    self.resolve(&*e.left)?;
-    self.resolve(&*e.right)
+    self.resolve_expression(&e.left)?;
+    self.resolve_expression(&e.right)
   }
 }
 
 impl Visitor<CallExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &CallExpr) -> ResolveResult {
-    self.resolve(&*e.callee)?;
+    self.resolve_expression(&*e.callee)?;
     for arg in e.args.iter() {
-      self.resolve(arg)?;
+      self.resolve_expression(arg)?;
     }
     Ok(())
   }
@@ -211,13 +180,13 @@ impl Visitor<CallExpr, ResolveResult> for Resolver<'_> {
 
 impl Visitor<GetExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &GetExpr) -> ResolveResult {
-    self.resolve(&*e.object)
+    self.resolve_expression(&e.object)
   }
 }
 
 impl Visitor<GroupingExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &GroupingExpr) -> ResolveResult {
-    self.resolve(&*e.expression)
+    self.resolve_expression(&e.expression)
   }
 }
 
@@ -229,49 +198,49 @@ impl Visitor<LiteralExpr, ResolveResult> for Resolver<'_> {
 
 impl Visitor<LogicalExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &LogicalExpr) -> ResolveResult {
-    self.resolve(&*e.left)?;
-    self.resolve(&*e.right)
+    self.resolve_expression(&e.left)?;
+    self.resolve_expression(&e.right)
   }
 }
 
 impl Visitor<SetExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &SetExpr) -> ResolveResult {
-    self.resolve(&*e.value)?;
-    self.resolve(&*e.object)
+    self.resolve_expression(&e.value)?;
+    self.resolve_expression(&e.object)
   }
 }
 
 impl Visitor<UnaryExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &UnaryExpr) -> ResolveResult {
-    self.resolve(&*e.right)
+    self.resolve_expression(&e.right)
   }
 }
 
 impl Visitor<ClosureExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &ClosureExpr) -> ResolveResult {
-    self.resolve(e)
+    self.resolve_closure(e)
   }
 }
 
 impl Visitor<RangeExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &RangeExpr) -> ResolveResult {
-    self.resolve(&*e.begin)?;
-    self.resolve(&*e.end)
+    self.resolve_expression(&e.begin)?;
+    self.resolve_expression(&e.end)
   }
 }
 
 impl Visitor<TernaryExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &TernaryExpr) -> ResolveResult {
-    self.resolve(&*e.condition)?;
-    self.resolve(&*e.if_true)?;
-    self.resolve(&*e.if_false)
+    self.resolve_expression(&e.condition)?;
+    self.resolve_expression(&e.if_true)?;
+    self.resolve_expression(&e.if_false)
   }
 }
 
 impl Visitor<BlockStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &BlockStmt) -> ResolveResult {
     self.begin_scope();
-    self.resolve(&s.statements)?;
+    self.resolve_statements(&s.statements)?;
     self.end_scope();
     Ok(())
   }
@@ -282,7 +251,7 @@ impl Visitor<ClassStmt, ResolveResult> for Resolver<'_> {
     self.declare(&s.name)?;
     self.define(&s.name);
     self.begin_scope();
-    self.resolve(&s.methods)?;
+    self.resolve_statements(&s.methods)?;
     self.end_scope();
     Ok(())
   }
@@ -292,7 +261,7 @@ impl Visitor<LetStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &LetStmt) -> ResolveResult {
     self.declare(&s.name)?;
     if let Some(i) = &s.initializer {
-      self.resolve(i)?;
+      self.resolve_expression(i)?;
     }
     self.define(&s.name);
     Ok(())
@@ -303,22 +272,22 @@ impl Visitor<FunctionStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &FunctionStmt) -> ResolveResult {
     self.declare(&s.name)?;
     self.define(&s.name);
-    self.resolve(s)
+    self.resolve_function(s)
   }
 }
 
 impl Visitor<ExpressionStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &ExpressionStmt) -> ResolveResult {
-    self.resolve(&s.expr)
+    self.resolve_expression(&s.expr)
   }
 }
 
 impl Visitor<IfStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &IfStmt) -> ResolveResult {
-    self.resolve(&s.condition)?;
-    self.resolve(&s.if_true)?;
+    self.resolve_expression(&s.condition)?;
+    self.resolve_statements(&s.if_true)?;
     if let Some(if_false) = &s.if_false {
-      self.resolve(&**if_false)?;
+      self.resolve_statement(if_false)?;
     }
     Ok(())
   }
@@ -326,7 +295,7 @@ impl Visitor<IfStmt, ResolveResult> for Resolver<'_> {
 
 impl Visitor<PrintStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &PrintStmt) -> ResolveResult {
-    self.resolve(&s.expr)
+    self.resolve_expression(&s.expr)
   }
 }
 
@@ -340,7 +309,7 @@ impl Visitor<ReturnStmt, ResolveResult> for Resolver<'_> {
       });
     }
     if let Some(v) = &s.value {
-      self.resolve(v)?;
+      self.resolve_expression(v)?;
     }
     Ok(())
   }
@@ -348,20 +317,20 @@ impl Visitor<ReturnStmt, ResolveResult> for Resolver<'_> {
 
 impl Visitor<WhileStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &WhileStmt) -> ResolveResult {
-    self.resolve(&s.condition)?;
-    self.resolve(&s.body)
+    self.resolve_expression(&s.condition)?;
+    self.resolve_statements(&s.body)
   }
 }
 
 impl Visitor<LoadStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &LoadStmt) -> ResolveResult {
-    self.resolve(&s.path)
+    self.resolve_expression(&s.path)
   }
 }
 
 impl Visitor<LoadrStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &LoadrStmt) -> ResolveResult {
-    self.resolve(&s.path)
+    self.resolve_expression(&s.path)
   }
 }
 
@@ -472,7 +441,7 @@ mod tests {
       let body = vec![Stmt::Let(LetStmt::new(local_name, None, 4))];
       let s = FunctionStmt::new(func_name, Rc::new(params), Rc::new(body), 5);
 
-      assert!(r.resolve(&s).is_ok());
+      assert!(r.resolve_function(&s).is_ok());
     }
   }
 
@@ -588,7 +557,6 @@ mod tests {
         panic!(format!("{}", err));
       }
     }
-
 
     #[test]
     fn resolver_should_still_work_with_closures_declared_in_member_functions() {
