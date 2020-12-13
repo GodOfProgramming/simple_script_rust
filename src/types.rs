@@ -135,12 +135,20 @@ impl PartialEq for Value {
         }
       }
       Value::Instance {
-        instance_of: _,
+        instance_of: left_instance_of,
         methods: _,
-        members: _,
+        members: left_members,
       } => {
-        // TODO call == method
-        panic!("unimplemented");
+        if let Value::Instance {
+          instance_of: right_instance_of,
+          methods: _,
+          members: right_members,
+        } = other
+        {
+          left_instance_of == right_instance_of && left_members == right_members
+        } else {
+          false
+        }
       }
       Value::Nil => {
         matches!(other, Value::Nil)

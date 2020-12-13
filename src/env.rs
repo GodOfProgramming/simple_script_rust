@@ -1,5 +1,6 @@
 use crate::types::{Airity, Function, NativeFn, Value};
 use std::cell::RefCell;
+use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::rc::Rc;
@@ -49,6 +50,12 @@ impl Env {
     } else {
       Err(format!("assignment of undefined variable '{}'", name))
     }
+  }
+}
+
+impl PartialEq for Env {
+  fn eq(&self, other: &Self) -> bool {
+    self.scope == other.scope
   }
 }
 
@@ -156,5 +163,11 @@ impl EnvRef {
 impl Display for EnvRef {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     self.fmt_indent(f, 0)
+  }
+}
+
+impl PartialEq for EnvRef {
+  fn eq(&self, other: &Self) -> bool {
+    self.env == other.env
   }
 }

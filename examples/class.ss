@@ -34,3 +34,7 @@ print other.x;
 
 let other1 = other.new();
 print other1.x;
+
+print other == other1;
+print other == t1;
+print other == t2;

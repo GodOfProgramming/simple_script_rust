@@ -61,6 +61,10 @@ impl Interpreter {
     i
   }
 
+  pub fn get_var(&mut self, name: &str) -> Option<Value> {
+    self.globals.get(name)
+  }
+
   pub fn set_var(&mut self, name: &str, value: Value) {
     self.globals.define(name.to_string(), value);
   }
