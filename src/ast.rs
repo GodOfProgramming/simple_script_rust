@@ -756,18 +756,44 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
     self.env.define(s.name.lexeme.clone(), Value::Nil);
     let mut env = EnvRef::new_with_enclosing(self.env.snapshot());
     for method in s.methods.iter() {
-      if let Stmt::Function(s) = method {
-        let func = Function::new_method(
-          s.name.lexeme.clone(),
-          Rc::clone(&s.params),
-          Rc::clone(&s.body),
-          env.snapshot(),
-        );
-        if env.define(s.name.lexeme.clone(), Value::Callee(func)) {
+      if let Stmt::Function(f) = method {
+        let (func, name) = if f.name.lexeme.starts_with('@') {
+          if f.name.lexeme.len() == 1 {
+            return Err(ScriptError {
+              file: self.file.clone(),
+              line: f.name.line,
+              msg: format!(
+                "class method {} for class {} cannot be one char long if its only char is '@'",
+                f.name.lexeme, s.name.lexeme,
+              ),
+            });
+          }
+          let name = &f.name.lexeme[1..];
+          (
+            Function::new_script(
+              String::from(name),
+              Rc::clone(&f.params),
+              Rc::clone(&f.body),
+              env.snapshot(),
+            ),
+            name,
+          )
+        } else {
+          (
+            Function::new_method(
+              f.name.lexeme.clone(),
+              Rc::clone(&f.params),
+              Rc::clone(&f.body),
+              env.snapshot(),
+            ),
+            &f.name.lexeme[..],
+          )
+        };
+        if env.define(String::from(name), Value::Callee(func)) {
           return Err(ScriptError {
             file: self.file.clone(),
-            line: s.name.line,
-            msg: format!("redeclaration of class method {}", s.name.lexeme),
+            line: f.name.line,
+            msg: format!("redeclaration of class method {}", f.name.lexeme),
           });
         }
       } else {
@@ -1183,30 +1209,44 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
 
 impl Visitor<GetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &GetExpr) -> ExprEvalResult {
-    if let Value::Instance {
-      instance_of,
-      methods,
-      members,
-    } = self.eval_expr(&e.object)?
-    {
-      self.last_object = Some(Value::Instance {
+    match self.eval_expr(&e.object)? {
+      Value::Instance {
         instance_of,
-        methods: methods.snapshot(),
-        members: members.snapshot(),
-      });
-      Ok(if let Some(v) = methods.get(&e.name.lexeme.clone()) {
-        v
-      } else if let Some(v) = members.get(&e.name.lexeme.clone()) {
-        v
-      } else {
-        Value::Nil
-      })
-    } else {
-      Err(ScriptError {
+        methods,
+        members,
+      } => {
+        self.last_object = Some(Value::Instance {
+          instance_of,
+          methods: methods.snapshot(),
+          members: members.snapshot(),
+        });
+        Ok(if let Some(v) = methods.get(&e.name.lexeme) {
+          v
+        } else if let Some(v) = members.get(&e.name.lexeme.clone()) {
+          v
+        } else {
+          Value::Nil
+        })
+      }
+      Value::Class { name, methods } => {
+        if let Some(v) = methods.get(&e.name.lexeme) {
+          Ok(v)
+        } else {
+          Err(ScriptError {
+            file: self.file.clone(),
+            line: e.name.line,
+            msg: format!(
+              "static method {} not defined on class {}",
+              e.name.lexeme, name
+            ),
+          })
+        }
+      }
+      _ => Err(ScriptError {
         file: self.file.clone(),
         line: e.name.line,
         msg: String::from("only instances have properties"),
-      })
+      }),
     }
   }
 }
@@ -1293,6 +1333,34 @@ mod tests {
       if let Err(err) = i.exec(&"test".into(), SRC) {
         panic!(format!("{}", err));
       }
+    }
+
+    #[test]
+    fn evaluation_should_not_allow_class_methods_if_they_do_not_start_with_an_at() {
+      const SRC: &str = r#"
+      class Test {
+        fn test() {}
+      }
+
+      Test.test()
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      assert!(i.exec(&"test".into(), SRC).is_err())
+    }
+
+    #[test]
+    fn evaluation_should_allow_class_methods_only_if_they_start_with_an_at() {
+      const SRC: &str = r#"
+      class Test {
+        fn @test() {}
+      }
+
+      Test.test()
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      assert!(i.exec(&"test".into(), SRC).is_err())
     }
   }
 }

@@ -5,6 +5,12 @@ class Test {
 }
 
 class Other {
+  fn @new() {
+    let instance = Other();
+    instance.x = 100;
+    return instance;
+  }
+
   fn test(this, arg) {
     this.y = arg;
   }
@@ -22,3 +28,9 @@ modify_test(t2, 2);
 
 print t1.x;
 print t2.y;
+
+let other = Other.new();
+print other.x;
+
+let other1 = other.new();
+print other1.x;

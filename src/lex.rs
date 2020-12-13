@@ -370,7 +370,7 @@ fn is_digit(c: char) -> bool {
 }
 
 fn is_alpha(c: char) -> bool {
-  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '@'
 }
 
 fn is_alphanumeric(c: char) -> bool {

@@ -10,16 +10,23 @@ pub fn enable(e: &mut EnvRef) {
     |env, args| {
       if args.is_empty() {
         println!("<current env>\n{}", env);
-      } else if let Value::Instance {
-        instance_of,
-        methods,
-        members,
-      } = &args[0]
-      {
-        println!(
-          "<instance of {}>\n<methods>\n{}<members>\n{}",
-          instance_of, methods, members
-        );
+      } else {
+        match &args[0] {
+          Value::Instance {
+            instance_of,
+            methods,
+            members,
+          } => {
+            println!(
+              "<instance of {}>\n<methods>\n{}<members>\n{}",
+              instance_of, methods, members
+            );
+          }
+          Value::Class { name, methods } => {
+            println!("<class {}>\n<methods>\n{}", name, methods);
+          }
+          x => return Err(format!("cannot print env for type {}", x)),
+        }
       }
       Ok(Value::Nil)
     },
