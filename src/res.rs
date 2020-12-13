@@ -38,7 +38,9 @@ impl<'eval> Resolver<'eval> {
   }
 
   fn push_scope(&mut self) {
-    self.external_scopes.push(mem::replace(&mut self.scopes, Vec::new()))
+    self
+      .external_scopes
+      .push(mem::replace(&mut self.scopes, Vec::new()))
   }
 
   fn pop_scope(&mut self) {
@@ -566,11 +568,31 @@ mod tests {
     }
 
     #[test]
+    fn resolver_should_not_mixup_local_variables_and_class_instance_variables() {
+      const SRC: &str = r#"
+      let x = "local";
+      class Test {
+      }
+
+      let t = Test();
+      t.x = "member";
+
+      assert(x, "local");
+      assert(t.x, "member");
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
     fn resolver_should_not_allow_two_variables_with_the_same_name_globally() {
       const SRC: &str = r#"
-    let a = "true";
-    let a = "false";
-    "#;
+      let a = "true";
+      let a = "false";
+      "#;
       let i = Interpreter::new_with_test_support();
       let res = i.exec(&"test".into(), SRC);
 
@@ -585,11 +607,11 @@ mod tests {
     #[test]
     fn resolver_should_not_allow_two_variables_with_the_same_name_in_functions() {
       const SRC: &str = r#"
-    fn foo() {
-      let a = "true";
-      let a = "false";
-    }
-    "#;
+      fn foo() {
+        let a = "true";
+        let a = "false";
+      }
+      "#;
       let i = Interpreter::new_with_test_support();
       let res = i.exec(&"test".into(), SRC);
 
@@ -604,8 +626,8 @@ mod tests {
     #[test]
     fn resolver_should_not_allow_a_return_statement_outside_of_a_function() {
       const SRC: &str = r#"
-    return true;
-    "#;
+      return true;
+      "#;
       let i = Interpreter::new_with_test_support();
       let res = i.exec(&"test".into(), SRC);
 
@@ -620,10 +642,10 @@ mod tests {
     #[test]
     fn resolver_should_allow_a_return_statement_inside_of_a_function() {
       const SRC: &str = r#"
-    fn some_func() {
-      return true;
-    }
-    "#;
+      fn some_func() {
+        return true;
+      }
+      "#;
       let i = Interpreter::new_with_test_support();
       assert!(i.exec(&"test".into(), SRC).is_ok());
     }
