@@ -52,8 +52,6 @@ pub enum TokenType {
   Or,
   Print,
   Return,
-  Super,
-  This,
   True,
   Let,
   While,
@@ -114,9 +112,7 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
     map.insert("or", TokenType::Or);
     map.insert("print", TokenType::Print);
     map.insert("return", TokenType::Return);
-    map.insert("struct", TokenType::Class);
-    map.insert("super", TokenType::Super);
-    map.insert("this", TokenType::This);
+    map.insert("class", TokenType::Class);
     map.insert("true", TokenType::True);
     map.insert("let", TokenType::Let);
     map.insert("while", TokenType::While);
@@ -372,7 +368,7 @@ fn is_digit(c: char) -> bool {
 }
 
 fn is_alpha(c: char) -> bool {
-  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '@'
 }
 
 fn is_alphanumeric(c: char) -> bool {

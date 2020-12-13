@@ -56,6 +56,23 @@
         ]
       },
       {
+        "name": "Set",
+        "members": [
+          {
+            "name": "object",
+            "type": "Box<Expr>"
+          },
+          {
+            "name": "name",
+            "type": "Token"
+          },
+          {
+            "name": "value",
+            "type": "Box<Expr>"
+          }
+        ]
+      },
+      {
         "name": "Assign",
         "members": [
           {
@@ -116,6 +133,19 @@
           {
             "name": "args",
             "type": "Vec<Expr>"
+          }
+        ]
+      },
+      {
+        "name": "Get",
+        "members": [
+          {
+            "name": "object",
+            "type": "Box<Expr>"
+          },
+          {
+            "name": "name",
+            "type": "Token"
           }
         ]
       },
@@ -244,6 +274,19 @@
         ]
       },
       {
+        "name": "Class",
+        "members": [
+          {
+            "name": "name",
+            "type": "Token"
+          },
+          {
+            "name": "methods",
+            "type": "Vec<Stmt>"
+          }
+        ]
+      },
+      {
         "name": "Expression",
         "members": [
           {
@@ -288,7 +331,7 @@
         ]
       },
       {
-        "name": "Var",
+        "name": "Let",
         "members": [
           {
             "name": "name",

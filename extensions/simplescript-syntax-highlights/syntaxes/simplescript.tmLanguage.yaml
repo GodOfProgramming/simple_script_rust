@@ -14,11 +14,7 @@ repository:
       - name: "keyword.control.simplescript"
         match: "\\b(and|else|for|if|or|return|while)\\b"
       - name: "keyword.declaration.simplescript"
-        match: "\\b(fn|let|struct)\\b"
-      - name: "keyword.variable.this.simplescript"
-        match: "\\b(self)\\b"
-      - name: "keyword.variable.super.simplescript"
-        match: "\\b(super)\\b"
+        match: "\\b(fn|let|class)\\b"
       - name: "support.function.builtin.simplescript"
         match: "\\b(print|load|loadr)\\b"
       - name: "constant.language.null.simplescript"
@@ -27,7 +23,7 @@ repository:
         match: "\\b(true|false)\\b"
   callables:
     patterns:
-      - match: "[A-Za-z_]\\w*\\(|\\)"
+      - match: "[@A-Za-z_]\\w*\\(|\\)|\\|"
         name: "support.function.simplescript"
   strings:
     name: "string.quoted.double.simplescript"

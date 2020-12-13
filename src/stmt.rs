@@ -9,11 +9,12 @@ pub enum Stmt {
     While(WhileStmt),
     If(IfStmt),
     Block(BlockStmt),
+    Class(ClassStmt),
     Expression(ExpressionStmt),
     Print(PrintStmt),
     Load(LoadStmt),
     Loadr(LoadrStmt),
-    Var(VarStmt),
+    Let(LetStmt),
 }
 
 impl Stmt {
@@ -46,6 +47,9 @@ impl Stmt {
     pub fn new_block(statements: Vec<Stmt>, id: usize) -> Self {
         Self::Block(BlockStmt::new(statements, id))
     }
+    pub fn new_class(name: Token, methods: Vec<Stmt>, id: usize) -> Self {
+        Self::Class(ClassStmt::new(name, methods, id))
+    }
     pub fn new_expression(expr: Expr, id: usize) -> Self {
         Self::Expression(ExpressionStmt::new(expr, id))
     }
@@ -58,8 +62,8 @@ impl Stmt {
     pub fn new_loadr(loadr: Token, path: Expr, id: usize) -> Self {
         Self::Loadr(LoadrStmt::new(loadr, path, id))
     }
-    pub fn new_var(name: Token, initializer: Option<Expr>, id: usize) -> Self {
-        Self::Var(VarStmt::new(name, initializer, id))
+    pub fn new_let(name: Token, initializer: Option<Expr>, id: usize) -> Self {
+        Self::Let(LetStmt::new(name, initializer, id))
     }
 }
 
@@ -70,11 +74,12 @@ where
         + Visitor<WhileStmt, R>
         + Visitor<IfStmt, R>
         + Visitor<BlockStmt, R>
+        + Visitor<ClassStmt, R>
         + Visitor<ExpressionStmt, R>
         + Visitor<PrintStmt, R>
         + Visitor<LoadStmt, R>
         + Visitor<LoadrStmt, R>
-        + Visitor<VarStmt, R>,
+        + Visitor<LetStmt, R>,
 {
     match e {
         Stmt::Return(x) => visitor.visit(x),
@@ -82,11 +87,12 @@ where
         Stmt::While(x) => visitor.visit(x),
         Stmt::If(x) => visitor.visit(x),
         Stmt::Block(x) => visitor.visit(x),
+        Stmt::Class(x) => visitor.visit(x),
         Stmt::Expression(x) => visitor.visit(x),
         Stmt::Print(x) => visitor.visit(x),
         Stmt::Load(x) => visitor.visit(x),
         Stmt::Loadr(x) => visitor.visit(x),
-        Stmt::Var(x) => visitor.visit(x),
+        Stmt::Let(x) => visitor.visit(x),
     }
 }
 
@@ -174,6 +180,18 @@ impl BlockStmt {
     }
 }
 
+pub struct ClassStmt {
+    pub name: Token,
+    pub methods: Vec<Stmt>,
+    pub id: usize,
+}
+
+impl ClassStmt {
+    pub fn new(name: Token, methods: Vec<Stmt>, id: usize) -> Self {
+        Self { name, methods, id }
+    }
+}
+
 pub struct ExpressionStmt {
     pub expr: Expr,
     pub id: usize,
@@ -220,13 +238,13 @@ impl LoadrStmt {
     }
 }
 
-pub struct VarStmt {
+pub struct LetStmt {
     pub name: Token,
     pub initializer: Option<Expr>,
     pub id: usize,
 }
 
-impl VarStmt {
+impl LetStmt {
     pub fn new(name: Token, initializer: Option<Expr>, id: usize) -> Self {
         Self {
             name,

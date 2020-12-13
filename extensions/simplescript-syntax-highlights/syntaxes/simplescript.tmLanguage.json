@@ -30,15 +30,7 @@
         },
         {
           "name": "keyword.declaration.simplescript",
-          "match": "\\b(fn|let|struct)\\b"
-        },
-        {
-          "name": "keyword.variable.this.simplescript",
-          "match": "\\b(self)\\b"
-        },
-        {
-          "name": "keyword.variable.super.simplescript",
-          "match": "\\b(super)\\b"
+          "match": "\\b(fn|let|class)\\b"
         },
         {
           "name": "support.function.builtin.simplescript",
@@ -57,7 +49,7 @@
     "callables": {
       "patterns": [
         {
-          "match": "[A-Za-z_]\\w*\\(|\\)",
+          "match": "[@A-Za-z_]\\w*\\(|\\)|\\|",
           "name": "support.function.simplescript"
         }
       ]
