@@ -33,10 +33,6 @@
           "match": "\\b(fn|let|class)\\b"
         },
         {
-          "name": "keyword.variable.super.simplescript",
-          "match": "\\b(super)\\b"
-        },
-        {
           "name": "support.function.builtin.simplescript",
           "match": "\\b(print|load|loadr)\\b"
         },

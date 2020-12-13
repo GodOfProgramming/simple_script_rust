@@ -15,8 +15,6 @@ repository:
         match: "\\b(and|else|for|if|or|return|while)\\b"
       - name: "keyword.declaration.simplescript"
         match: "\\b(fn|let|class)\\b"
-      - name: "keyword.variable.super.simplescript"
-        match: "\\b(super)\\b"
       - name: "support.function.builtin.simplescript"
         match: "\\b(print|load|loadr)\\b"
       - name: "constant.language.null.simplescript"

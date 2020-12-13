@@ -52,7 +52,6 @@ pub enum TokenType {
   Or,
   Print,
   Return,
-  Super,
   True,
   Let,
   While,
@@ -114,7 +113,6 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
     map.insert("print", TokenType::Print);
     map.insert("return", TokenType::Return);
     map.insert("class", TokenType::Class);
-    map.insert("super", TokenType::Super);
     map.insert("true", TokenType::True);
     map.insert("let", TokenType::Let);
     map.insert("while", TokenType::While);
