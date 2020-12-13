@@ -759,6 +759,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
           s.name.lexeme.clone(),
           Rc::clone(&s.params),
           Rc::clone(&s.body),
+          EnvRef::new_with_enclosing(env.snapshot()),
         );
         if env.define(s.name.lexeme.clone(), Value::Callee(func)) {
           return Err(ScriptError {
@@ -834,6 +835,7 @@ impl Visitor<FunctionStmt, StmtEvalResult> for Evaluator {
       e.name.lexeme.clone(),
       Rc::clone(&e.params),
       Rc::clone(&e.body),
+      self.env.snapshot(),
     );
     self.env.define(name, Value::Callee(func));
     Ok(StatementType::Regular(Value::Nil))
@@ -1199,6 +1201,7 @@ impl Visitor<ClosureExpr, ExprEvalResult> for Evaluator {
     Ok(Value::Callee(Function::new_closure(
       Rc::clone(&e.params),
       Rc::clone(&e.body),
+      self.env.snapshot(),
     )))
   }
 }
@@ -1261,23 +1264,14 @@ mod tests {
     fn evaluation_should_pass_correct_variables_to_member_functions() {
       const SRC: &str = r#"
         let x = 100;
-
-        fn foo() {
-          assert(x, 100);
-        }
-
         class Test {
           fn test(x) {
             assert(x, 200);
           }
         }
 
-        {
-          foo();
-
-          let test = Test();
-          test.test(200);
-        }
+        let test = Test();
+        test.test(200);
       "#;
 
       let i = Interpreter::new_with_test_support();

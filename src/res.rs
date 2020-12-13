@@ -68,9 +68,16 @@ impl<'eval> Resolver<'eval> {
     Ok(())
   }
 
-  fn define(&mut self, name: &Token) {
+  fn define(&mut self, name: &Token) -> Result<(), ScriptError> {
     if let Some(scope) = self.scopes.last_mut() {
       scope.insert(name.lexeme.clone(), true);
+      Ok(())
+    } else {
+      Err(ScriptError {
+        file: self.evaluator.file.clone(),
+        line: name.line,
+        msg: format!("unable to define undeclared variable '{}'", name.lexeme),
+      })
     }
   }
 
@@ -89,7 +96,7 @@ impl<'eval> Resolver<'eval> {
     self.begin_function();
     for param in s.params.iter() {
       self.declare(param)?;
-      self.define(param);
+      self.define(param)?;
     }
     self.resolve_statements(&*s.body)?;
     self.end_function();
@@ -100,7 +107,7 @@ impl<'eval> Resolver<'eval> {
     self.begin_function();
     for param in e.params.iter() {
       self.declare(param)?;
-      self.define(param);
+      self.define(param)?;
     }
     self.resolve_statements(&*e.body)?;
     self.end_function();
@@ -111,23 +118,20 @@ impl<'eval> Resolver<'eval> {
     expr::accept(e, self)
   }
 
-  fn resolve_local_variable(&mut self, e: &VariableExpr, name: &Token) {
-    for i in (0..self.scopes.len() - 1).rev() {
-      let scope = &self.scopes[i];
-      if scope.get(&name.lexeme).is_some() {
-        let depth = self.scopes.len() - 1 - i;
-        self.evaluator.resolve(e.id, depth);
-        break;
-      }
-    }
+  fn resolve_local_variable(&mut self, e: &VariableExpr) {
+    self.resolve_local(&e.name.lexeme, e.id);
   }
 
-  fn resolve_local_assignment(&mut self, e: &AssignExpr, name: &Token) {
-    for i in (0..self.scopes.len() - 1).rev() {
+  fn resolve_local_assignment(&mut self, e: &AssignExpr) {
+    self.resolve_local(&e.name.lexeme, e.id);
+  }
+
+  fn resolve_local(&mut self, name: &str, id: usize) {
+    for i in (0..self.scopes.len()).rev() {
       let scope = &self.scopes[i];
-      if scope.get(&name.lexeme).is_some() {
-        let depth = self.scopes.len() - 1 - self.scopes.len() - i;
-        self.evaluator.resolve(e.id, depth);
+      if scope.get(name).is_some() {
+        let depth = self.scopes.len() - 1 - i;
+        self.evaluator.resolve(id, depth);
         break;
       }
     }
@@ -148,7 +152,7 @@ impl Visitor<VariableExpr, ResolveResult> for Resolver<'_> {
       }
     }
 
-    self.resolve_local_variable(e, &e.name);
+    self.resolve_local_variable(e);
     Ok(())
   }
 }
@@ -156,7 +160,7 @@ impl Visitor<VariableExpr, ResolveResult> for Resolver<'_> {
 impl Visitor<AssignExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &AssignExpr) -> ResolveResult {
     self.resolve_expression(&*e.value)?;
-    self.resolve_local_assignment(e, &e.name);
+    self.resolve_local_assignment(e);
     Ok(())
   }
 }
@@ -249,7 +253,7 @@ impl Visitor<BlockStmt, ResolveResult> for Resolver<'_> {
 impl Visitor<ClassStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &ClassStmt) -> ResolveResult {
     self.declare(&s.name)?;
-    self.define(&s.name);
+    self.define(&s.name)?;
     self.begin_scope();
     self.resolve_statements(&s.methods)?;
     self.end_scope();
@@ -263,7 +267,7 @@ impl Visitor<LetStmt, ResolveResult> for Resolver<'_> {
     if let Some(i) = &s.initializer {
       self.resolve_expression(i)?;
     }
-    self.define(&s.name);
+    self.define(&s.name)?;
     Ok(())
   }
 }
@@ -271,7 +275,7 @@ impl Visitor<LetStmt, ResolveResult> for Resolver<'_> {
 impl Visitor<FunctionStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &FunctionStmt) -> ResolveResult {
     self.declare(&s.name)?;
-    self.define(&s.name);
+    self.define(&s.name)?;
     self.resolve_function(s)
   }
 }
@@ -481,6 +485,18 @@ mod tests {
         check_fn_again();
         check_closure_again();
       }
+
+      let num = 100;
+      fn base() {
+        assert(num, 100);
+      }
+
+      fn test() {
+        let num = 200;
+        base();
+      }
+
+      test();
       "#;
       let i = Interpreter::new_with_test_support();
       if let Err(err) = i.exec(&"test".into(), SRC) {
@@ -642,6 +658,17 @@ mod tests {
       "#;
       let i = Interpreter::new_with_test_support();
       assert!(i.exec(&"test".into(), SRC).is_ok());
+    }
+
+    #[test]
+    fn resolver_should_not_allow_redeclaration_of_fn_parameters() {
+      const SRC: &str = r#"
+      fn function(param) {
+        let param = "invalid";
+      }
+      "#;
+      let i = Interpreter::new_with_test_support();
+      assert!(i.exec(&"test".into(), SRC).is_err());
     }
   }
 }
