@@ -5,12 +5,13 @@ use crate::expr::{
 };
 use crate::lex::Token;
 use crate::stmt::{
-  self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LoadStmt, LoadrStmt, PrintStmt,
-  ReturnStmt, Stmt, LetStmt, WhileStmt,
+  self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LetStmt, LoadStmt, LoadrStmt,
+  PrintStmt, ReturnStmt, Stmt, WhileStmt,
 };
 use crate::types::Visitor;
 use crate::ScriptError;
 use std::collections::HashMap;
+use std::mem;
 
 pub type ResolveResult = Result<(), ScriptError>;
 
@@ -23,14 +24,26 @@ struct Resolver<'eval> {
   evaluator: &'eval mut Evaluator,
   scopes: Vec<HashMap<String, bool>>,
   function_depth: usize,
+  external_scopes: Vec<Vec<HashMap<String, bool>>>,
 }
 
 impl<'eval> Resolver<'eval> {
   fn new(evaluator: &'eval mut Evaluator) -> Self {
     Self {
       evaluator,
-      scopes: Vec::new(),
+      scopes: vec![HashMap::new()],
       function_depth: 0,
+      external_scopes: Vec::new(),
+    }
+  }
+
+  fn push_scope(&mut self) {
+    self.external_scopes.push(mem::replace(&mut self.scopes, Vec::new()))
+  }
+
+  fn pop_scope(&mut self) {
+    if let Some(last) = self.external_scopes.pop() {
+      self.scopes = last;
     }
   }
 
@@ -281,9 +294,11 @@ impl Visitor<ClassStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &ClassStmt) -> ResolveResult {
     self.declare(&s.name)?;
     self.define(&s.name);
+    self.push_scope();
     self.begin_scope();
     self.resolve(&s.methods)?;
     self.end_scope();
+    self.pop_scope();
     Ok(())
   }
 }
@@ -382,8 +397,9 @@ mod tests {
       let mut e = Evaluator::new("test".into(), env);
       let mut r = Resolver::new(&mut e);
 
+      let curr = r.scopes.len();
       r.begin_scope();
-      assert_eq!(r.scopes.len(), 1);
+      assert_eq!(r.scopes.len(), curr + 1);
     }
 
     #[test]
@@ -392,9 +408,10 @@ mod tests {
       let mut e = Evaluator::new("test".into(), env);
       let mut r = Resolver::new(&mut e);
 
+      let curr = r.scopes.len();
       r.begin_scope();
       r.end_scope();
-      assert_eq!(r.scopes.len(), 0);
+      assert_eq!(r.scopes.len(), curr);
     }
 
     #[test]
@@ -402,9 +419,11 @@ mod tests {
       let env = EnvRef::default();
       let mut e = Evaluator::new("test".into(), env);
       let mut r = Resolver::new(&mut e);
+
+      let curr = r.scopes.len();
       r.begin_function();
       assert_eq!(r.function_depth, 1);
-      assert_eq!(r.scopes.len(), 1);
+      assert_eq!(r.scopes.len(), curr + 1);
     }
 
     #[test]
@@ -412,10 +431,12 @@ mod tests {
       let env = EnvRef::default();
       let mut e = Evaluator::new("test".into(), env);
       let mut r = Resolver::new(&mut e);
+
+      let curr = r.scopes.len();
       r.begin_function();
       r.end_function();
       assert_eq!(r.function_depth, 0);
-      assert_eq!(r.scopes.len(), 0);
+      assert_eq!(r.scopes.len(), curr);
     }
 
     #[test]
@@ -484,66 +505,60 @@ mod tests {
     fn resolver_should_not_allow_variable_in_parent_scope_to_be_replaced_in_function_after_redeclaration_in_child_scope(
     ) {
       const SRC: &str = r#"
-    let a = "global";
+      let var = "global";
+      {
+        fn check_fn() {
+          assert(var, "global");
+        }
 
-    class Test {
-      fn check_a_fn() {
-        assert(a, "global");
+        let check_closure = || {
+          assert(var, "global");
+        };
+
+        check_fn();
+        check_closure();
+
+        let var = "local";
+
+        check_fn();
+        check_closure();
+
+        fn check_fn_again() {
+          assert(var, "local");
+        }
+
+        let check_closure_again = || {
+          assert(var, "local");
+        };
+
+        check_fn_again();
+        check_closure_again();
+      }
+      "#;
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
       }
     }
 
-    let g = Test();
-    {
-      fn check_a_fn() {
-        assert(a, "global");
-      }
+    #[test]
+    fn resolver_should_not_allow_variables_to_leak_into_class_methods() {
+      const SRC: &str = r#"
+      let var = "global";
 
-      let check_a_closure = || {
-        assert(a, "global");
-      };
-
-      let l1 = Test();
-
-      check_a_fn();
-      check_a_closure();
-
-      g.check_a_fn();
-      l1.check_a_fn();
-
-      let a = "local";
-
-      check_a_fn();
-      check_a_closure();
-
-      g.check_a_fn();
-      l1.check_a_fn();
-
-      let l2 = Test();
-
-      l2.check_a_fn();
-
-      class Test2 {
-        fn check_a_fn() {
-          assert(a, "local");
+      class Test {
+        fn check_fn() {
+          assert(var, nil);
         }
       }
 
-      fn check_a_fn_again() {
-        assert(a, "local");
-      }
-
-      let check_a_closure_again = || {
-        assert(a, "local");
+      let t = Test();
+      t.closure = || {
+        assert(var, "global");
       };
+      t.closure();
+      "#;
 
-      check_a_fn_again();
-      check_a_closure_again();
-
-      let t3 = Test2();
-
-      t3.check_a_fn();
-    }
-    "#;
       let i = Interpreter::new_with_test_support();
       if let Err(err) = i.exec(&"test".into(), SRC) {
         panic!(format!("{}", err));

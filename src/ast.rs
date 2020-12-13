@@ -752,7 +752,7 @@ impl Visitor<BlockStmt, StmtEvalResult> for Evaluator {
 impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, s: &ClassStmt) -> StmtEvalResult {
     self.env.define(s.name.lexeme.clone(), Value::Nil);
-    let mut env = EnvRef::new_with_enclosing(self.env.snapshot());
+    let mut env = EnvRef::default();
     for method in s.methods.iter() {
       if let Stmt::Function(s) = method {
         let func = Function::Script {
