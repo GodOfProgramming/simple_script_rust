@@ -4,12 +4,16 @@ use crate::lex::Token;
 use crate::stmt::Stmt;
 use crate::ScriptError;
 use std::fmt::{self, Debug, Display};
-use std::ops::RangeInclusive;
+use std::ops::{
+  Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Not, RangeInclusive, Rem,
+  RemAssign, Sub, SubAssign,
+};
 use std::rc::Rc;
 
 #[derive(Clone)]
 pub enum Value {
   Nil,
+  Error(String),
   Bool(bool),
   Str(String),
   Num(f64),
@@ -26,52 +30,90 @@ pub enum Value {
   },
 }
 
-impl Display for Value {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Value::Nil => write!(f, "nil"),
-      Value::Bool(b) => write!(f, "{}", b),
-      Value::Num(n) => write!(f, "{}", n),
-      Value::Str(s) => write!(f, "{}", s),
-      Value::List(l) => write!(f, "{}", l),
-      Value::Callee(c) => write!(f, "{}", c),
-      Value::Class { name, methods: _ } => write!(f, "<class {}>", name),
-      Value::Instance {
-        instance_of,
-        methods: _,
-        members: _,
-      } => write!(f, "<instance of {}>", instance_of),
+impl Value {
+  pub fn len(&self) -> Option<usize> {
+    if let Value::List(list) = self {
+      Some(list.len())
+    } else {
+      None
+    }
+  }
+
+  pub fn is_empty(&self) -> Option<bool> {
+    if let Value::List(list) = self {
+      Some(list.is_empty())
+    } else {
+      None
+    }
+  }
+
+  pub fn index(&'_ self, idx: usize) -> Option<&'_ Value> {
+    if let Value::List(list) = self {
+      Some(&list[idx])
+    } else {
+      None
+    }
+  }
+
+  pub fn index_mut(&'_ mut self, idx: usize) -> Option<&'_ mut Value> {
+    if let Value::List(list) = self {
+      Some(&mut list[idx])
+    } else {
+      None
     }
   }
 }
 
-#[derive(Clone)]
-pub struct Values(Vec<Value>);
-
-impl Values {
-  pub fn new(values: Vec<Value>) -> Self {
-    Self(values)
+impl Add for Value {
+  type Output = Self;
+  fn add(self, other: Self) -> Self {
+    match self {
+      Value::Num(a) => match other {
+        Value::Num(b) => Value::Num(a + b),
+        Value::Str(b) => Value::Str(format!("{}{}", a, b)),
+        _ => Value::Error(format!("cannot add {} and {}", a, other)),
+      },
+      Value::Str(a) => match other {
+        Value::Num(b) => Value::Str(format!("{}{}", a, b)),
+        Value::Str(b) => Value::Str(format!("{}{}", a, b)),
+        _ => Value::Error(format!("cannot add {} and {}", a, other)),
+      },
+      _ => Value::Error(format!("cannot add {} and {}", self, other)),
+    }
   }
-
 }
 
-impl Display for Values {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    self.0.iter().fold(Ok(()), |result, value| {
-      result.and_then(|_| writeln!(f, "{}", value))
-    })
-  }
-}
-
-impl Debug for Value {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    Display::fmt(self, f)
+impl AddAssign for Value {
+  fn add_assign(&mut self, other: Value) {
+    *self = match self {
+      Value::Num(a) => match other {
+        Value::Num(b) => Value::Num(*a + b),
+        Value::Str(b) => Value::Str(format!("{}{}", a, b)),
+        _ => Value::Error(format!("cannot add {} and {}", a, other)),
+      },
+      Value::Str(a) => match other {
+        Value::Num(b) => Value::Str(format!("{}{}", a, b)),
+        Value::Str(b) => Value::Str(format!("{}{}", a, b)),
+        _ => Value::Error(format!("cannot add {} and {}", a, other)),
+      },
+      Value::List(a) => match other {
+        Value::List(b) => Value::List(a.into_iter().copied().collect()),
+      },
+      _ => Value::Error(format!("cannot add {} and {}", self, other)),
+    };
   }
 }
 
 impl PartialEq for Value {
   fn eq(&self, other: &Value) -> bool {
     match self {
+      Value::Error(a) => {
+        if let Value::Error(b) = other {
+          a == b
+        } else {
+          false
+        }
+      }
       Value::Bool(a) => {
         if let Value::Bool(b) = other {
           a == b
@@ -114,7 +156,7 @@ impl PartialEq for Value {
           false
         }
       }
-      Value::Callee(_) => false, // TODO figure this out
+      Value::Callee(_) => panic!("comparing functions is unimplemented"),
       Value::Class {
         name: a,
         methods: _,
@@ -149,6 +191,80 @@ impl PartialEq for Value {
         matches!(other, Value::Nil)
       }
     }
+  }
+}
+
+impl Display for Value {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Value::Nil => write!(f, "nil"),
+      Value::Error(e) => write!(f, "{}", e),
+      Value::Bool(b) => write!(f, "{}", b),
+      Value::Num(n) => write!(f, "{}", n),
+      Value::Str(s) => write!(f, "{}", s),
+      Value::List(l) => write!(f, "{}", l),
+      Value::Callee(c) => write!(f, "{}", c),
+      Value::Class { name, methods: _ } => write!(f, "<class {}>", name),
+      Value::Instance {
+        instance_of,
+        methods: _,
+        members: _,
+      } => write!(f, "<instance of {}>", instance_of),
+    }
+  }
+}
+
+impl Debug for Value {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    Display::fmt(self, f)
+  }
+}
+
+#[derive(Clone)]
+pub struct Values(Vec<Value>);
+
+impl Values {
+  pub fn new(values: Vec<Value>) -> Self {
+    Self(values)
+  }
+
+  pub fn len(&self) -> usize {
+    self.0.len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.0.is_empty()
+  }
+}
+
+impl Index<usize> for Values {
+  type Output = Value;
+
+  fn index(&self, idx: usize) -> &Self::Output {
+    &self.0[idx]
+  }
+}
+
+impl IndexMut<usize> for Values {
+  fn index_mut(&mut self, idx: usize) -> &mut Value {
+    &mut self.0[idx]
+  }
+}
+
+impl IntoIterator for Values {
+  type Item = Value;
+  type IntoIter = std::vec::IntoIter<Self::Item>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    self.0.into_iter()
+  }
+}
+
+impl Display for Values {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    self.0.iter().fold(Ok(()), |result, value| {
+      result.and_then(|_| writeln!(f, "{}", value))
+    })
   }
 }
 
