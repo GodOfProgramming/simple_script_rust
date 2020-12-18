@@ -42,21 +42,27 @@ pub enum TokenType {
 
   // Keywords.
   And,
+  Bool,
   Class,
   Else,
+  Error,
   False,
   Fn,
   For,
   If,
+  Is,
+  Let,
+  List,
+  Load,
+  Loadr,
   Nil,
+  Number,
   Or,
   Print,
   Return,
+  String,
   True,
-  Let,
   While,
-  Load,
-  Loadr,
 
   // Line Delimiters
   Eof,
@@ -101,20 +107,26 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
   let mut map = HashMap::new();
   {
     map.insert("and", TokenType::And);
+    map.insert("bool", TokenType::While);
+    map.insert("class", TokenType::Class);
     map.insert("else", TokenType::Else);
+    map.insert("error", TokenType::Error);
     map.insert("false", TokenType::False);
     map.insert("fn", TokenType::Fn);
     map.insert("for", TokenType::For);
     map.insert("if", TokenType::If);
+    map.insert("is", TokenType::Is);
+    map.insert("let", TokenType::Let);
+    map.insert("list", TokenType::List);
     map.insert("load", TokenType::Load);
     map.insert("loadr", TokenType::Loadr);
     map.insert("nil", TokenType::Nil);
+    map.insert("number", TokenType::Number);
     map.insert("or", TokenType::Or);
     map.insert("print", TokenType::Print);
     map.insert("return", TokenType::Return);
-    map.insert("class", TokenType::Class);
+    map.insert("string", TokenType::String);
     map.insert("true", TokenType::True);
-    map.insert("let", TokenType::Let);
     map.insert("while", TokenType::While);
   }
   map

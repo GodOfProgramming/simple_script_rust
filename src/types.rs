@@ -47,13 +47,21 @@ impl Display for Instance {
   }
 }
 
+pub trait ValueError<T> {
+  fn new_err(err: T) -> Self;
+}
+
+pub trait New<T> {
+  fn new(item: T) -> Self;
+}
+
 #[derive(Clone)]
 pub enum Value {
   Nil,
   Error(Box<Value>),
   Bool(bool),
-  Str(String),
   Num(f64),
+  Str(String),
   List(Values),
   Callee(Function),
   Class(Class),
@@ -94,6 +102,78 @@ impl Value {
   }
 }
 
+impl New<bool> for Value {
+  fn new(item: bool) -> Self {
+    Self::Bool(item)
+  }
+}
+
+impl New<f64> for Value {
+  fn new(item: f64) -> Self {
+    Self::Num(item)
+  }
+}
+
+impl New<String> for Value {
+  fn new(item: String) -> Self {
+    Self::Str(item)
+  }
+}
+
+impl New<Function> for Value {
+  fn new(item: Function) -> Self {
+    Self::Callee(item)
+  }
+}
+
+impl New<Class> for Value {
+  fn new(item: Class) -> Self {
+    Self::Class(item)
+  }
+}
+
+impl New<Instance> for Value {
+  fn new(item: Instance) -> Self {
+    Self::Instance(item)
+  }
+}
+
+impl ValueError<bool> for Value {
+  fn new_err(err: bool) -> Self {
+    Self::Error(Box::new(Self::Bool(err)))
+  }
+}
+
+impl ValueError<f64> for Value {
+  fn new_err(err: f64) -> Self {
+    Self::Error(Box::new(Self::Num(err)))
+  }
+}
+
+impl ValueError<String> for Value {
+  fn new_err(err: String) -> Self {
+    Self::Error(Box::new(Self::Str(err)))
+  }
+}
+
+impl ValueError<Function> for Value {
+  fn new_err(err: Function) -> Self {
+    Self::Error(Box::new(Self::Callee(err)))
+  }
+}
+
+impl ValueError<Class> for Value {
+  fn new_err(err: Class) -> Self {
+    Self::Error(Box::new(Self::Class(err)))
+  }
+}
+
+impl ValueError<Instance> for Value {
+  fn new_err(err: Instance) -> Self {
+    Self::Error(Box::new(Self::Instance(err)))
+  }
+}
+
 impl Add for Value {
   type Output = Self;
   fn add(self, other: Self) -> Self {
@@ -101,7 +181,7 @@ impl Add for Value {
       Value::Num(a) => match other {
         Value::Num(b) => Value::Num(a + b),
         Value::Str(b) => Value::Str(format!("{}{}", a, b)),
-        _ => Value::Error(format!("cannot add {} and {}", a, other)),
+        _ => Value::new(format!("cannot add {} and {}", a, other)),
       },
       Value::Str(a) => match other {
         Value::Num(b) => Value::Str(format!("{}{}", a, b)),
@@ -128,6 +208,90 @@ impl AddAssign for Value {
       },
       _ => Value::Error(format!("cannot add {} and {}", self, other)),
     };
+  }
+}
+
+impl Sub for Value {
+  type Output = Self;
+
+  fn sub(self, other: Self) -> Self::Output {
+    match self {
+      Value::Num(a) => match other {
+        Value::Num(b) => Value::Num(a - b),
+        _ => Value::new(format!("cannot sub {} and {}", a, other)),
+      },
+      Value::Str(a) => match other {
+        Value::Num(b) => Value::Str(format!("{}{}", a, b)),
+        _ => Value::Error(format!("cannot sub {} and {}", a, other)),
+      },
+      _ => Value::Error(format!("cannot sub {} and {}", self, other)),
+    }
+  }
+}
+
+impl SubAssign for Value {
+  fn sub_assign(&mut self, other: Value) {
+    *self = match self {
+      Value::Num(a) => match other {
+        Value::Num(b) => Value::Num(*a - b),
+        _ => Value::Error(format!("cannot sub {} and {}", a, other)),
+      },
+      Value::Str(a) => match other {
+        Value::Num(b) => Value::Str(format!("{}{}", a, b)),
+        _ => Value::Error(format!("cannot sub {} and {}", a, other)),
+      },
+      _ => Value::Error(format!("cannot sub {} and {}", self, other)),
+    };
+  }
+}
+
+impl Mul for Value {
+  type Output = Self;
+
+  fn mul(self, other: Self) -> Self::Output {
+    match self {
+      Value::Num(a) => match other {
+        Value::Num(b) => Value::Num(a * b),
+        Value::Str(b) => {
+          if a > 0.0 {
+            Value::Str(b.repeat(a as usize))
+          } else {
+            Value::new_err(format!("cannot repeat a string {} times", b))
+          }
+        }
+        _ => Value::new(format!("cannot add {} and {}", a, other)),
+      },
+      Value::Str(a) => match other {
+        Value::Num(b) => {
+          if b > 0.0 {
+            Value::Str(a.repeat(b as usize))
+          } else {
+            Value::new_err(format!("cannot repeat a string {} times", a))
+          }
+        }
+        Value::Str(b) => Value::new_err(String::from("cannot multiply two strings")),
+        _ => Value::Error(format!("cannot add {} and {}", a, other)),
+      },
+      _ => Value::Error(format!("cannot add {} and {}", self, other)),
+    }
+  }
+}
+
+impl Neg for Value {
+  type Output = Self;
+
+  fn neg(self) -> Self::Output {
+    match self {
+      Self::Nil => Self::Nil,
+      Self::Error(_) => Self::new_err(String::from("cannot negate an error")),
+      Self::Bool(b) => Self::Bool(!b),
+      Self::Num(n) => Self::Num(-n),
+      Self::Str(_) => Self::new_err(String::from("cannot negate a string")),
+      Self::List(_) => Self::new_err(String::from("cannot negate a list")),
+      Self::Callee(_) => Self::new_err(String::from("cannot negate a function")),
+      Self::Class(_) => Self::new_err(String::from("cannot negate a class")),
+      Self::Instance(_) => panic!("unimplemented"),
+    }
   }
 }
 
@@ -641,4 +805,17 @@ impl Display for Function {
 
 pub trait Visitor<T, R> {
   fn visit(&mut self, _: &T) -> R;
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn can_add_integer_values() {
+    let x = Value::Num(1.0);
+    let y = Value::Num(2.0);
+
+    assert_eq!(x + y, Value::Num(3.0));
+  }
 }

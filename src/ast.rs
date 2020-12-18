@@ -1,7 +1,7 @@
 use crate::env::EnvRef;
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, LiteralExpr,
-  LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
+  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, IsExpr,
+  LiteralExpr, LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
 };
 use crate::lex::{self, Token, TokenType};
 use crate::res;
@@ -9,7 +9,7 @@ use crate::stmt::{
   self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LetStmt, LoadStmt, LoadrStmt,
   PrintStmt, ReturnStmt, Stmt, WhileStmt,
 };
-use crate::types::{Class, Function, Instance, Value, Values, Visitor};
+use crate::types::{Class, Function, Instance, New, Value, Values, Visitor};
 use crate::ScriptError;
 use std::collections::HashMap;
 use std::env;
@@ -71,27 +71,27 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn statement(&mut self) -> StatementResult {
-    if self.match_token(&[TokenType::Let]) {
+    if self.advance_if_match(&[TokenType::Let]) {
       self.var_decl()
-    } else if self.match_token(&[TokenType::Fn]) {
+    } else if self.advance_if_match(&[TokenType::Fn]) {
       self.fn_decl("function")
-    } else if self.match_token(&[TokenType::Class]) {
+    } else if self.advance_if_match(&[TokenType::Class]) {
       self.class_decl()
-    } else if self.match_token(&[TokenType::Print]) {
+    } else if self.advance_if_match(&[TokenType::Print]) {
       self.print_statement()
-    } else if self.match_token(&[TokenType::Return]) {
+    } else if self.advance_if_match(&[TokenType::Return]) {
       self.return_statement()
-    } else if self.match_token(&[TokenType::For]) {
+    } else if self.advance_if_match(&[TokenType::For]) {
       self.for_statement()
-    } else if self.match_token(&[TokenType::While]) {
+    } else if self.advance_if_match(&[TokenType::While]) {
       self.while_statement()
-    } else if self.match_token(&[TokenType::If]) {
+    } else if self.advance_if_match(&[TokenType::If]) {
       self.if_statement()
-    } else if self.match_token(&[TokenType::LeftBrace]) {
+    } else if self.advance_if_match(&[TokenType::LeftBrace]) {
       Ok(Stmt::new_block(self.block()?, self.next_id()))
-    } else if self.match_token(&[TokenType::Load]) {
+    } else if self.advance_if_match(&[TokenType::Load]) {
       self.load_statement()
-    } else if self.match_token(&[TokenType::Loadr]) {
+    } else if self.advance_if_match(&[TokenType::Loadr]) {
       self.loadr_statement()
     } else {
       self.expr_statement()
@@ -101,7 +101,7 @@ impl<'tokens> Parser<'tokens> {
   fn var_decl(&mut self) -> StatementResult {
     let name = self.consume(TokenType::Identifier, "Expected variable name")?;
     let mut expr = None;
-    if self.match_token(&[TokenType::Equal]) {
+    if self.advance_if_match(&[TokenType::Equal]) {
       expr = Some(self.expression()?);
     }
 
@@ -120,7 +120,7 @@ impl<'tokens> Parser<'tokens> {
       loop {
         params.push(self.consume(TokenType::Identifier, "expected identifier")?);
 
-        if !self.match_token(&[TokenType::Comma]) {
+        if !self.advance_if_match(&[TokenType::Comma]) {
           break;
         }
       }
@@ -149,7 +149,7 @@ impl<'tokens> Parser<'tokens> {
 
     let mut methods = Vec::new();
     while !self.check(TokenType::RightBrace) && !self.is_at_end() {
-      if self.match_token(&[TokenType::Fn]) {
+      if self.advance_if_match(&[TokenType::Fn]) {
         methods.push(self.fn_decl("method")?);
       } else {
         return Err(ScriptError {
@@ -185,7 +185,7 @@ impl<'tokens> Parser<'tokens> {
   fn for_statement(&mut self) -> StatementResult {
     let token = self.previous();
 
-    let initializer = if self.match_token(&[TokenType::Let]) {
+    let initializer = if self.advance_if_match(&[TokenType::Let]) {
       self.var_decl()?
     } else {
       self.expr_statement()?
@@ -230,10 +230,10 @@ impl<'tokens> Parser<'tokens> {
     let if_true = self.block()?;
     let mut if_false = None;
 
-    if self.match_token(&[TokenType::Else]) {
-      if_false = if self.match_token(&[TokenType::LeftBrace]) {
+    if self.advance_if_match(&[TokenType::Else]) {
+      if_false = if self.advance_if_match(&[TokenType::LeftBrace]) {
         Some(Box::new(Stmt::new_block(self.block()?, self.next_id())))
-      } else if self.match_token(&[TokenType::If]) {
+      } else if self.advance_if_match(&[TokenType::If]) {
         Some(Box::new(self.if_statement()?))
       } else {
         return Err(ScriptError {
@@ -271,23 +271,38 @@ impl<'tokens> Parser<'tokens> {
     self.ternary()
   }
 
-  // TODO
-  fn _list(&mut self) -> ExprResult {
-    let mut expr = self.assignment()?;
+  fn is(&mut self) -> ExprResult {
+    let mut expr = self.ternary()?;
 
-    if self.match_token(&[TokenType::Comma]) {
-      let op = self.previous();
-      let right = self._list()?;
-      expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_id());
+    if self.advance_if_match(&[TokenType::Is]) {
+      let token = self.previous();
+      if self.advance_if_match(&[
+        TokenType::Nil,
+        TokenType::Error,
+        TokenType::Bool,
+        TokenType::Number,
+        TokenType::String,
+        TokenType::List,
+        TokenType::Fn,
+        TokenType::Class,
+      ]) {
+        let datatype = self.previous();
+        expr = Expr::Is(IsExpr::new(Box::new(expr), token, datatype, self.next_id()))
+      }
     }
 
     Ok(expr)
   }
 
+  // TODO
+  fn _list(&mut self) -> ExprResult {
+    self.ternary()
+  }
+
   fn ternary(&mut self) -> ExprResult {
     let mut expr = self.assignment()?;
 
-    if self.match_token(&[TokenType::Conditional]) {
+    if self.advance_if_match(&[TokenType::Conditional]) {
       let if_true = self.expression()?;
       self.consume(TokenType::Colon, "expected ':' for conditional operator")?;
       let if_false = self.expression()?;
@@ -305,7 +320,7 @@ impl<'tokens> Parser<'tokens> {
   fn assignment(&mut self) -> ExprResult {
     let expr = self.range()?;
 
-    if self.match_token(&[TokenType::Equal]) {
+    if self.advance_if_match(&[TokenType::Equal]) {
       let equals = self.previous();
       let value = self.assignment()?;
 
@@ -333,7 +348,7 @@ impl<'tokens> Parser<'tokens> {
   fn range(&mut self) -> ExprResult {
     let mut begin = self.or()?;
 
-    if self.match_token(&[TokenType::Range]) {
+    if self.advance_if_match(&[TokenType::Range]) {
       let token = self.previous();
       let end = self.or()?;
       begin = Expr::new_range(Box::new(begin), token, Box::new(end), self.next_id());
@@ -385,9 +400,9 @@ impl<'tokens> Parser<'tokens> {
     let mut expr = self.primary()?;
 
     loop {
-      if self.match_token(&[TokenType::LeftParen]) {
+      if self.advance_if_match(&[TokenType::LeftParen]) {
         expr = self.finish_call(expr)?;
-      } else if self.match_token(&[TokenType::Dot]) {
+      } else if self.advance_if_match(&[TokenType::Dot]) {
         let name = self.consume(TokenType::Identifier, "expected property name after '.'")?;
         expr = Expr::Get(GetExpr::new(Box::new(expr), name, self.next_id()));
       } else {
@@ -399,7 +414,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn primary(&mut self) -> ExprResult {
-    if self.match_token(&[
+    if self.advance_if_match(&[
       TokenType::False,
       TokenType::True,
       TokenType::Nil,
@@ -413,23 +428,23 @@ impl<'tokens> Parser<'tokens> {
       }
     }
 
-    if self.match_token(&[TokenType::Identifier]) {
+    if self.advance_if_match(&[TokenType::Identifier]) {
       return Ok(Expr::new_variable(self.previous(), self.next_id()));
     }
 
-    if self.match_token(&[TokenType::LeftParen]) {
+    if self.advance_if_match(&[TokenType::LeftParen]) {
       let expr = self.expression()?;
       self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
       return Ok(Expr::new_grouping(Box::new(expr), self.next_id()));
     }
 
-    if self.match_token(&[TokenType::Pipe]) {
+    if self.advance_if_match(&[TokenType::Pipe]) {
       let mut params = Vec::new();
       if !self.check(TokenType::Pipe) {
         loop {
           params.push(self.consume(TokenType::Identifier, "expected identifier")?);
 
-          if !self.match_token(&[TokenType::Comma]) {
+          if !self.advance_if_match(&[TokenType::Comma]) {
             break;
           }
         }
@@ -462,7 +477,7 @@ impl<'tokens> Parser<'tokens> {
   ) -> ExprResult {
     let mut expr = next(self)?;
 
-    while self.match_token(types) {
+    while self.advance_if_match(types) {
       let op = self.previous();
       let right = next(self)?;
       expr = Expr::new_logical(Box::new(expr), op, Box::new(right), self.next_id());
@@ -478,7 +493,7 @@ impl<'tokens> Parser<'tokens> {
   ) -> ExprResult {
     let mut expr = next(self)?;
 
-    while self.match_token(types) {
+    while self.advance_if_match(types) {
       let op = self.previous();
       let right = next(self)?;
       expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_id());
@@ -492,7 +507,7 @@ impl<'tokens> Parser<'tokens> {
     next: fn(&mut Self) -> ExprResult,
     types: &[TokenType],
   ) -> ExprResult {
-    if self.match_token(types) {
+    if self.advance_if_match(types) {
       let op = self.previous();
       let right = self.unary()?;
       Ok(Expr::new_unary(op, Box::new(right), self.next_id()))
@@ -513,7 +528,7 @@ impl<'tokens> Parser<'tokens> {
     Ok(v)
   }
 
-  fn match_token(&mut self, types: &[TokenType]) -> bool {
+  fn advance_if_match(&mut self, types: &[TokenType]) -> bool {
     for token_type in types.iter() {
       if self.check(*token_type) {
         self.advance();
@@ -591,7 +606,7 @@ impl<'tokens> Parser<'tokens> {
       loop {
         args.push(self.expression()?);
 
-        if !self.match_token(&[TokenType::Comma]) {
+        if !self.advance_if_match(&[TokenType::Comma]) {
           break;
         }
       }
@@ -707,6 +722,10 @@ impl Evaluator {
       return false;
     }
 
+    if let Value::Error(_) = v {
+      return false;
+    }
+
     if let Value::Bool(b) = *v {
       return b;
     }
@@ -789,7 +808,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
             &f.name.lexeme[..],
           )
         };
-        if env.define(String::from(name), Value::Callee(func)) {
+        if env.define(String::from(name), Value::new(func)) {
           return Err(ScriptError {
             file: self.file.clone(),
             line: f.name.line,
@@ -951,57 +970,49 @@ impl Visitor<BinaryExpr, ExprEvalResult> for Evaluator {
 
     // value comparison
     if e.operator.token_type == TokenType::EqEq {
-      return Ok(Value::Bool(left == right));
+      return Ok(Value::new(left == right));
     }
 
     if e.operator.token_type == TokenType::ExEq {
-      return Ok(Value::Bool(left != right));
+      return Ok(Value::new(left != right));
     }
 
     // number arithmetic and comparison
-    if let Value::Num(l) = left {
-      if let Value::Num(r) = right {
-        return match e.operator.token_type {
-          TokenType::Plus => Ok(Value::Num(l + r)),
-          TokenType::Minus => Ok(Value::Num(l - r)),
-          TokenType::Slash => Ok(Value::Num(l / r)),
-          TokenType::Asterisk => Ok(Value::Num(l * r)),
-          TokenType::GreaterThan => Ok(Value::Bool(l > r)),
-          TokenType::GreaterEq => Ok(Value::Bool(l >= r)),
-          TokenType::LessThan => Ok(Value::Bool(l < r)),
-          TokenType::LessEq => Ok(Value::Bool(l <= r)),
-          _ => Err(ScriptError {
-            file: self.file.clone(),
-            line: e.operator.line,
-            msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
-          }),
-        };
-      }
+    match e.operator.token_type {
+      TokenType::Plus => Ok(left + right),
+      TokenType::Minus => Ok(left - right),
+      TokenType::Asterisk => Ok(left * right),
+      TokenType::Slash => Ok(left / right),
+      TokenType::GreaterThan => Ok(left > right),
+      TokenType::GreaterEq => Ok(left >= right),
+      TokenType::LessThan => Ok(left < right),
+      TokenType::LessEq => Ok(left <= right),
+      _ => Err(ScriptError {
+        file: self.file.clone(),
+        line: e.operator.line,
+        msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
+      }),
     }
+  }
+}
 
-    // string concatenation
-    if e.operator.token_type == TokenType::Plus {
-      if let Value::Str(l) = &left {
-        if let Value::Str(r) = right {
-          return Ok(Value::Str(format!("{}{}", l, r)));
-        } else if let Value::Num(r) = right {
-          return Ok(Value::Str(format!("{}{}", l, r)));
-        }
-      } else if let Value::Num(l) = left {
-        if let Value::Str(r) = right {
-          return Ok(Value::Str(format!("{}{}", l, r)));
-        }
-      }
-    }
+impl Visitor<IsExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &IsExpr) -> ExprEvalResult {
+    let value = self.eval_expr(&e.value)?;
 
-    Err(ScriptError {
-      file: self.file.clone(),
-      line: e.operator.line,
-      msg: format!(
-        "Combination of {:?} and {:?} not allowed with {:?}",
-        left, right, e.operator
-      ),
-    })
+    Ok(Value::new(
+      e.datatype.token_type
+        == match value {
+          Value::Nil => TokenType::Nil,
+          Value::Error(_) => TokenType::Error,
+          Value::Bool(_) => TokenType::Bool,
+          Value::Num(_) => TokenType::Number,
+          Value::Str(_) => TokenType::String,
+          Value::List(_) => TokenType::List,
+          Value::Callee(_) => TokenType::Fn,
+          Value::Class(_) => TokenType::Class,
+        },
+    ))
   }
 }
 
@@ -1034,24 +1045,14 @@ impl Visitor<UnaryExpr, ExprEvalResult> for Evaluator {
     let right = self.eval_expr(&e.right)?;
 
     match e.operator.token_type {
-      TokenType::Exclamation => Ok(Value::Bool(!self.is_truthy(&right))),
-      TokenType::Minus => {
-        if let Value::Num(n) = right {
-          Ok(Value::Num(-n))
-        } else {
-          Err(ScriptError {
-            file: self.file.clone(),
-            line: e.operator.line,
-            msg: format!("invalid negation on type {}", right),
-          })
-        }
-      }
+      TokenType::Exclamation => Ok(Value::new(!self.is_truthy(&right))),
+      TokenType::Minus => Ok(-right),
       TokenType::Plus => {
         if let Value::Num(n) = right {
           Ok(Value::Num(n.abs()))
         } else if let Value::Str(s) = right {
-          match s.parse() {
-            Ok(n) => Ok(Value::Num(n)),
+          match s.parse::<f64>() {
+            Ok(n) => Ok(Value::new(n)),
             Err(err) => Err(ScriptError {
               file: self.file.clone(),
               line: e.operator.line,

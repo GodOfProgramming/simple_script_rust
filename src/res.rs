@@ -1,7 +1,7 @@
 use crate::ast::Evaluator;
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, LiteralExpr,
-  LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
+  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, IsExpr,
+  LiteralExpr, LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
 };
 use crate::lex::Token;
 use crate::stmt::{
@@ -230,6 +230,12 @@ impl Visitor<RangeExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &RangeExpr) -> ResolveResult {
     self.resolve_expression(&e.begin)?;
     self.resolve_expression(&e.end)
+  }
+}
+
+impl Visitor<IsExpr, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, e: &IsExpr) -> ResolveResult {
+    self.resolve_expression(&e.value)
   }
 }
 
