@@ -12,18 +12,14 @@ pub fn enable(e: &mut EnvRef) {
         println!("<current env>\n{}", env);
       } else {
         match &args[0] {
-          Value::Instance {
-            instance_of,
-            methods,
-            members,
-          } => {
+          Value::Instance(instance) => {
             println!(
               "<instance of {}>\n<methods>\n{}<members>\n{}",
-              instance_of, methods, members
+              instance.instance_of, instance.methods, instance.members
             );
           }
-          Value::Class { name, methods } => {
-            println!("<class {}>\n<methods>\n{}", name, methods);
+          Value::Class(class) => {
+            println!("<class {}>\n<methods>\n{}", class.name, class.methods);
           }
           x => return Err(format!("cannot print env for type {}", x)),
         }

@@ -11,23 +11,53 @@ use std::ops::{
 use std::rc::Rc;
 
 #[derive(Clone)]
+pub struct Class {
+  pub name: String,
+  pub methods: EnvRef,
+}
+
+impl PartialEq for Class {
+  fn eq(&self, other: &Self) -> bool {
+    self.name == other.name
+  }
+}
+
+impl Display for Class {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.name)
+  }
+}
+
+#[derive(Clone)]
+pub struct Instance {
+  pub instance_of: String,
+  pub methods: EnvRef,
+  pub members: EnvRef,
+}
+
+impl PartialEq for Instance {
+  fn eq(&self, other: &Self) -> bool {
+    self.instance_of == other.instance_of && self.members == other.members
+  }
+}
+
+impl Display for Instance {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.instance_of)
+  }
+}
+
+#[derive(Clone)]
 pub enum Value {
   Nil,
-  Error(String),
+  Error(Box<Value>),
   Bool(bool),
   Str(String),
   Num(f64),
   List(Values),
   Callee(Function),
-  Class {
-    name: String,
-    methods: EnvRef,
-  },
-  Instance {
-    instance_of: String,
-    methods: EnvRef,
-    members: EnvRef,
-  },
+  Class(Class),
+  Instance(Instance),
 }
 
 impl Value {
@@ -96,9 +126,6 @@ impl AddAssign for Value {
         Value::Str(b) => Value::Str(format!("{}{}", a, b)),
         _ => Value::Error(format!("cannot add {} and {}", a, other)),
       },
-      Value::List(a) => match other {
-        Value::List(b) => Value::List(a.into_iter().copied().collect()),
-      },
       _ => Value::Error(format!("cannot add {} and {}", self, other)),
     };
   }
@@ -157,32 +184,16 @@ impl PartialEq for Value {
         }
       }
       Value::Callee(_) => panic!("comparing functions is unimplemented"),
-      Value::Class {
-        name: a,
-        methods: _,
-      } => {
-        if let Value::Class {
-          name: b,
-          methods: _,
-        } = other
-        {
+      Value::Class(a) => {
+        if let Value::Class(b) = other {
           a == b
         } else {
           false
         }
       }
-      Value::Instance {
-        instance_of: left_instance_of,
-        methods: _,
-        members: left_members,
-      } => {
-        if let Value::Instance {
-          instance_of: right_instance_of,
-          methods: _,
-          members: right_members,
-        } = other
-        {
-          left_instance_of == right_instance_of && left_members == right_members
+      Value::Instance(a) => {
+        if let Value::Instance(b) = other {
+          a == b
         } else {
           false
         }
@@ -204,12 +215,8 @@ impl Display for Value {
       Value::Str(s) => write!(f, "{}", s),
       Value::List(l) => write!(f, "{}", l),
       Value::Callee(c) => write!(f, "{}", c),
-      Value::Class { name, methods: _ } => write!(f, "<class {}>", name),
-      Value::Instance {
-        instance_of,
-        methods: _,
-        members: _,
-      } => write!(f, "<instance of {}>", instance_of),
+      Value::Class(c) => write!(f, "<class {}>", c),
+      Value::Instance(i) => write!(f, "<instance of {}>", i),
     }
   }
 }
@@ -561,19 +568,14 @@ impl Function {
 
     if let Some(self_ref) = params.first() {
       if let Some(instance) = &e.last_object {
-        if let Value::Instance {
-          instance_of,
-          methods,
-          members,
-        } = instance
-        {
+        if let Value::Instance(instance) = instance {
           env.define(
             self_ref.lexeme.clone(),
-            Value::Instance {
-              instance_of: instance_of.clone(),
-              methods: methods.snapshot(),
-              members: members.snapshot(),
-            },
+            Value::Instance(Instance {
+              instance_of: instance.instance_of.clone(),
+              methods: instance.methods.snapshot(),
+              members: instance.members.snapshot(),
+            }),
           );
         } else {
           return Err(ScriptError {

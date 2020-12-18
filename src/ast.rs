@@ -9,7 +9,7 @@ use crate::stmt::{
   self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LetStmt, LoadStmt, LoadrStmt,
   PrintStmt, ReturnStmt, Stmt, WhileStmt,
 };
-use crate::types::{Function, Value, Values, Visitor};
+use crate::types::{Class, Function, Instance, Value, Values, Visitor};
 use crate::ScriptError;
 use std::collections::HashMap;
 use std::env;
@@ -804,10 +804,10 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
         });
       }
     }
-    let class = Value::Class {
+    let class = Value::Class(Class {
       name: s.name.lexeme.clone(),
       methods: env,
-    };
+    });
     self
       .env
       .assign(s.name.lexeme.clone(), class)
@@ -1139,14 +1139,11 @@ impl Visitor<SetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &SetExpr) -> ExprEvalResult {
     let obj = self.eval_expr(&e.object)?;
 
-    if let Value::Instance {
-      instance_of: _,
-      methods: _,
-      mut members,
-    } = obj
-    {
+    if let Value::Instance(instance) = obj {
       let value = self.eval_expr(&e.value)?;
-      members.define(e.name.lexeme.clone(), value.clone());
+      instance
+        .members
+        .define(e.name.lexeme.clone(), value.clone());
       Ok(value)
     } else {
       Err(ScriptError {
@@ -1191,12 +1188,12 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
         args.push(self.eval_expr(arg)?);
       }
       Ok(func.call(self, args, e.paren.line)?)
-    } else if let Value::Class { name, methods } = callee {
-      Ok(Value::Instance {
-        instance_of: name,
-        methods: methods.snapshot(),
+    } else if let Value::Class(class) = callee {
+      Ok(Value::Instance(Instance {
+        instance_of: class.name,
+        methods: class.methods.snapshot(),
         members: EnvRef::default(),
-      })
+      }))
     } else {
       Err(ScriptError {
         file: self.file.clone(),
@@ -1210,26 +1207,23 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
 impl Visitor<GetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &GetExpr) -> ExprEvalResult {
     match self.eval_expr(&e.object)? {
-      Value::Instance {
-        instance_of,
-        methods,
-        members,
-      } => {
-        self.last_object = Some(Value::Instance {
-          instance_of,
-          methods: methods.snapshot(),
-          members: members.snapshot(),
-        });
-        Ok(if let Some(v) = methods.get(&e.name.lexeme) {
+      Value::Instance(instance) => {
+        self.last_object = Some(Value::Instance(Instance {
+          instance_of: instance.instance_of,
+          methods: instance.methods.snapshot(),
+          members: instance.members.snapshot(),
+        }));
+
+        Ok(if let Some(v) = instance.methods.get(&e.name.lexeme) {
           v
-        } else if let Some(v) = members.get(&e.name.lexeme.clone()) {
+        } else if let Some(v) = instance.members.get(&e.name.lexeme.clone()) {
           v
         } else {
           Value::Nil
         })
       }
-      Value::Class { name, methods } => {
-        if let Some(v) = methods.get(&e.name.lexeme) {
+      Value::Class(class) => {
+        if let Some(v) = class.methods.get(&e.name.lexeme) {
           Ok(v)
         } else {
           Err(ScriptError {
@@ -1237,7 +1231,7 @@ impl Visitor<GetExpr, ExprEvalResult> for Evaluator {
             line: e.name.line,
             msg: format!(
               "static method {} not defined on class {}",
-              e.name.lexeme, name
+              e.name.lexeme, class.name
             ),
           })
         }
