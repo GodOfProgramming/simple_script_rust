@@ -9,7 +9,7 @@ use crate::stmt::{
   self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LetStmt, LoadStmt, LoadrStmt,
   PrintStmt, ReturnStmt, Stmt, WhileStmt,
 };
-use crate::types::{Class, Function, Instance, New, Value, Values, Visitor};
+use crate::types::{Class, Function, Instance, New, Value, ValueError, Visitor};
 use crate::ScriptError;
 use std::collections::HashMap;
 use std::env;
@@ -268,7 +268,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn expression(&mut self) -> ExprResult {
-    self.ternary()
+    self.is()
   }
 
   fn is(&mut self) -> ExprResult {
@@ -716,22 +716,6 @@ impl Evaluator {
       }),
     }
   }
-
-  fn is_truthy(&mut self, v: &Value) -> bool {
-    if *v == Value::Nil {
-      return false;
-    }
-
-    if let Value::Error(_) = v {
-      return false;
-    }
-
-    if let Value::Bool(b) = *v {
-      return b;
-    }
-
-    true
-  }
 }
 
 impl Visitor<ExpressionStmt, StmtEvalResult> for Evaluator {
@@ -843,7 +827,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
 impl Visitor<IfStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, e: &IfStmt) -> StmtEvalResult {
     let result = self.eval_expr(&e.condition)?;
-    if self.is_truthy(&result) {
+    if result.truthy() {
       self.eval_block(&e.if_true, EnvRef::new_with_enclosing(self.env.snapshot()))
     } else if let Some(if_false) = &e.if_false {
       self.eval_stmt(&if_false)
@@ -859,7 +843,7 @@ impl Visitor<WhileStmt, StmtEvalResult> for Evaluator {
 
     loop {
       let res = self.eval_expr(&e.condition)?;
-      if !self.is_truthy(&res) {
+      if !res.truthy() {
         break;
       }
       match self.eval_block(&e.body, EnvRef::new_with_enclosing(self.env.snapshot()))? {
@@ -983,14 +967,17 @@ impl Visitor<BinaryExpr, ExprEvalResult> for Evaluator {
       TokenType::Minus => Ok(left - right),
       TokenType::Asterisk => Ok(left * right),
       TokenType::Slash => Ok(left / right),
-      TokenType::GreaterThan => Ok(left > right),
-      TokenType::GreaterEq => Ok(left >= right),
-      TokenType::LessThan => Ok(left < right),
-      TokenType::LessEq => Ok(left <= right),
+      TokenType::GreaterThan => Ok(Value::Bool(left > right)),
+      TokenType::GreaterEq => Ok(Value::Bool(left >= right)),
+      TokenType::LessThan => Ok(Value::Bool(left < right)),
+      TokenType::LessEq => Ok(Value::Bool(left <= right)),
       _ => Err(ScriptError {
         file: self.file.clone(),
         line: e.operator.line,
-        msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
+        msg: format!(
+          "Invalid operator ({:?}) for {} and {}",
+          e.operator, left, right
+        ),
       }),
     }
   }
@@ -1011,6 +998,7 @@ impl Visitor<IsExpr, ExprEvalResult> for Evaluator {
           Value::List(_) => TokenType::List,
           Value::Callee(_) => TokenType::Fn,
           Value::Class(_) => TokenType::Class,
+          _ => panic!("this should not be ever reached"),
         },
     ))
   }
@@ -1020,7 +1008,7 @@ impl Visitor<TernaryExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &TernaryExpr) -> ExprEvalResult {
     let result = self.eval_expr(&e.condition)?;
 
-    if self.is_truthy(&result) {
+    if result.truthy() {
       self.eval_expr(&e.if_true)
     } else {
       self.eval_expr(&e.if_false)
@@ -1045,19 +1033,18 @@ impl Visitor<UnaryExpr, ExprEvalResult> for Evaluator {
     let right = self.eval_expr(&e.right)?;
 
     match e.operator.token_type {
-      TokenType::Exclamation => Ok(Value::new(!self.is_truthy(&right))),
+      TokenType::Exclamation => Ok(!right),
       TokenType::Minus => Ok(-right),
       TokenType::Plus => {
         if let Value::Num(n) = right {
-          Ok(Value::Num(n.abs()))
+          Ok(Value::new(n.abs()))
         } else if let Value::Str(s) = right {
           match s.parse::<f64>() {
             Ok(n) => Ok(Value::new(n)),
-            Err(err) => Err(ScriptError {
-              file: self.file.clone(),
-              line: e.operator.line,
-              msg: format!("string parse error: {}", err),
-            }),
+            Err(err) => Ok(Value::new_err(format!(
+              "error converting string to number: {}",
+              err
+            ))),
           }
         } else {
           Err(ScriptError {
@@ -1114,12 +1101,12 @@ impl Visitor<LogicalExpr, ExprEvalResult> for Evaluator {
 
     match e.operator.token_type {
       TokenType::Or => {
-        if self.is_truthy(&left) {
+        if left.truthy() {
           return Ok(left);
         }
       }
       TokenType::And => {
-        if !self.is_truthy(&left) {
+        if !left.truthy() {
           return Ok(left);
         }
       }
@@ -1140,7 +1127,7 @@ impl Visitor<SetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &SetExpr) -> ExprEvalResult {
     let obj = self.eval_expr(&e.object)?;
 
-    if let Value::Instance(instance) = obj {
+    if let Value::Instance(mut instance) = obj {
       let value = self.eval_expr(&e.value)?;
       instance
         .members
@@ -1157,25 +1144,14 @@ impl Visitor<SetExpr, ExprEvalResult> for Evaluator {
 }
 
 impl Visitor<RangeExpr, ExprEvalResult> for Evaluator {
-  fn visit(&mut self, e: &RangeExpr) -> ExprEvalResult {
-    let begin = self.eval_expr(&e.begin)?;
-    let end = self.eval_expr(&e.end)?;
+  fn visit(&mut self, _: &RangeExpr) -> ExprEvalResult {
+    //Err(ScriptError {
+    //  file: self.file.clone(),
+    //  line: e.token.line,
+    //  msg: String::from("expected number with range expression"),
+    //});
 
-    if let Value::Num(begin) = begin {
-      if let Value::Num(end) = end {
-        return Ok(Value::List(Values::new(
-          ((begin.round() as i64)..(end.round() as i64))
-            .map(|n| Value::Num(n as f64))
-            .collect(),
-        )));
-      }
-    }
-
-    Err(ScriptError {
-      file: self.file.clone(),
-      line: e.token.line,
-      msg: String::from("expected number with range expression"),
-    })
+    panic!("unimplemented");
   }
 }
 

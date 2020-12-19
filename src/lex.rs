@@ -1,5 +1,5 @@
-use crate::types::Value;
 use crate::ScriptError;
+use crate::Value;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::{self, Debug, Display};
@@ -400,6 +400,7 @@ fn next_is(bytes: &[u8], curr_pos: usize, test: char) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::New;
 
   const GOOD_SRC: &str = "let var_1 = 1;";
 
@@ -414,7 +415,7 @@ mod tests {
       Token::new(
         TokenType::NumberLiteral,
         String::from("1"),
-        Some(Value::Num(1.0)),
+        Some(Value::new(1.0)),
         1,
       ),
       Token::new(TokenType::Semicolon, String::from(";"), None, 1),
