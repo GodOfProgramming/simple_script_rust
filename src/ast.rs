@@ -1287,6 +1287,106 @@ mod tests {
     use super::*;
 
     #[test]
+    fn evaluation_of_is_should_result_in_expected_truth_values() {
+      const SRC: &str = r#"
+      fn is_nil(x) {
+        assert(x is nil, true);
+      }
+
+      fn is_error(x) {
+        assert(x is error, true);
+      }
+
+      fn is_bool(x) {
+        assert(x is bool, true);
+      }
+
+      fn is_number(x) {
+        assert(x is number, true);
+      }
+
+      fn is_string(x) {
+        assert(x is string, true);
+      }
+
+      fn is_fn(x) {
+        assert(x is fn, true);
+      }
+
+      fn is_class(x) {
+        assert(x is class, true);
+      }
+
+      let x;
+
+      x = nil;
+      is_nil(x);
+      is_nil(nil);
+
+      x = true;
+      is_bool(x);
+      is_bool(false);
+
+      x = 1.0;
+      is_number(x);
+      is_number(1);
+
+      x = "test";
+      is_string(x);
+      is_string("another");
+
+      x = is_fn;
+      is_fn(x);
+      is_fn(is_class);
+
+      class Test {}
+
+      x = Test;
+      is_class(x);
+      is_class(Test);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn evaluation_of_static_method_should_be_callable_from_class() {
+      const SRC: &str = r#"
+      class Test {
+        fn @test() {
+          return 100;
+        }
+      }
+
+      assert(Test.test(), 100);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn evaluation_of_static_method_should_not_be_callable_from_class_when_method_does_not_begin_with_at() {
+      const SRC: &str = r#"
+      class Test {
+        fn test() {
+          return 100;
+        }
+      }
+
+      assert(Test.test(), 100);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      assert!(matches!(i.exec(&"test".into(), SRC), Err(_)));
+    }
+
+    #[test]
     fn evaluation_should_pass_correct_variables_to_member_functions() {
       const SRC: &str = r#"
       let x = 100;

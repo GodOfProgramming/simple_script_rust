@@ -107,7 +107,7 @@ fn basic_keywords() -> HashMap<&'static str, TokenType> {
   let mut map = HashMap::new();
   {
     map.insert("and", TokenType::And);
-    map.insert("bool", TokenType::While);
+    map.insert("bool", TokenType::Bool);
     map.insert("class", TokenType::Class);
     map.insert("else", TokenType::Else);
     map.insert("error", TokenType::Error);
