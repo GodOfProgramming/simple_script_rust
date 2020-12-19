@@ -1,19 +1,5 @@
-class Test {
-  fn @test() {
-    print "static";
-  }
+let e = Error.new(1);
 
-  fn test(self) {
-    print "instance";
-  }
+if e is error {
+  print e;
 }
-
-fn test() {
-  print "fn";
-}
-
-print_env(Test);
-
-test();
-Test.test();
-Test().test();

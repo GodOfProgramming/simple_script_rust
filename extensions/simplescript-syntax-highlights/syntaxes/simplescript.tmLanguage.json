@@ -30,11 +30,11 @@
         },
         {
           "name": "keyword.declaration.simplescript",
-          "match": "\\b(fn|let|class)\\b"
+          "match": "\\b(let|error|bool|number|string|list|fn|class)\\b"
         },
         {
           "name": "support.function.builtin.simplescript",
-          "match": "\\b(print|load|loadr)\\b"
+          "match": "\\b(is|print|load|loadr)\\b"
         },
         {
           "name": "constant.language.null.simplescript",

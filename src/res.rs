@@ -295,9 +295,13 @@ impl Visitor<ExpressionStmt, ResolveResult> for Resolver<'_> {
 impl Visitor<IfStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &IfStmt) -> ResolveResult {
     self.resolve_expression(&s.condition)?;
+    self.begin_scope();
     self.resolve_statements(&s.if_true)?;
+    self.end_scope();
     if let Some(if_false) = &s.if_false {
+      self.begin_scope();
       self.resolve_statement(if_false)?;
+      self.end_scope();
     }
     Ok(())
   }
@@ -328,7 +332,10 @@ impl Visitor<ReturnStmt, ResolveResult> for Resolver<'_> {
 impl Visitor<WhileStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &WhileStmt) -> ResolveResult {
     self.resolve_expression(&s.condition)?;
-    self.resolve_statements(&s.body)
+    self.begin_scope();
+    self.resolve_statements(&s.body)?;
+    self.end_scope();
+    Ok(())
   }
 }
 
@@ -675,6 +682,57 @@ mod tests {
       "#;
       let i = Interpreter::new_with_test_support();
       assert!(i.exec(&"test".into(), SRC).is_err());
+    }
+
+    #[test]
+    fn resolver_should_find_variables_within_if_statements() {
+      const SRC: &str = r#"
+      let e = 1;
+
+      if true {
+        e = e;
+      }
+      "#;
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_should_find_variables_within_while_statements() {
+      const SRC: &str = r#"
+      let e = true;
+
+      while e {
+        e = false;
+      }
+      "#;
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_should_find_variables_within_for_statements() {
+      const SRC: &str = r#"
+      let e;
+
+      for let x = 0; x < 1; x = x + 1 {
+        e = x;
+        if true {
+          e = x + 1;
+        }
+      }
+
+      assert(e, 1);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
     }
   }
 }
