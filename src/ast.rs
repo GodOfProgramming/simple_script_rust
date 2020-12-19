@@ -875,14 +875,13 @@ impl Visitor<WhileStmt, StmtEvalResult> for Evaluator {
 
 impl Visitor<FunctionStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, e: &FunctionStmt) -> StmtEvalResult {
-    let name = e.name.lexeme.clone();
     let func = Function::new_script(
       e.name.lexeme.clone(),
       Rc::clone(&e.params),
       Rc::clone(&e.body),
       self.env.snapshot(),
     );
-    self.env.define(&name, Value::Callee(func));
+    self.env.define(&e.name.lexeme, Value::Callee(func));
     Ok(StatementType::Regular(Value::Nil))
   }
 }
@@ -1170,7 +1169,6 @@ impl Visitor<RangeExpr, ExprEvalResult> for Evaluator {
 impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &CallExpr) -> ExprEvalResult {
     let callee = self.eval_expr(&e.callee)?;
-
     if let Value::Callee(func) = callee {
       let mut args = Vec::new();
       for arg in e.args.iter() {
@@ -1442,6 +1440,27 @@ mod tests {
       }
 
       Test.test();
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn evaluator_should_allow_functions_within_functions() {
+      const SRC: &str = r#"
+      fn outer() {
+        fn inner() {
+          return 1;
+        }
+
+        return inner;
+      }
+
+      let f = outer();
+      assert(f(), 1);
       "#;
 
       let i = Interpreter::new_with_test_support();

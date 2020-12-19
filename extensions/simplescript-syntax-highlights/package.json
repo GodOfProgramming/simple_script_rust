@@ -1,7 +1,7 @@
 {
     "name": "simplescript-syntax-highlights",
-		"publisher": "GodOfProgramming",
-		"repository": "https://github.com/GodOfProgramming/simple_script_rust",
+    "publisher": "GodOfProgramming",
+    "repository": "https://github.com/GodOfProgramming/simple_script_rust",
     "displayName": "SimpleScript Syntax Highlights",
     "description": "Syntax highlights for SimpleScript",
     "version": "0.0.1",

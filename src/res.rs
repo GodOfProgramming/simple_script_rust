@@ -109,7 +109,7 @@ impl<'eval> Resolver<'eval> {
       self.declare(param)?;
       self.define(param)?;
     }
-    self.resolve_statements(&*e.body)?;
+    self.resolve_statements(&e.body)?;
     self.end_function();
     Ok(())
   }
@@ -727,6 +727,75 @@ mod tests {
       }
 
       assert(e, 1);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_should_bind_to_lambda_parameters() {
+      const SRC: &str = r#"
+      fn new_test() {
+        |x, y, z| {
+          if x < 1 or y < 1 {
+            return;
+          }
+          assert(x, 1);
+          assert(y, 2);
+          z(x - 1, y - 1, z);
+        };
+      }
+
+      let test = new_test();
+      test(1, 2, test);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_should_bind_to_fn_params() {
+      const SRC: &str = r#"
+      fn outer(a) {
+        fn inner(b) {
+          return a + b;
+        }
+
+        return inner;
+      }
+
+      let f1 = outer(1);
+      assert(f1(1), 2);
+
+      let f2 = outer(2);
+      assert(f1(1), 2);
+      assert(f2(1), 3);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_allows_for_recursion() {
+      const SRC: &str = r#"
+      fn rec(n) {
+        if n == 0 {
+          return;
+        }
+
+        rec(n - 1);
+      }
+
+      rec(10);
       "#;
 
       let i = Interpreter::new_with_test_support();
