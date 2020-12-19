@@ -4,12 +4,17 @@ use std::fmt::{self, Display};
 #[derive(Clone)]
 pub struct Class {
   pub name: String,
-  pub methods: EnvRef,
+  pub static_methods: EnvRef,
+  pub instance_methods: EnvRef,
 }
 
 impl Class {
-  pub fn new(name: String, methods: EnvRef) -> Self {
-    Self { name, methods }
+  pub fn new(name: String, static_methods: EnvRef, instance_methods: EnvRef) -> Self {
+    Self {
+      name,
+      static_methods,
+      instance_methods,
+    }
   }
 }
 

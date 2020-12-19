@@ -538,7 +538,7 @@ mod tests {
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),
@@ -608,7 +608,7 @@ mod tests {
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),
@@ -649,7 +649,7 @@ mod tests {
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),
@@ -693,7 +693,7 @@ mod tests {
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),
@@ -750,7 +750,7 @@ mod tests {
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),

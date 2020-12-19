@@ -208,7 +208,7 @@ impl Function {
     }
 
     for (param, arg) in params.iter().zip(args.iter()) {
-      env.define(param.lexeme.clone(), arg.clone());
+      env.define(&param.lexeme, arg.clone());
     }
 
     Ok(match e.eval_block(&body, env)? {
@@ -250,7 +250,7 @@ impl Function {
     }
 
     for (param, arg) in params.iter().zip(args.iter()) {
-      env.define(param.lexeme.clone(), arg.clone());
+      env.define(&param.lexeme, arg.clone());
     }
 
     Ok(match e.eval_block(&body, env)? {
@@ -303,7 +303,7 @@ impl Function {
       if let Some(instance) = &e.last_object {
         if let Value::Instance(instance) = instance {
           env.define(
-            self_ref.lexeme.clone(),
+            &self_ref.lexeme,
             Value::Instance(Instance {
               instance_of: instance.instance_of.clone(),
               methods: instance.methods.snapshot(),
@@ -333,7 +333,7 @@ impl Function {
     }
 
     for (param, arg) in params.iter().skip(1).zip(args.iter()) {
-      env.define(param.lexeme.clone(), arg.clone());
+      env.define(&param.lexeme, arg.clone());
     }
 
     Ok(match e.eval_block(&body, env.snapshot())? {

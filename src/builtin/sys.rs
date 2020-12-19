@@ -3,7 +3,7 @@ use crate::types::{Airity, Value};
 use std::process;
 
 pub fn enable(e: &mut EnvRef) {
-  e.define_native(String::from("exit"), Airity::Fixed(1), |_env, args| {
+  e.define_native("exit", Airity::Fixed(1), |_env, args| {
     let code = if let Value::Num(c) = args[0] {
       c as i32
     } else {

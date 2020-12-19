@@ -8,7 +8,7 @@ mod stmt;
 mod types;
 
 use crate::env::EnvRef;
-pub use crate::types::{Value, New};
+pub use crate::types::{New, Value};
 use std::ffi::OsString;
 use std::fmt::{self, Display};
 use std::fs;
@@ -65,7 +65,7 @@ impl Interpreter {
   }
 
   pub fn set_var(&mut self, name: &str, value: Value) {
-    self.globals.define(name.to_string(), value);
+    self.globals.define(name, value);
   }
 
   pub fn exec(&self, script_name: &OsString, src: &str) -> Result<Value, ScriptError> {
