@@ -212,7 +212,7 @@ impl Mul for Value {
             Self::new_err(format!("cannot repeat a string {} times", b))
           }
         }
-        _ => Self::new(format!("cannot multiply {} and {}", a, other)),
+        _ => Self::new_err(format!("cannot multiply {} and {}", a, other)),
       },
       Self::Str(a) => match other {
         Self::Num(b) => {
@@ -477,9 +477,12 @@ mod tests {
   use crate::env::EnvRef;
   use crate::types::Airity;
 
-  fn run_assertions(func: fn(Value), values: Vec<Value>) {
-    for value in values {
-      func(value);
+  fn run_assertions(funcs: Vec<fn(Value)>, values: Vec<Value>) {
+    for func in funcs {
+      let values = values.clone();
+      for value in values {
+        func(value);
+      }
     }
   }
 
@@ -515,8 +518,15 @@ mod tests {
       assert!(matches!(t + num, Value::Error(_)));
     };
 
+    let assert_err_with_str = |t: Value| {
+      let s = Value::new(String::from("a"));
+      assert!(matches!(s + t.clone(), Value::Error(_)));
+      let s = Value::new(String::from("a"));
+      assert!(matches!(t + s, Value::Error(_)));
+    };
+
     run_assertions(
-      assert_err_with_num,
+      vec![assert_err_with_num, assert_err_with_str],
       vec![
         Value::Nil,
         Value::new_err(String::from("test error")),
@@ -576,8 +586,17 @@ mod tests {
       assert!(matches!(t, Value::Error(_)));
     };
 
+    let assert_err_with_str = |mut t: Value| {
+      let mut num = Value::new(String::from("a"));
+      num += t.clone();
+      assert!(matches!(num, Value::Error(_)));
+      let num = Value::new(String::from("a"));
+      t += num;
+      assert!(matches!(t, Value::Error(_)));
+    };
+
     run_assertions(
-      assert_err_with_num,
+      vec![assert_err_with_num, assert_err_with_str],
       vec![
         Value::Nil,
         Value::new_err(String::from("test error")),
@@ -617,7 +636,7 @@ mod tests {
     };
 
     run_assertions(
-      assert_err_with_num,
+      vec![assert_err_with_num],
       vec![
         Value::Nil,
         Value::new_err(String::from("test error")),
@@ -661,7 +680,7 @@ mod tests {
     };
 
     run_assertions(
-      assert_err_with_num,
+      vec![assert_err_with_num],
       vec![
         Value::Nil,
         Value::new_err(String::from("test error")),
@@ -681,6 +700,68 @@ mod tests {
           EnvRef::default(),
         )),
       ],
+    );
+  }
+
+  #[test]
+  fn can_multiply() {
+    let x = Value::new(2.0);
+    let y = Value::new(3.0);
+
+    assert_eq!(x * y, Value::new(6.0));
+
+    let x = Value::new(2.0);
+    let y = Value::new(String::from("a"));
+
+    assert_eq!(x * y, Value::new(String::from("aa")));
+
+    let x = Value::new(2.0);
+    let y = Value::new(String::from("a"));
+
+    assert_eq!(x * y, Value::new(String::from("aa")));
+  }
+
+  #[test]
+  fn multiplying_with_invalid_values_results_in_an_error() {
+    let assert_err_with_num = |t: Value| {
+      let num = Value::new(1.0);
+      assert!(matches!(num * t.clone(), Value::Error(_)));
+      let num = Value::new(1.0);
+      assert!(matches!(t * num, Value::Error(_)));
+    };
+
+    let assert_err_with_str = |t: Value| {
+      let s = Value::new(String::from("a"));
+      assert!(matches!(s * t.clone(), Value::Error(_)));
+      let s = Value::new(String::from("a"));
+      assert!(matches!(t * s, Value::Error(_)));
+    };
+
+    run_assertions(
+      vec![assert_err_with_num, assert_err_with_str],
+      vec![
+        Value::Nil,
+        Value::new_err(String::from("test error")),
+        Value::new(true),
+        Value::new(false),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+
+    run_assertions(
+      vec![assert_err_with_str],
+      vec![Value::new(-1.0), Value::new(String::from("test"))],
     );
   }
 }
