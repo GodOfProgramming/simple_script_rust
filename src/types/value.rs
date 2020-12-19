@@ -185,10 +185,6 @@ impl Sub for Value {
     match self {
       Self::Num(a) => match other {
         Self::Num(b) => Self::Num(a - b),
-        _ => Self::new(format!("cannot sub {} and {}", a, other)),
-      },
-      Self::Str(a) => match other {
-        Self::Num(b) => Self::Str(format!("{}{}", a, b)),
         _ => Self::new_err(format!("cannot sub {} and {}", a, other)),
       },
       _ => Self::new_err(format!("cannot sub {} and {}", self, other)),
@@ -479,6 +475,13 @@ impl Display for Values {
 mod tests {
   use super::*;
   use crate::env::EnvRef;
+  use crate::types::Airity;
+
+  fn run_assertions(func: fn(Value), values: Vec<Value>) {
+    for value in values {
+      func(value);
+    }
+  }
 
   #[test]
   fn can_add_values() {
@@ -505,25 +508,34 @@ mod tests {
 
   #[test]
   fn adding_invalid_combinations_result_in_errors() {
-    let assert_err_with_num = |t| {
+    let assert_err_with_num = |t: Value| {
       let num = Value::new(1.0);
-      assert!(matches!(num + t, Value::Error(_)));
+      assert!(matches!(num + t.clone(), Value::Error(_)));
+      let num = Value::new(1.0);
+      assert!(matches!(t + num, Value::Error(_)));
     };
 
-    assert_err_with_num(Value::Nil);
-    assert_err_with_num(Value::new_err(String::from("test error")));
-    assert_err_with_num(Value::new(true));
-    assert_err_with_num(Value::new(false));
-    assert_err_with_num(Value::new(Values(Vec::new())));
-    assert_err_with_num(Value::new(Class::new(
-      String::from("example"),
-      EnvRef::default(),
-    )));
-    assert_err_with_num(Value::new(Instance::new(
-      String::from("example"),
-      EnvRef::default(),
-      EnvRef::default(),
-    )));
+    run_assertions(
+      assert_err_with_num,
+      vec![
+        Value::Nil,
+        Value::new_err(String::from("test error")),
+        Value::new(true),
+        Value::new(false),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
   }
 
   #[test]
@@ -555,25 +567,120 @@ mod tests {
 
   #[test]
   fn add_assign_with_invalid_combo_results_in_error() {
-    let assert_err_with_num = |t| {
+    let assert_err_with_num = |mut t: Value| {
       let mut num = Value::new(1.0);
-      num += t;
+      num += t.clone();
       assert!(matches!(num, Value::Error(_)));
+      let num = Value::new(1.0);
+      t += num;
+      assert!(matches!(t, Value::Error(_)));
     };
 
-    assert_err_with_num(Value::Nil);
-    assert_err_with_num(Value::new_err(String::from("test error")));
-    assert_err_with_num(Value::new(true));
-    assert_err_with_num(Value::new(false));
-    assert_err_with_num(Value::new(Values(Vec::new())));
-    assert_err_with_num(Value::new(Class::new(
-      String::from("example"),
-      EnvRef::default(),
-    )));
-    assert_err_with_num(Value::new(Instance::new(
-      String::from("example"),
-      EnvRef::default(),
-      EnvRef::default(),
-    )));
+    run_assertions(
+      assert_err_with_num,
+      vec![
+        Value::Nil,
+        Value::new_err(String::from("test error")),
+        Value::new(true),
+        Value::new(false),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+  }
+
+  #[test]
+  fn can_sub_values() {
+    let x = Value::new(3.0);
+    let y = Value::new(2.0);
+
+    assert_eq!(x - y, Value::new(1.0));
+  }
+
+  #[test]
+  fn invalid_sub_returns_errors() {
+    let assert_err_with_num = |t: Value| {
+      let num = Value::new(1.0);
+      assert!(matches!(num - t.clone(), Value::Error(_)));
+      let num = Value::new(1.0);
+      assert!(matches!(t - num, Value::Error(_)));
+    };
+
+    run_assertions(
+      assert_err_with_num,
+      vec![
+        Value::Nil,
+        Value::new_err(String::from("test error")),
+        Value::new(true),
+        Value::new(false),
+        Value::new(String::from("test")),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+  }
+
+  #[test]
+  fn can_sub_assign() {
+    let mut x = Value::new(3.0);
+    let y = Value::new(2.0);
+    x -= y;
+
+    assert_eq!(x, Value::new(1.0));
+  }
+
+  #[test]
+  fn sub_assign_with_invalid_values_returns_errors() {
+    let assert_err_with_num = |mut t: Value| {
+      let mut num = Value::new(1.0);
+      num -= t.clone();
+      assert!(matches!(num, Value::Error(_)));
+      let num = Value::new(1.0);
+      t -= num;
+      assert!(matches!(t, Value::Error(_)));
+    };
+
+    run_assertions(
+      assert_err_with_num,
+      vec![
+        Value::Nil,
+        Value::new_err(String::from("test error")),
+        Value::new(true),
+        Value::new(false),
+        Value::new(String::from("test")),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(String::from("example"), EnvRef::default())),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
   }
 }
