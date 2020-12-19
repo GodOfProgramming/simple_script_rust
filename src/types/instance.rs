@@ -8,6 +8,16 @@ pub struct Instance {
   pub members: EnvRef,
 }
 
+impl Instance {
+  pub fn new(instance_of: String, methods: EnvRef, members: EnvRef) -> Self {
+    Self {
+      instance_of,
+      methods,
+      members,
+    }
+  }
+}
+
 impl PartialEq for Instance {
   fn eq(&self, other: &Self) -> bool {
     self.instance_of == other.instance_of && self.members == other.members

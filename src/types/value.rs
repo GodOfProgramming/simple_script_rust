@@ -87,6 +87,12 @@ impl New<String> for Value {
   }
 }
 
+impl New<Values> for Value {
+  fn new(item: Values) -> Self {
+    Self::List(item)
+  }
+}
+
 impl New<Function> for Value {
   fn new(item: Function) -> Self {
     Self::Callee(item)
@@ -123,6 +129,12 @@ impl ValueError<String> for Value {
   }
 }
 
+impl ValueError<Values> for Value {
+  fn new_err(err: Values) -> Self {
+    Self::Error(Box::new(Self::List(err)))
+  }
+}
+
 impl ValueError<Function> for Value {
   fn new_err(err: Function) -> Self {
     Self::Error(Box::new(Self::Callee(err)))
@@ -148,7 +160,7 @@ impl Add for Value {
       Self::Num(a) => match other {
         Self::Num(b) => Self::Num(a + b),
         Self::Str(b) => Self::Str(format!("{}{}", a, b)),
-        _ => Self::new(format!("cannot add {} and {}", a, other)),
+        _ => Self::new_err(format!("cannot add {} and {}", a, other)),
       },
       Self::Str(a) => match other {
         Self::Num(b) => Self::Str(format!("{}{}", a, b)),
@@ -466,12 +478,102 @@ impl Display for Values {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::env::EnvRef;
 
   #[test]
-  fn can_add_integer_values() {
+  fn can_add_values() {
     let x = Value::new(1.0);
     let y = Value::new(2.0);
 
     assert_eq!(x + y, Value::new(3.0));
+
+    let x = Value::new(String::from("x"));
+    let y = Value::new(String::from("y"));
+
+    assert_eq!(x + y, Value::new(String::from("xy")));
+
+    let x = Value::new(1.0);
+    let y = Value::new(String::from("y"));
+
+    assert_eq!(x + y, Value::new(String::from("1y")));
+
+    let x = Value::new(String::from("x"));
+    let y = Value::new(2.0);
+
+    assert_eq!(x + y, Value::new(String::from("x2")));
+  }
+
+  #[test]
+  fn adding_invalid_combinations_result_in_errors() {
+    let assert_err_with_num = |t| {
+      let num = Value::new(1.0);
+      assert!(matches!(num + t, Value::Error(_)));
+    };
+
+    assert_err_with_num(Value::Nil);
+    assert_err_with_num(Value::new_err(String::from("test error")));
+    assert_err_with_num(Value::new(true));
+    assert_err_with_num(Value::new(false));
+    assert_err_with_num(Value::new(Values(Vec::new())));
+    assert_err_with_num(Value::new(Class::new(
+      String::from("example"),
+      EnvRef::default(),
+    )));
+    assert_err_with_num(Value::new(Instance::new(
+      String::from("example"),
+      EnvRef::default(),
+      EnvRef::default(),
+    )));
+  }
+
+  #[test]
+  fn can_add_assign_values() {
+    let mut x = Value::new(1.0);
+    let y = Value::new(2.0);
+    x += y;
+
+    assert_eq!(x, Value::new(3.0));
+
+    let mut x = Value::new(String::from("x"));
+    let y = Value::new(String::from("y"));
+    x += y;
+
+    assert_eq!(x, Value::new(String::from("xy")));
+
+    let mut x = Value::new(1.0);
+    let y = Value::new(String::from("y"));
+    x += y;
+
+    assert_eq!(x, Value::new(String::from("1y")));
+
+    let mut x = Value::new(String::from("x"));
+    let y = Value::new(2.0);
+    x += y;
+
+    assert_eq!(x, Value::new(String::from("x2")));
+  }
+
+  #[test]
+  fn add_assign_with_invalid_combo_results_in_error() {
+    let assert_err_with_num = |t| {
+      let mut num = Value::new(1.0);
+      num += t;
+      assert!(matches!(num, Value::Error(_)));
+    };
+
+    assert_err_with_num(Value::Nil);
+    assert_err_with_num(Value::new_err(String::from("test error")));
+    assert_err_with_num(Value::new(true));
+    assert_err_with_num(Value::new(false));
+    assert_err_with_num(Value::new(Values(Vec::new())));
+    assert_err_with_num(Value::new(Class::new(
+      String::from("example"),
+      EnvRef::default(),
+    )));
+    assert_err_with_num(Value::new(Instance::new(
+      String::from("example"),
+      EnvRef::default(),
+      EnvRef::default(),
+    )));
   }
 }

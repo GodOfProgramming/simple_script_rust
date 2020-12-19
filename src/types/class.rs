@@ -7,6 +7,12 @@ pub struct Class {
   pub methods: EnvRef,
 }
 
+impl Class {
+  pub fn new(name: String, methods: EnvRef) -> Self {
+    Self { name, methods }
+  }
+}
+
 impl PartialEq for Class {
   fn eq(&self, other: &Self) -> bool {
     self.name == other.name
