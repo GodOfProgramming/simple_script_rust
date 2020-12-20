@@ -3,7 +3,7 @@ use crate::expr::{
   self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, IsExpr,
   LiteralExpr, LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
 };
-use crate::lex::{self, Token, TokenType};
+use crate::lex::{self, Token, TokenKind};
 use crate::res;
 use crate::stmt::{
   self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LetStmt, LoadStmt, LoadrStmt,
@@ -22,22 +22,48 @@ type ParseResult = Result<Vec<Stmt>, ScriptError>;
 type StatementResult = Result<Stmt, ScriptError>;
 type ExprResult = Result<Expr, ScriptError>;
 
-pub fn parse(file: OsString, tokens: &[Token]) -> ParseResult {
-  let mut parser = Parser::new(file, tokens);
+macro_rules! check {
+  ($this:ident, $types:pat) => {
+    !$this.is_at_end() && matches!($this.peek().kind, $types)
+  }
+}
+
+// if the token type matches, advance
+macro_rules! consume {
+  ($this:ident, $types:pat, $alt:block) => {
+    if check!($this, $types) {
+      Ok($this.advance())
+    } else $alt
+  }
+}
+
+macro_rules! advance_if_matches {
+  ($this:ident, $types:pat) => {
+    if check!($this, $types) {
+      $this.advance();
+      true
+    } else {
+      false
+    }
+  }
+}
+
+pub fn parse(file_id: usize, tokens: &[Token]) -> ParseResult {
+  let mut parser = Parser::new(file_id, tokens);
   parser.parse()
 }
 
 struct Parser<'tokens> {
-  file: OsString,
+  file_id: usize,
   tokens: &'tokens [Token],
   current: usize,
   current_id: usize,
 }
 
 impl<'tokens> Parser<'tokens> {
-  fn new(file: OsString, tokens: &'tokens [Token]) -> Self {
+  fn new(file_id: usize, tokens: &'tokens [Token]) -> Self {
     Self {
-      file,
+      file_id,
       tokens,
       current: 0,
       current_id: 0,
@@ -71,27 +97,27 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn statement(&mut self) -> StatementResult {
-    if self.advance_if_match(&[TokenType::Let]) {
+    if self.advance_if_match(&[TokenKind::Let]) {
       self.var_decl()
-    } else if self.advance_if_match(&[TokenType::Fn]) {
+    } else if self.advance_if_match(&[TokenKind::Fn]) {
       self.fn_decl("function")
-    } else if self.advance_if_match(&[TokenType::Class]) {
+    } else if self.advance_if_match(&[TokenKind::Class]) {
       self.class_decl()
-    } else if self.advance_if_match(&[TokenType::Print]) {
+    } else if self.advance_if_match(&[TokenKind::Print]) {
       self.print_statement()
-    } else if self.advance_if_match(&[TokenType::Return]) {
+    } else if self.advance_if_match(&[TokenKind::Return]) {
       self.return_statement()
-    } else if self.advance_if_match(&[TokenType::For]) {
+    } else if self.advance_if_match(&[TokenKind::For]) {
       self.for_statement()
-    } else if self.advance_if_match(&[TokenType::While]) {
+    } else if self.advance_if_match(&[TokenKind::While]) {
       self.while_statement()
-    } else if self.advance_if_match(&[TokenType::If]) {
+    } else if self.advance_if_match(&[TokenKind::If]) {
       self.if_statement()
-    } else if self.advance_if_match(&[TokenType::LeftBrace]) {
+    } else if self.advance_if_match(&[TokenKind::LeftBrace]) {
       Ok(Stmt::new_block(self.block()?, self.next_id()))
-    } else if self.advance_if_match(&[TokenType::Load]) {
+    } else if self.advance_if_match(&[TokenKind::Load]) {
       self.load_statement()
-    } else if self.advance_if_match(&[TokenType::Loadr]) {
+    } else if self.advance_if_match(&[TokenKind::Loadr]) {
       self.loadr_statement()
     } else {
       self.expr_statement()
@@ -99,37 +125,44 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn var_decl(&mut self) -> StatementResult {
-    let name = self.consume(TokenType::Identifier, "Expected variable name")?;
+    let name = consume!(self, TokenKind::Identifier(_), {
+      self.make_err("expected variable name")
+    })?;
     let mut expr = None;
-    if self.advance_if_match(&[TokenType::Equal]) {
+    if self.advance_if_match(&[TokenKind::Equal]) {
       expr = Some(self.expression()?);
     }
 
-    self.consume(TokenType::Semicolon, "expected ';' after variable decl")?;
+    consume!(self, TokenKind::Semicolon, {
+      self.make_err("expected ';' after variable decl")
+    })?;
     Ok(Stmt::new_let(name, expr, self.next_id()))
   }
 
   fn fn_decl(&mut self, kind: &str) -> StatementResult {
-    let name = self.consume(TokenType::Identifier, &format!("expect {} name", kind))?;
-    self.consume(
-      TokenType::LeftParen,
-      &format!("expect '(' after {} name", kind),
-    )?;
+    let name = consume!(self, TokenKind::Identifier(_), {
+      self.make_err(&format!("expect {} name", kind))
+    })?;
+    consume!(self, TokenKind::LeftParen, {
+      self.make_err(&format!("expect '(' after {} name", kind))
+    })?;
     let mut params = Vec::new();
-    if !self.check(TokenType::RightParen) {
+    if !self.check(TokenKind::RightParen) {
       loop {
-        params.push(self.consume(TokenType::Identifier, "expected identifier")?);
+        params.push(consume!(self, TokenKind::Identifier(_), {
+          self.make_err("expected identifier")
+        })?);
 
-        if !self.advance_if_match(&[TokenType::Comma]) {
+        if !self.advance_if_match(&[TokenKind::Comma]) {
           break;
         }
       }
     }
 
-    self.consume(TokenType::RightParen, "expect ')' after parameters")?;
+    self.consume(TokenKind::RightParen, "expect ')' after parameters")?;
 
     self.consume(
-      TokenType::LeftBrace,
+      TokenKind::LeftBrace,
       &format!("Expect '{{' before {} body", kind),
     )?;
 
@@ -144,12 +177,12 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn class_decl(&mut self) -> StatementResult {
-    let name = self.consume(TokenType::Identifier, "expect class name")?;
-    self.consume(TokenType::LeftBrace, "expect '{' before class body")?;
+    let name = self.consume(TokenKind::Identifier, "expect class name")?;
+    self.consume(TokenKind::LeftBrace, "expect '{' before class body")?;
 
     let mut methods = Vec::new();
-    while !self.check(TokenType::RightBrace) && !self.is_at_end() {
-      if self.advance_if_match(&[TokenType::Fn]) {
+    while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+      if self.advance_if_match(&[TokenKind::Fn]) {
         methods.push(self.fn_decl("method")?);
       } else {
         return Err(ScriptError {
@@ -160,42 +193,42 @@ impl<'tokens> Parser<'tokens> {
       }
     }
 
-    self.consume(TokenType::RightBrace, "expect '}' after class body")?;
+    self.consume(TokenKind::RightBrace, "expect '}' after class body")?;
 
     Ok(Stmt::new_class(name, methods, self.next_id()))
   }
 
   fn print_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
-    self.consume(TokenType::Semicolon, "expected ';' after value")?;
+    self.consume(TokenKind::Semicolon, "expected ';' after value")?;
     Ok(Stmt::new_print(expr, self.next_id()))
   }
 
   fn return_statement(&mut self) -> StatementResult {
     let keyword = self.previous();
     let mut value = None;
-    if !self.check(TokenType::Semicolon) {
+    if !self.check(TokenKind::Semicolon) {
       value = Some(self.expression()?);
     }
 
-    self.consume(TokenType::Semicolon, "expected ';' after return value")?;
+    self.consume(TokenKind::Semicolon, "expected ';' after return value")?;
     Ok(Stmt::new_return(keyword, value, self.next_id()))
   }
 
   fn for_statement(&mut self) -> StatementResult {
     let token = self.previous();
 
-    let initializer = if self.advance_if_match(&[TokenType::Let]) {
+    let initializer = if self.advance_if_match(&[TokenKind::Let]) {
       self.var_decl()?
     } else {
       self.expr_statement()?
     };
 
     let condition = self.expression()?;
-    self.consume(TokenType::Semicolon, "Expect ';' after condition")?;
+    self.consume(TokenKind::Semicolon, "Expect ';' after condition")?;
 
     let increment = self.expression()?;
-    self.consume(TokenType::LeftBrace, "Expect '{' after increment")?;
+    self.consume(TokenKind::LeftBrace, "Expect '{' after increment")?;
 
     let body = Stmt::new_block(
       vec![
@@ -219,21 +252,21 @@ impl<'tokens> Parser<'tokens> {
   fn while_statement(&mut self) -> StatementResult {
     let token = self.previous();
     let condition = self.expression()?;
-    self.consume(TokenType::LeftBrace, "missing '{' after if condition")?;
+    self.consume(TokenKind::LeftBrace, "missing '{' after if condition")?;
     let body = self.block()?;
     Ok(Stmt::new_while(token, condition, body, self.next_id()))
   }
 
   fn if_statement(&mut self) -> StatementResult {
     let condition = self.expression()?;
-    self.consume(TokenType::LeftBrace, "missing '{' after if condition")?;
+    self.consume(TokenKind::LeftBrace, "missing '{' after if condition")?;
     let if_true = self.block()?;
     let mut if_false = None;
 
-    if self.advance_if_match(&[TokenType::Else]) {
-      if_false = if self.advance_if_match(&[TokenType::LeftBrace]) {
+    if self.advance_if_match(&[TokenKind::Else]) {
+      if_false = if self.advance_if_match(&[TokenKind::LeftBrace]) {
         Some(Box::new(Stmt::new_block(self.block()?, self.next_id())))
-      } else if self.advance_if_match(&[TokenType::If]) {
+      } else if self.advance_if_match(&[TokenKind::If]) {
         Some(Box::new(self.if_statement()?))
       } else {
         return Err(ScriptError {
@@ -249,21 +282,21 @@ impl<'tokens> Parser<'tokens> {
 
   fn expr_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
-    self.consume(TokenType::Semicolon, "expected ';' after value")?;
+    self.consume(TokenKind::Semicolon, "expected ';' after value")?;
     Ok(Stmt::new_expression(expr, self.next_id()))
   }
 
   fn load_statement(&mut self) -> StatementResult {
     let load = self.previous();
     let file = self.expression()?;
-    self.consume(TokenType::Semicolon, "expected ';' after value")?;
+    self.consume(TokenKind::Semicolon, "expected ';' after value")?;
     Ok(Stmt::new_load(load, file, self.next_id()))
   }
 
   fn loadr_statement(&mut self) -> StatementResult {
     let loadr = self.previous();
     let file = self.expression()?;
-    self.consume(TokenType::Semicolon, "expected ';' after value")?;
+    self.consume(TokenKind::Semicolon, "expected ';' after value")?;
     Ok(Stmt::new_loadr(loadr, file, self.next_id()))
   }
 
@@ -274,17 +307,17 @@ impl<'tokens> Parser<'tokens> {
   fn is(&mut self) -> ExprResult {
     let mut expr = self.ternary()?;
 
-    if self.advance_if_match(&[TokenType::Is]) {
+    if self.advance_if_match(&[TokenKind::Is]) {
       let token = self.previous();
       if self.advance_if_match(&[
-        TokenType::Nil,
-        TokenType::Error,
-        TokenType::Bool,
-        TokenType::Number,
-        TokenType::String,
-        TokenType::List,
-        TokenType::Fn,
-        TokenType::Class,
+        TokenKind::Nil,
+        TokenKind::Error,
+        TokenKind::Bool,
+        TokenKind::Number,
+        TokenKind::String,
+        TokenKind::List,
+        TokenKind::Fn,
+        TokenKind::Class,
       ]) {
         let datatype = self.previous();
         expr = Expr::Is(IsExpr::new(Box::new(expr), token, datatype, self.next_id()))
@@ -302,9 +335,9 @@ impl<'tokens> Parser<'tokens> {
   fn ternary(&mut self) -> ExprResult {
     let mut expr = self.assignment()?;
 
-    if self.advance_if_match(&[TokenType::Conditional]) {
+    if self.advance_if_match(&[TokenKind::Conditional]) {
       let if_true = self.expression()?;
-      self.consume(TokenType::Colon, "expected ':' for conditional operator")?;
+      self.consume(TokenKind::Colon, "expected ':' for conditional operator")?;
       let if_false = self.expression()?;
       expr = Expr::new_ternary(
         Box::new(expr),
@@ -320,7 +353,7 @@ impl<'tokens> Parser<'tokens> {
   fn assignment(&mut self) -> ExprResult {
     let expr = self.range()?;
 
-    if self.advance_if_match(&[TokenType::Equal]) {
+    if self.advance_if_match(&[TokenKind::Equal]) {
       let equals = self.previous();
       let value = self.assignment()?;
 
@@ -348,7 +381,7 @@ impl<'tokens> Parser<'tokens> {
   fn range(&mut self) -> ExprResult {
     let mut begin = self.or()?;
 
-    if self.advance_if_match(&[TokenType::Range]) {
+    if self.advance_if_match(&[TokenKind::Range]) {
       let token = self.previous();
       let end = self.or()?;
       begin = Expr::new_range(Box::new(begin), token, Box::new(end), self.next_id());
@@ -358,41 +391,41 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn or(&mut self) -> ExprResult {
-    self.left_associative_logical(Parser::and, &[TokenType::Or])
+    self.left_associative_logical(Parser::and, &[TokenKind::Or])
   }
 
   fn and(&mut self) -> ExprResult {
-    self.left_associative_logical(Parser::equality, &[TokenType::And])
+    self.left_associative_logical(Parser::equality, &[TokenKind::And])
   }
 
   fn equality(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::comparison, &[TokenType::ExEq, TokenType::EqEq])
+    self.left_associative_binary(Parser::comparison, &[TokenKind::ExEq, TokenKind::EqEq])
   }
 
   fn comparison(&mut self) -> ExprResult {
     self.left_associative_binary(
       Parser::addition,
       &[
-        TokenType::GreaterThan,
-        TokenType::GreaterEq,
-        TokenType::LessThan,
-        TokenType::LessEq,
+        TokenKind::GreaterThan,
+        TokenKind::GreaterEq,
+        TokenKind::LessThan,
+        TokenKind::LessEq,
       ],
     )
   }
 
   fn addition(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::multiplication, &[TokenType::Plus, TokenType::Minus])
+    self.left_associative_binary(Parser::multiplication, &[TokenKind::Plus, TokenKind::Minus])
   }
 
   fn multiplication(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::unary, &[TokenType::Slash, TokenType::Asterisk])
+    self.left_associative_binary(Parser::unary, &[TokenKind::Slash, TokenKind::Asterisk])
   }
 
   fn unary(&mut self) -> ExprResult {
     self.right_associative_unary(
       Parser::call,
-      &[TokenType::Exclamation, TokenType::Minus, TokenType::Plus],
+      &[TokenKind::Exclamation, TokenKind::Minus, TokenKind::Plus],
     )
   }
 
@@ -400,10 +433,10 @@ impl<'tokens> Parser<'tokens> {
     let mut expr = self.primary()?;
 
     loop {
-      if self.advance_if_match(&[TokenType::LeftParen]) {
+      if self.advance_if_match(&[TokenKind::LeftParen]) {
         expr = self.finish_call(expr)?;
-      } else if self.advance_if_match(&[TokenType::Dot]) {
-        let name = self.consume(TokenType::Identifier, "expected property name after '.'")?;
+      } else if self.advance_if_match(&[TokenKind::Dot]) {
+        let name = self.consume(TokenKind::Identifier, "expected property name after '.'")?;
         expr = Expr::Get(GetExpr::new(Box::new(expr), name, self.next_id()));
       } else {
         break;
@@ -415,11 +448,11 @@ impl<'tokens> Parser<'tokens> {
 
   fn primary(&mut self) -> ExprResult {
     if self.advance_if_match(&[
-      TokenType::False,
-      TokenType::True,
-      TokenType::Nil,
-      TokenType::NumberLiteral,
-      TokenType::StringLiteral,
+      TokenKind::False,
+      TokenKind::True,
+      TokenKind::Nil,
+      TokenKind::NumberLiteral,
+      TokenKind::StringLiteral,
     ]) {
       let prev = self.previous();
 
@@ -428,31 +461,31 @@ impl<'tokens> Parser<'tokens> {
       }
     }
 
-    if self.advance_if_match(&[TokenType::Identifier]) {
+    if self.advance_if_match(&[TokenKind::Identifier]) {
       return Ok(Expr::new_variable(self.previous(), self.next_id()));
     }
 
-    if self.advance_if_match(&[TokenType::LeftParen]) {
+    if self.advance_if_match(&[TokenKind::LeftParen]) {
       let expr = self.expression()?;
-      self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
+      self.consume(TokenKind::RightParen, "Expect ')' after expression.")?;
       return Ok(Expr::new_grouping(Box::new(expr), self.next_id()));
     }
 
-    if self.advance_if_match(&[TokenType::Pipe]) {
+    if self.advance_if_match(&[TokenKind::Pipe]) {
       let mut params = Vec::new();
-      if !self.check(TokenType::Pipe) {
+      if !self.check(TokenKind::Pipe) {
         loop {
-          params.push(self.consume(TokenType::Identifier, "expected identifier")?);
+          params.push(self.consume(TokenKind::Identifier, "expected identifier")?);
 
-          if !self.advance_if_match(&[TokenType::Comma]) {
+          if !self.advance_if_match(&[TokenKind::Comma]) {
             break;
           }
         }
       }
 
-      self.consume(TokenType::Pipe, "expect '|' after closure parameters")?;
+      self.consume(TokenKind::Pipe, "expect '|' after closure parameters")?;
 
-      self.consume(TokenType::LeftBrace, "expect '{{' before closure body")?;
+      self.consume(TokenKind::LeftBrace, "expect '{{' before closure body")?;
 
       let body = self.block()?;
 
@@ -473,7 +506,7 @@ impl<'tokens> Parser<'tokens> {
   fn left_associative_logical(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
-    types: &[TokenType],
+    types: &[TokenKind],
   ) -> ExprResult {
     let mut expr = next(self)?;
 
@@ -489,7 +522,7 @@ impl<'tokens> Parser<'tokens> {
   fn left_associative_binary(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
-    types: &[TokenType],
+    types: &[TokenKind],
   ) -> ExprResult {
     let mut expr = next(self)?;
 
@@ -505,7 +538,7 @@ impl<'tokens> Parser<'tokens> {
   fn right_associative_unary(
     &mut self,
     next: fn(&mut Self) -> ExprResult,
-    types: &[TokenType],
+    types: &[TokenKind],
   ) -> ExprResult {
     if self.advance_if_match(types) {
       let op = self.previous();
@@ -519,16 +552,16 @@ impl<'tokens> Parser<'tokens> {
   fn block(&mut self) -> Result<Vec<Stmt>, ScriptError> {
     let mut v = Vec::new();
 
-    while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+    while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
       v.push(self.decl()?);
     }
 
-    self.consume(TokenType::RightBrace, "Expect '}' after block")?;
+    self.consume(TokenKind::RightBrace, "Expect '}' after block")?;
 
     Ok(v)
   }
 
-  fn advance_if_match(&mut self, types: &[TokenType]) -> bool {
+  fn advance_if_match(&mut self, types: &[TokenKind]) -> bool {
     for token_type in types.iter() {
       if self.check(*token_type) {
         self.advance();
@@ -537,10 +570,6 @@ impl<'tokens> Parser<'tokens> {
     }
 
     false
-  }
-
-  fn check(&self, t: TokenType) -> bool {
-    !self.is_at_end() && self.peek().token_type == t
   }
 
   fn advance(&mut self) -> Token {
@@ -552,7 +581,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn is_at_end(&self) -> bool {
-    self.peek().token_type == TokenType::Eof
+    self.peek().kind == TokenKind::Eof
   }
 
   fn peek(&self) -> &'tokens Token {
@@ -563,35 +592,23 @@ impl<'tokens> Parser<'tokens> {
     self.tokens[self.current - 1].clone()
   }
 
-  fn consume(&mut self, token_type: TokenType, msg: &str) -> Result<Token, ScriptError> {
-    if self.check(token_type) {
-      Ok(self.advance())
-    } else {
-      Err(ScriptError {
-        file: self.file.clone(),
-        line: self.peek().line,
-        msg: String::from(msg),
-      })
-    }
-  }
-
   fn sync(&mut self) {
     self.advance();
 
     while !self.is_at_end() {
-      if self.previous().token_type == TokenType::Semicolon {
+      if self.previous().token_type == TokenKind::Semicolon {
         return;
       }
 
       match self.peek().token_type {
-        TokenType::Class => return,
-        TokenType::Fn => return,
-        TokenType::Let => return,
-        TokenType::For => return,
-        TokenType::If => return,
-        TokenType::While => return,
-        TokenType::Print => return,
-        TokenType::Return => return,
+        TokenKind::Class => return,
+        TokenKind::Fn => return,
+        TokenKind::Let => return,
+        TokenKind::For => return,
+        TokenKind::If => return,
+        TokenKind::While => return,
+        TokenKind::Print => return,
+        TokenKind::Return => return,
         _ => (),
       }
 
@@ -602,17 +619,17 @@ impl<'tokens> Parser<'tokens> {
   fn finish_call(&mut self, callee: Expr) -> ExprResult {
     let mut args = Vec::new();
 
-    if !self.check(TokenType::RightParen) {
+    if !self.check(TokenKind::RightParen) {
       loop {
         args.push(self.expression()?);
 
-        if !self.advance_if_match(&[TokenType::Comma]) {
+        if !self.advance_if_match(&[TokenKind::Comma]) {
           break;
         }
       }
     }
 
-    let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments")?;
+    let paren = self.consume(TokenKind::RightParen, "Expect ')' after arguments")?;
 
     Ok(Expr::new_call(
       Box::new(callee),
@@ -620,6 +637,14 @@ impl<'tokens> Parser<'tokens> {
       args,
       self.next_id(),
     ))
+  }
+
+  fn make_err(&self, msg: &str) -> Result<Token, ScriptError> {
+    Err(ScriptError {
+      file_id: self.file_id,
+      line: self.peek().line,
+      msg: String::from(msg),
+    })
   }
 }
 
@@ -966,24 +991,24 @@ impl Visitor<BinaryExpr, ExprEvalResult> for Evaluator {
     let right = self.eval_expr(&e.right)?;
 
     // value comparison
-    if e.operator.token_type == TokenType::EqEq {
+    if e.operator.token_type == TokenKind::EqEq {
       return Ok(Value::new(left == right));
     }
 
-    if e.operator.token_type == TokenType::ExEq {
+    if e.operator.token_type == TokenKind::ExEq {
       return Ok(Value::new(left != right));
     }
 
     // number arithmetic and comparison
     match e.operator.token_type {
-      TokenType::Plus => Ok(left + right),
-      TokenType::Minus => Ok(left - right),
-      TokenType::Asterisk => Ok(left * right),
-      TokenType::Slash => Ok(left / right),
-      TokenType::GreaterThan => Ok(Value::Bool(left > right)),
-      TokenType::GreaterEq => Ok(Value::Bool(left >= right)),
-      TokenType::LessThan => Ok(Value::Bool(left < right)),
-      TokenType::LessEq => Ok(Value::Bool(left <= right)),
+      TokenKind::Plus => Ok(left + right),
+      TokenKind::Minus => Ok(left - right),
+      TokenKind::Asterisk => Ok(left * right),
+      TokenKind::Slash => Ok(left / right),
+      TokenKind::GreaterThan => Ok(Value::Bool(left > right)),
+      TokenKind::GreaterEq => Ok(Value::Bool(left >= right)),
+      TokenKind::LessThan => Ok(Value::Bool(left < right)),
+      TokenKind::LessEq => Ok(Value::Bool(left <= right)),
       _ => Err(ScriptError {
         file: self.file.clone(),
         line: e.operator.line,
@@ -1003,14 +1028,14 @@ impl Visitor<IsExpr, ExprEvalResult> for Evaluator {
     Ok(Value::new(
       e.datatype.token_type
         == match value {
-          Value::Nil => TokenType::Nil,
-          Value::Error(_) => TokenType::Error,
-          Value::Bool(_) => TokenType::Bool,
-          Value::Num(_) => TokenType::Number,
-          Value::Str(_) => TokenType::String,
-          Value::List(_) => TokenType::List,
-          Value::Callee(_) => TokenType::Fn,
-          Value::Class(_) => TokenType::Class,
+          Value::Nil => TokenKind::Nil,
+          Value::Error(_) => TokenKind::Error,
+          Value::Bool(_) => TokenKind::Bool,
+          Value::Num(_) => TokenKind::Number,
+          Value::Str(_) => TokenKind::String,
+          Value::List(_) => TokenKind::List,
+          Value::Callee(_) => TokenKind::Fn,
+          Value::Class(_) => TokenKind::Class,
           _ => panic!("this should not be ever reached"),
         },
     ))
@@ -1046,9 +1071,9 @@ impl Visitor<UnaryExpr, ExprEvalResult> for Evaluator {
     let right = self.eval_expr(&e.right)?;
 
     match e.operator.token_type {
-      TokenType::Exclamation => Ok(!right),
-      TokenType::Minus => Ok(-right),
-      TokenType::Plus => {
+      TokenKind::Exclamation => Ok(!right),
+      TokenKind::Minus => Ok(-right),
+      TokenKind::Plus => {
         if let Value::Num(n) = right {
           Ok(Value::new(n.abs()))
         } else if let Value::Str(s) = right {
@@ -1113,12 +1138,12 @@ impl Visitor<LogicalExpr, ExprEvalResult> for Evaluator {
     let left = self.eval_expr(&e.left)?;
 
     match e.operator.token_type {
-      TokenType::Or => {
+      TokenKind::Or => {
         if left.truthy() {
           return Ok(left);
         }
       }
-      TokenType::And => {
+      TokenKind::And => {
         if !left.truthy() {
           return Ok(left);
         }

@@ -5,8 +5,8 @@ use std::ffi::OsString;
 use std::fmt::{self, Debug, Display};
 use std::str;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum TokenType {
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenKind {
   // Single-character tokens.
   LeftParen,
   RightParen,
@@ -36,9 +36,9 @@ pub enum TokenType {
   Range,
 
   // Literals.
-  Identifier,
-  StringLiteral,
-  NumberLiteral,
+  Identifier(String),
+  StringLiteral(String),
+  NumberLiteral(f64),
 
   // Keywords.
   And,
@@ -70,18 +70,16 @@ pub enum TokenType {
 
 #[derive(Clone, PartialEq)]
 pub struct Token {
-  pub token_type: TokenType,
-  pub lexeme: String,
-  pub literal: Option<Value>,
+  pub kind: TokenKind,
+  pub file_id: usize,
   pub line: usize,
 }
 
 impl Token {
-  pub fn new(token_type: TokenType, lexeme: String, literal: Option<Value>, line: usize) -> Token {
+  pub fn new(kind: TokenKind, file_id: usize, line: usize) -> Token {
     Token {
-      token_type,
-      lexeme,
-      literal,
+      kind,
+      file_id,
       line,
     }
   }
@@ -89,10 +87,11 @@ impl Token {
 
 impl Display for Token {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match &self.token_type {
-      TokenType::StringLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
-      TokenType::NumberLiteral => write!(f, "{:?}({:?})", self.token_type, self.literal),
-      _ => write!(f, "{}", self.lexeme),
+    match &self.kind {
+      TokenKind::StringLiteral(s) => write!(f, "{}", s),
+      TokenKind::NumberLiteral(n) => write!(f, "{}", n),
+      TokenKind::Identifier(i) => write!(f, "{}", i),
+      _ => write!(f, "{:?}", self.kind),
     }
   }
 }
@@ -103,31 +102,31 @@ impl Debug for Token {
   }
 }
 
-fn basic_keywords() -> HashMap<&'static str, TokenType> {
+fn basic_keywords() -> HashMap<&'static str, TokenKind> {
   let mut map = HashMap::new();
   {
-    map.insert("and", TokenType::And);
-    map.insert("bool", TokenType::Bool);
-    map.insert("class", TokenType::Class);
-    map.insert("else", TokenType::Else);
-    map.insert("error", TokenType::Error);
-    map.insert("false", TokenType::False);
-    map.insert("fn", TokenType::Fn);
-    map.insert("for", TokenType::For);
-    map.insert("if", TokenType::If);
-    map.insert("is", TokenType::Is);
-    map.insert("let", TokenType::Let);
-    map.insert("list", TokenType::List);
-    map.insert("load", TokenType::Load);
-    map.insert("loadr", TokenType::Loadr);
-    map.insert("nil", TokenType::Nil);
-    map.insert("number", TokenType::Number);
-    map.insert("or", TokenType::Or);
-    map.insert("print", TokenType::Print);
-    map.insert("return", TokenType::Return);
-    map.insert("string", TokenType::String);
-    map.insert("true", TokenType::True);
-    map.insert("while", TokenType::While);
+    map.insert("and", TokenKind::And);
+    map.insert("bool", TokenKind::Bool);
+    map.insert("class", TokenKind::Class);
+    map.insert("else", TokenKind::Else);
+    map.insert("error", TokenKind::Error);
+    map.insert("false", TokenKind::False);
+    map.insert("fn", TokenKind::Fn);
+    map.insert("for", TokenKind::For);
+    map.insert("if", TokenKind::If);
+    map.insert("is", TokenKind::Is);
+    map.insert("let", TokenKind::Let);
+    map.insert("list", TokenKind::List);
+    map.insert("load", TokenKind::Load);
+    map.insert("loadr", TokenKind::Loadr);
+    map.insert("nil", TokenKind::Nil);
+    map.insert("number", TokenKind::Number);
+    map.insert("or", TokenKind::Or);
+    map.insert("print", TokenKind::Print);
+    map.insert("return", TokenKind::Return);
+    map.insert("string", TokenKind::String);
+    map.insert("true", TokenKind::True);
+    map.insert("while", TokenKind::While);
   }
   map
 }
@@ -137,11 +136,10 @@ pub struct AnalyzeResult {
   pub lines_analyzed: usize,
 }
 
-pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, ScriptError> {
+pub fn analyze(file_id: usize, src: &str) -> Result<AnalyzeResult, ScriptError> {
   enum TokenResult {
-    Valid(TokenType),
+    Valid(TokenKind),
     Skip,
-    Error { msg: String, line: usize },
   };
 
   let keywords = basic_keywords();
@@ -156,57 +154,57 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, ScriptError> 
     let start_pos = current_pos;
     let c = bytes[current_pos] as char;
     let token = match c {
-      '(' => TokenResult::Valid(TokenType::LeftParen),
-      ')' => TokenResult::Valid(TokenType::RightParen),
-      '{' => TokenResult::Valid(TokenType::LeftBrace),
-      '}' => TokenResult::Valid(TokenType::RightBrace),
-      ',' => TokenResult::Valid(TokenType::Comma),
-      '-' => TokenResult::Valid(TokenType::Minus),
-      '+' => TokenResult::Valid(TokenType::Plus),
-      '*' => TokenResult::Valid(TokenType::Asterisk),
-      '/' => TokenResult::Valid(TokenType::Slash),
-      ';' => TokenResult::Valid(TokenType::Semicolon),
-      '?' => TokenResult::Valid(TokenType::Conditional),
-      ':' => TokenResult::Valid(TokenType::Colon),
-      '|' => TokenResult::Valid(TokenType::Pipe),
+      '(' => TokenResult::Valid(TokenKind::LeftParen),
+      ')' => TokenResult::Valid(TokenKind::RightParen),
+      '{' => TokenResult::Valid(TokenKind::LeftBrace),
+      '}' => TokenResult::Valid(TokenKind::RightBrace),
+      ',' => TokenResult::Valid(TokenKind::Comma),
+      '-' => TokenResult::Valid(TokenKind::Minus),
+      '+' => TokenResult::Valid(TokenKind::Plus),
+      '*' => TokenResult::Valid(TokenKind::Asterisk),
+      '/' => TokenResult::Valid(TokenKind::Slash),
+      ';' => TokenResult::Valid(TokenKind::Semicolon),
+      '?' => TokenResult::Valid(TokenKind::Conditional),
+      ':' => TokenResult::Valid(TokenKind::Colon),
+      '|' => TokenResult::Valid(TokenKind::Pipe),
       '.' => {
         if next_is(&bytes, current_pos, '.') {
           current_pos += 1;
-          TokenResult::Valid(TokenType::Range)
+          TokenResult::Valid(TokenKind::Range)
         } else {
-          TokenResult::Valid(TokenType::Dot)
+          TokenResult::Valid(TokenKind::Dot)
         }
       }
       '!' => {
         if next_is(&bytes, current_pos, '=') {
           current_pos += 1;
-          TokenResult::Valid(TokenType::ExEq)
+          TokenResult::Valid(TokenKind::ExEq)
         } else {
-          TokenResult::Valid(TokenType::Exclamation)
+          TokenResult::Valid(TokenKind::Exclamation)
         }
       }
       '=' => {
         if next_is(&bytes, current_pos, '=') {
           current_pos += 1;
-          TokenResult::Valid(TokenType::EqEq)
+          TokenResult::Valid(TokenKind::EqEq)
         } else {
-          TokenResult::Valid(TokenType::Equal)
+          TokenResult::Valid(TokenKind::Equal)
         }
       }
       '<' => {
         if next_is(&bytes, current_pos, '=') {
           current_pos += 1;
-          TokenResult::Valid(TokenType::LessEq)
+          TokenResult::Valid(TokenKind::LessEq)
         } else {
-          TokenResult::Valid(TokenType::LessThan)
+          TokenResult::Valid(TokenKind::LessThan)
         }
       }
       '>' => {
         if next_is(&bytes, current_pos, '=') {
           current_pos += 1;
-          TokenResult::Valid(TokenType::GreaterEq)
+          TokenResult::Valid(TokenKind::GreaterEq)
         } else {
-          TokenResult::Valid(TokenType::GreaterThan)
+          TokenResult::Valid(TokenKind::GreaterThan)
         }
       }
       '#' => {
@@ -220,7 +218,6 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, ScriptError> 
         TokenResult::Skip
       }
       '"' => {
-        // TODO clean this up/make more efficient
         if let Err(line) = loop {
           match peek(&bytes, current_pos) {
             Some(next) => {
@@ -237,91 +234,102 @@ pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, ScriptError> 
           current_pos += 1;
         } {
           return Err(ScriptError {
-            file,
-            msg: String::from(r#"missing closing " for string"#),
+            file_id,
             line,
+            msg: String::from("missing closing \" for string"),
           });
         }
 
         current_pos += 1;
 
-        TokenResult::Valid(TokenType::StringLiteral)
+        let lexeme =
+          str::from_utf8(&bytes[start_pos + 1..current_pos - 1]).map_err(|err| ScriptError {
+            file_id,
+            line,
+            msg: format!("cannot read string literal: {}", err),
+          })?;
+
+        TokenResult::Valid(TokenKind::StringLiteral(String::from(lexeme)))
       }
       '\n' => {
         line += 1;
         TokenResult::Skip
       }
       ' ' | '\r' | '\t' => TokenResult::Skip,
-      c => {
-        if is_digit(c) {
-          let mut dot_found = false;
-          while let Some(next) = peek(&bytes, current_pos) {
-            if is_digit(next) {
-              current_pos += 1;
-            } else if next == '.' && !dot_found {
-              if let Some(next_next) = peek(&bytes, current_pos + 1) {
-                if is_digit(next_next) {
-                  current_pos += 2;
-                  dot_found = true;
-                } else {
-                  break;
-                }
+      c if is_digit(c) => {
+        let mut dot_found = false;
+        while let Some(next) = peek(&bytes, current_pos) {
+          if is_digit(next) {
+            current_pos += 1;
+          } else if next == '.' && !dot_found {
+            if let Some(next_next) = peek(&bytes, current_pos + 1) {
+              if is_digit(next_next) {
+                current_pos += 2;
+                dot_found = true;
               } else {
                 break;
               }
             } else {
               break;
             }
-          }
-
-          TokenResult::Valid(TokenType::NumberLiteral)
-        } else if is_alpha(c) {
-          while let Some(next) = peek(&bytes, current_pos) {
-            if is_alphanumeric(next) {
-              current_pos += 1;
-            } else {
-              break;
-            }
-          }
-
-          match str::from_utf8(&bytes[start_pos..current_pos + 1]) {
-            Ok(string) => match keywords.get(string) {
-              Some(token) => TokenResult::Valid(*token),
-              None => TokenResult::Valid(TokenType::Identifier),
-            },
-            Err(err) => TokenResult::Error {
-              msg: format!("{}", err),
-              line,
-            },
-          }
-        } else {
-          TokenResult::Error {
-            msg: format!("invalid character '{}'", c),
-            line,
+          } else {
+            break;
           }
         }
+
+        let lexeme = match str::from_utf8(&bytes[start_pos..current_pos]) {
+          Ok(string) => string,
+          Err(err) => return Err(format!("{}", err)),
+        };
+
+        let num = lexeme.parse().map_err(|err| ScriptError {
+          file_id,
+          line,
+          msg: format!("{}", err),
+        })?;
+
+        TokenResult::Valid(TokenKind::NumberLiteral(num))
+      }
+      c if is_alpha(c) => {
+        while let Some(next) = peek(&bytes, current_pos) {
+          if is_alphanumeric(next) {
+            current_pos += 1;
+          } else {
+            break;
+          }
+        }
+
+        match str::from_utf8(&bytes[start_pos..current_pos + 1]) {
+          Ok(string) => match keywords.get(string) {
+            Some(token) => TokenResult::Valid(*token),
+            None => TokenResult::Valid(TokenKind::Identifier(String::from(string))),
+          },
+          Err(err) => {
+            return Err(ScriptError {
+              file_id,
+              line,
+              msg: format!("{}", err),
+            });
+          }
+        }
+      }
+      c => {
+        return Err(ScriptError {
+          file_id,
+          line,
+          msg: format!("invalid character '{}'", c),
+        })
       }
     };
 
     current_pos += 1;
 
     if let TokenResult::Valid(token_type) = token {
-      match create_token(&bytes, start_pos, current_pos, token_type) {
-        Ok(info) => tokens.push(Token::new(info.token_type, info.lexeme, info.literal, line)),
-        Err(err) => {
-          return Err(ScriptError {
-            file,
-            msg: err,
-            line,
-          });
-        }
-      }
-    } else if let TokenResult::Error { msg, line } = token {
-      return Err(ScriptError { file, msg, line });
+      tokens.push(Token::new(token_type, file_id, line));
     }
   }
 
-  tokens.push(Token::new(TokenType::Eof, String::from("EOF"), None, line));
+  tokens.push(Token::new(TokenKind::Eof, file_id, line));
 
   Ok(AnalyzeResult {
     tokens,
@@ -335,44 +343,6 @@ fn peek(buff: &[u8], current_pos: usize) -> Option<char> {
   } else {
     Some(buff[current_pos + 1] as char)
   }
-}
-
-struct TokenInfo {
-  token_type: TokenType,
-  lexeme: String,
-  literal: Option<Value>,
-}
-
-fn create_token(
-  buff: &[u8],
-  start: usize,
-  end: usize,
-  token_type: TokenType,
-) -> Result<TokenInfo, String> {
-  let lexeme = match str::from_utf8(&buff[start..end]) {
-    Ok(string) => string,
-    Err(err) => return Err(format!("{}", err)),
-  };
-
-  let lexeme = String::from(lexeme);
-
-  let literal = match token_type {
-    TokenType::StringLiteral => Some(Value::Str(String::from(&lexeme[1..lexeme.len() - 1]))),
-    TokenType::NumberLiteral => match lexeme.parse() {
-      Ok(n) => Some(Value::Num(n)),
-      Err(err) => return Err(format!("{}", err)),
-    },
-    TokenType::True => Some(Value::Bool(true)),
-    TokenType::False => Some(Value::Bool(false)),
-    TokenType::Nil => Some(Value::Nil),
-    _ => None,
-  };
-
-  Ok(TokenInfo {
-    token_type,
-    lexeme,
-    literal,
-  })
 }
 
 fn is_digit(c: char) -> bool {
@@ -400,26 +370,20 @@ fn next_is(bytes: &[u8], curr_pos: usize, test: char) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::New;
 
   const GOOD_SRC: &str = "let var_1 = 1;";
 
   #[test]
   fn lexer_analyze_with_no_error_basic() {
-    let result = analyze("test".into(), GOOD_SRC);
+    let result = analyze(0, GOOD_SRC);
 
     let expected_tokens = vec![
-      Token::new(TokenType::Let, String::from("let"), None, 1),
-      Token::new(TokenType::Identifier, String::from("var_1"), None, 1),
-      Token::new(TokenType::Equal, String::from("="), None, 1),
-      Token::new(
-        TokenType::NumberLiteral,
-        String::from("1"),
-        Some(Value::new(1.0)),
-        1,
-      ),
-      Token::new(TokenType::Semicolon, String::from(";"), None, 1),
-      Token::new(TokenType::Eof, String::from("EOF"), None, 1),
+      Token::new(TokenKind::Let, 0, 1),
+      Token::new(TokenKind::Identifier(String::from("var_1")), 0, 1),
+      Token::new(TokenKind::Equal, 0, 1),
+      Token::new(TokenKind::NumberLiteral(1.0), 0, 1),
+      Token::new(TokenKind::Semicolon, 0, 1),
+      Token::new(TokenKind::Eof, 0, 1),
     ];
 
     match result {

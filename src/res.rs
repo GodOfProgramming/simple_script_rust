@@ -54,14 +54,11 @@ impl<'eval> Resolver<'eval> {
 
   fn declare(&mut self, name: &Token) -> Result<(), ScriptError> {
     if let Some(scope) = self.scopes.last_mut() {
-      if scope.insert(name.lexeme.clone(), false).is_some() {
+      if scope.insert(name.to_string(), false).is_some() {
         return Err(ScriptError {
-          file: self.evaluator.file.clone(),
+          file_id: self.evaluator.file_id,
           line: name.line,
-          msg: format!(
-            "variable in scope already declared with name '{}'",
-            name.lexeme
-          ),
+          msg: format!("variable in scope already declared with name '{}'", name),
         });
       }
     }
@@ -70,13 +67,13 @@ impl<'eval> Resolver<'eval> {
 
   fn define(&mut self, name: &Token) -> Result<(), ScriptError> {
     if let Some(scope) = self.scopes.last_mut() {
-      scope.insert(name.lexeme.clone(), true);
+      scope.insert(name.to_string(), true);
       Ok(())
     } else {
       Err(ScriptError {
-        file: self.evaluator.file.clone(),
+        file_id: self.evaluator.file_id,
         line: name.line,
-        msg: format!("unable to define undeclared variable '{}'", name.lexeme),
+        msg: format!("unable to define undeclared variable '{}'", name),
       })
     }
   }
@@ -119,11 +116,11 @@ impl<'eval> Resolver<'eval> {
   }
 
   fn resolve_local_variable(&mut self, e: &VariableExpr) {
-    self.resolve_local(&e.name.lexeme, e.id);
+    self.resolve_local(&e.name.to_string(), e.id);
   }
 
   fn resolve_local_assignment(&mut self, e: &AssignExpr) {
-    self.resolve_local(&e.name.lexeme, e.id);
+    self.resolve_local(&e.name.to_string(), e.id);
   }
 
   fn resolve_local(&mut self, name: &str, id: usize) {
@@ -141,10 +138,10 @@ impl<'eval> Resolver<'eval> {
 impl Visitor<VariableExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &VariableExpr) -> ResolveResult {
     if let Some(scope) = self.scopes.last() {
-      if let Some(v) = scope.get(&e.name.lexeme) {
+      if let Some(v) = scope.get(&e.name.to_string()) {
         if !v {
           return Err(ScriptError {
-            file: self.evaluator.file.clone(),
+            file_id: self.evaluator.file_id,
             line: e.name.line,
             msg: String::from("can't read local variable in its own initializer"),
           });
@@ -317,7 +314,7 @@ impl Visitor<ReturnStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &ReturnStmt) -> ResolveResult {
     if self.function_depth == 0 {
       return Err(ScriptError {
-        file: self.evaluator.file.clone(),
+        file_id: self.evaluator.file_id,
         line: s.keyword.line,
         msg: String::from("can't return outside of a function"),
       });
@@ -355,7 +352,7 @@ impl Visitor<LoadrStmt, ResolveResult> for Resolver<'_> {
 mod tests {
   use super::*;
   use crate::env::EnvRef;
-  use crate::lex::TokenType;
+  use crate::lex::TokenKind;
   use crate::Interpreter;
   use std::rc::Rc;
 
@@ -416,7 +413,7 @@ mod tests {
       let mut e = Evaluator::new("test".into(), env);
       let mut r = Resolver::new(&mut e);
 
-      let token = Token::new(TokenType::Identifier, String::from("foo"), None, 1);
+      let token = Token::new(TokenKind::Identifier(String::from("foo")), 0, 1);
 
       r.begin_scope();
       assert!(r.declare(&token).is_ok());
@@ -438,7 +435,7 @@ mod tests {
       let mut e = Evaluator::new("test".into(), env);
       let mut r = Resolver::new(&mut e);
 
-      let token = Token::new(TokenType::Identifier, String::from("foo"), None, 1);
+      let token = Token::new(TokenKind::Identifier(String::from("foo")), 0, 1);
 
       r.begin_scope();
       assert!(r.declare(&token).is_ok());
@@ -451,9 +448,9 @@ mod tests {
       let mut e = Evaluator::new("test".into(), env);
       let mut r = Resolver::new(&mut e);
 
-      let func_name = Token::new(TokenType::Identifier, String::from("foo"), None, 1);
-      let param_name = Token::new(TokenType::Identifier, String::from("bar"), None, 2);
-      let local_name = Token::new(TokenType::Identifier, String::from("foobar"), None, 3);
+      let func_name = Token::new(TokenKind::Identifier(String::from("foo")), 0, 1);
+      let param_name = Token::new(TokenKind::Identifier(String::from("bar")), 0, 2);
+      let local_name = Token::new(TokenKind::Identifier(String::from("foobar")), 0, 3);
       let params = vec![param_name];
       let body = vec![Stmt::Let(LetStmt::new(local_name, None, 4))];
       let s = FunctionStmt::new(func_name, Rc::new(params), Rc::new(body), 5);
