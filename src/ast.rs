@@ -1,7 +1,7 @@
 use crate::env::EnvRef;
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, LiteralExpr,
-  LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
+  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, IsExpr,
+  LiteralExpr, LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
 };
 use crate::lex::{self, Token, TokenType};
 use crate::res;
@@ -9,7 +9,7 @@ use crate::stmt::{
   self, BlockStmt, ClassStmt, ExpressionStmt, FunctionStmt, IfStmt, LetStmt, LoadStmt, LoadrStmt,
   PrintStmt, ReturnStmt, Stmt, WhileStmt,
 };
-use crate::types::{Function, Value, Values, Visitor};
+use crate::types::{Class, Function, Instance, New, Value, ValueError, Visitor};
 use crate::ScriptError;
 use std::collections::HashMap;
 use std::env;
@@ -71,27 +71,27 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn statement(&mut self) -> StatementResult {
-    if self.match_token(&[TokenType::Let]) {
+    if self.advance_if_match(&[TokenType::Let]) {
       self.var_decl()
-    } else if self.match_token(&[TokenType::Fn]) {
+    } else if self.advance_if_match(&[TokenType::Fn]) {
       self.fn_decl("function")
-    } else if self.match_token(&[TokenType::Class]) {
+    } else if self.advance_if_match(&[TokenType::Class]) {
       self.class_decl()
-    } else if self.match_token(&[TokenType::Print]) {
+    } else if self.advance_if_match(&[TokenType::Print]) {
       self.print_statement()
-    } else if self.match_token(&[TokenType::Return]) {
+    } else if self.advance_if_match(&[TokenType::Return]) {
       self.return_statement()
-    } else if self.match_token(&[TokenType::For]) {
+    } else if self.advance_if_match(&[TokenType::For]) {
       self.for_statement()
-    } else if self.match_token(&[TokenType::While]) {
+    } else if self.advance_if_match(&[TokenType::While]) {
       self.while_statement()
-    } else if self.match_token(&[TokenType::If]) {
+    } else if self.advance_if_match(&[TokenType::If]) {
       self.if_statement()
-    } else if self.match_token(&[TokenType::LeftBrace]) {
+    } else if self.advance_if_match(&[TokenType::LeftBrace]) {
       Ok(Stmt::new_block(self.block()?, self.next_id()))
-    } else if self.match_token(&[TokenType::Load]) {
+    } else if self.advance_if_match(&[TokenType::Load]) {
       self.load_statement()
-    } else if self.match_token(&[TokenType::Loadr]) {
+    } else if self.advance_if_match(&[TokenType::Loadr]) {
       self.loadr_statement()
     } else {
       self.expr_statement()
@@ -101,7 +101,7 @@ impl<'tokens> Parser<'tokens> {
   fn var_decl(&mut self) -> StatementResult {
     let name = self.consume(TokenType::Identifier, "Expected variable name")?;
     let mut expr = None;
-    if self.match_token(&[TokenType::Equal]) {
+    if self.advance_if_match(&[TokenType::Equal]) {
       expr = Some(self.expression()?);
     }
 
@@ -120,7 +120,7 @@ impl<'tokens> Parser<'tokens> {
       loop {
         params.push(self.consume(TokenType::Identifier, "expected identifier")?);
 
-        if !self.match_token(&[TokenType::Comma]) {
+        if !self.advance_if_match(&[TokenType::Comma]) {
           break;
         }
       }
@@ -149,7 +149,7 @@ impl<'tokens> Parser<'tokens> {
 
     let mut methods = Vec::new();
     while !self.check(TokenType::RightBrace) && !self.is_at_end() {
-      if self.match_token(&[TokenType::Fn]) {
+      if self.advance_if_match(&[TokenType::Fn]) {
         methods.push(self.fn_decl("method")?);
       } else {
         return Err(ScriptError {
@@ -185,7 +185,7 @@ impl<'tokens> Parser<'tokens> {
   fn for_statement(&mut self) -> StatementResult {
     let token = self.previous();
 
-    let initializer = if self.match_token(&[TokenType::Let]) {
+    let initializer = if self.advance_if_match(&[TokenType::Let]) {
       self.var_decl()?
     } else {
       self.expr_statement()?
@@ -230,10 +230,10 @@ impl<'tokens> Parser<'tokens> {
     let if_true = self.block()?;
     let mut if_false = None;
 
-    if self.match_token(&[TokenType::Else]) {
-      if_false = if self.match_token(&[TokenType::LeftBrace]) {
+    if self.advance_if_match(&[TokenType::Else]) {
+      if_false = if self.advance_if_match(&[TokenType::LeftBrace]) {
         Some(Box::new(Stmt::new_block(self.block()?, self.next_id())))
-      } else if self.match_token(&[TokenType::If]) {
+      } else if self.advance_if_match(&[TokenType::If]) {
         Some(Box::new(self.if_statement()?))
       } else {
         return Err(ScriptError {
@@ -268,26 +268,41 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn expression(&mut self) -> ExprResult {
-    self.ternary()
+    self.is()
   }
 
-  // TODO
-  fn _list(&mut self) -> ExprResult {
-    let mut expr = self.assignment()?;
+  fn is(&mut self) -> ExprResult {
+    let mut expr = self.ternary()?;
 
-    if self.match_token(&[TokenType::Comma]) {
-      let op = self.previous();
-      let right = self._list()?;
-      expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_id());
+    if self.advance_if_match(&[TokenType::Is]) {
+      let token = self.previous();
+      if self.advance_if_match(&[
+        TokenType::Nil,
+        TokenType::Error,
+        TokenType::Bool,
+        TokenType::Number,
+        TokenType::String,
+        TokenType::List,
+        TokenType::Fn,
+        TokenType::Class,
+      ]) {
+        let datatype = self.previous();
+        expr = Expr::Is(IsExpr::new(Box::new(expr), token, datatype, self.next_id()))
+      }
     }
 
     Ok(expr)
   }
 
+  // TODO
+  fn _list(&mut self) -> ExprResult {
+    self.ternary()
+  }
+
   fn ternary(&mut self) -> ExprResult {
     let mut expr = self.assignment()?;
 
-    if self.match_token(&[TokenType::Conditional]) {
+    if self.advance_if_match(&[TokenType::Conditional]) {
       let if_true = self.expression()?;
       self.consume(TokenType::Colon, "expected ':' for conditional operator")?;
       let if_false = self.expression()?;
@@ -305,7 +320,7 @@ impl<'tokens> Parser<'tokens> {
   fn assignment(&mut self) -> ExprResult {
     let expr = self.range()?;
 
-    if self.match_token(&[TokenType::Equal]) {
+    if self.advance_if_match(&[TokenType::Equal]) {
       let equals = self.previous();
       let value = self.assignment()?;
 
@@ -333,7 +348,7 @@ impl<'tokens> Parser<'tokens> {
   fn range(&mut self) -> ExprResult {
     let mut begin = self.or()?;
 
-    if self.match_token(&[TokenType::Range]) {
+    if self.advance_if_match(&[TokenType::Range]) {
       let token = self.previous();
       let end = self.or()?;
       begin = Expr::new_range(Box::new(begin), token, Box::new(end), self.next_id());
@@ -385,9 +400,9 @@ impl<'tokens> Parser<'tokens> {
     let mut expr = self.primary()?;
 
     loop {
-      if self.match_token(&[TokenType::LeftParen]) {
+      if self.advance_if_match(&[TokenType::LeftParen]) {
         expr = self.finish_call(expr)?;
-      } else if self.match_token(&[TokenType::Dot]) {
+      } else if self.advance_if_match(&[TokenType::Dot]) {
         let name = self.consume(TokenType::Identifier, "expected property name after '.'")?;
         expr = Expr::Get(GetExpr::new(Box::new(expr), name, self.next_id()));
       } else {
@@ -399,7 +414,7 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn primary(&mut self) -> ExprResult {
-    if self.match_token(&[
+    if self.advance_if_match(&[
       TokenType::False,
       TokenType::True,
       TokenType::Nil,
@@ -413,23 +428,23 @@ impl<'tokens> Parser<'tokens> {
       }
     }
 
-    if self.match_token(&[TokenType::Identifier]) {
+    if self.advance_if_match(&[TokenType::Identifier]) {
       return Ok(Expr::new_variable(self.previous(), self.next_id()));
     }
 
-    if self.match_token(&[TokenType::LeftParen]) {
+    if self.advance_if_match(&[TokenType::LeftParen]) {
       let expr = self.expression()?;
       self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
       return Ok(Expr::new_grouping(Box::new(expr), self.next_id()));
     }
 
-    if self.match_token(&[TokenType::Pipe]) {
+    if self.advance_if_match(&[TokenType::Pipe]) {
       let mut params = Vec::new();
       if !self.check(TokenType::Pipe) {
         loop {
           params.push(self.consume(TokenType::Identifier, "expected identifier")?);
 
-          if !self.match_token(&[TokenType::Comma]) {
+          if !self.advance_if_match(&[TokenType::Comma]) {
             break;
           }
         }
@@ -462,7 +477,7 @@ impl<'tokens> Parser<'tokens> {
   ) -> ExprResult {
     let mut expr = next(self)?;
 
-    while self.match_token(types) {
+    while self.advance_if_match(types) {
       let op = self.previous();
       let right = next(self)?;
       expr = Expr::new_logical(Box::new(expr), op, Box::new(right), self.next_id());
@@ -478,7 +493,7 @@ impl<'tokens> Parser<'tokens> {
   ) -> ExprResult {
     let mut expr = next(self)?;
 
-    while self.match_token(types) {
+    while self.advance_if_match(types) {
       let op = self.previous();
       let right = next(self)?;
       expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_id());
@@ -492,7 +507,7 @@ impl<'tokens> Parser<'tokens> {
     next: fn(&mut Self) -> ExprResult,
     types: &[TokenType],
   ) -> ExprResult {
-    if self.match_token(types) {
+    if self.advance_if_match(types) {
       let op = self.previous();
       let right = self.unary()?;
       Ok(Expr::new_unary(op, Box::new(right), self.next_id()))
@@ -513,7 +528,7 @@ impl<'tokens> Parser<'tokens> {
     Ok(v)
   }
 
-  fn match_token(&mut self, types: &[TokenType]) -> bool {
+  fn advance_if_match(&mut self, types: &[TokenType]) -> bool {
     for token_type in types.iter() {
       if self.check(*token_type) {
         self.advance();
@@ -591,7 +606,7 @@ impl<'tokens> Parser<'tokens> {
       loop {
         args.push(self.expression()?);
 
-        if !self.match_token(&[TokenType::Comma]) {
+        if !self.advance_if_match(&[TokenType::Comma]) {
           break;
         }
       }
@@ -701,18 +716,6 @@ impl Evaluator {
       }),
     }
   }
-
-  fn is_truthy(&mut self, v: &Value) -> bool {
-    if *v == Value::Nil {
-      return false;
-    }
-
-    if let Value::Bool(b) = *v {
-      return b;
-    }
-
-    true
-  }
 }
 
 impl Visitor<ExpressionStmt, StmtEvalResult> for Evaluator {
@@ -736,7 +739,7 @@ impl Visitor<LetStmt, StmtEvalResult> for Evaluator {
       value = self.eval_expr(i)?;
     }
 
-    self.env.define(e.name.lexeme.clone(), value);
+    self.env.define(&e.name.lexeme, value);
 
     Ok(StatementType::Regular(Value::Nil))
   }
@@ -753,11 +756,18 @@ impl Visitor<BlockStmt, StmtEvalResult> for Evaluator {
 
 impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, s: &ClassStmt) -> StmtEvalResult {
-    self.env.define(s.name.lexeme.clone(), Value::Nil);
-    let mut env = EnvRef::new_with_enclosing(self.env.snapshot());
+    self.env.define(&s.name.lexeme, Value::Nil);
+
+    let mut static_methods = EnvRef::new_with_enclosing(self.env.snapshot());
+    let mut instance_methods = EnvRef::new_with_enclosing(self.env.snapshot());
+
+    // for every method in the class body
     for method in s.methods.iter() {
+      // pull out the function from the method
       if let Stmt::Function(f) = method {
-        let (func, name) = if f.name.lexeme.starts_with('@') {
+        // if it begins with an '@' it is static
+        if f.name.lexeme.starts_with('@') {
+          // function names must be longer than one character
           if f.name.lexeme.len() == 1 {
             return Err(ScriptError {
               file: self.file.clone(),
@@ -768,34 +778,38 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
               ),
             });
           }
+          // strip off the '@'
           let name = &f.name.lexeme[1..];
-          (
-            Function::new_script(
-              String::from(name),
-              Rc::clone(&f.params),
-              Rc::clone(&f.body),
-              env.snapshot(),
-            ),
-            name,
-          )
+          let func = Function::new_script(
+            String::from(name),
+            Rc::clone(&f.params),
+            Rc::clone(&f.body),
+            static_methods.snapshot(),
+          );
+
+          if static_methods.define(name, Value::new(func)) {
+            return Err(ScriptError {
+              file: self.file.clone(),
+              line: f.name.line,
+              msg: format!("redeclaration of class method {}", f.name.lexeme),
+            });
+          }
         } else {
-          (
-            Function::new_method(
-              f.name.lexeme.clone(),
-              Rc::clone(&f.params),
-              Rc::clone(&f.body),
-              env.snapshot(),
-            ),
-            &f.name.lexeme[..],
-          )
+          let name = &f.name.lexeme[..];
+          let func = Function::new_method(
+            f.name.lexeme.clone(),
+            Rc::clone(&f.params),
+            Rc::clone(&f.body),
+            instance_methods.snapshot(),
+          );
+          if instance_methods.define(name, Value::new(func)) {
+            return Err(ScriptError {
+              file: self.file.clone(),
+              line: f.name.line,
+              msg: format!("redeclaration of class method {}", f.name.lexeme),
+            });
+          }
         };
-        if env.define(String::from(name), Value::Callee(func)) {
-          return Err(ScriptError {
-            file: self.file.clone(),
-            line: f.name.line,
-            msg: format!("redeclaration of class method {}", f.name.lexeme),
-          });
-        }
       } else {
         return Err(ScriptError {
           file: self.file.clone(),
@@ -804,10 +818,13 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
         });
       }
     }
-    let class = Value::Class {
-      name: s.name.lexeme.clone(),
-      methods: env,
-    };
+
+    let class = Value::Class(Class::new(
+      s.name.lexeme.clone(),
+      static_methods,
+      instance_methods,
+    ));
+
     self
       .env
       .assign(s.name.lexeme.clone(), class)
@@ -824,7 +841,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
 impl Visitor<IfStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, e: &IfStmt) -> StmtEvalResult {
     let result = self.eval_expr(&e.condition)?;
-    if self.is_truthy(&result) {
+    if result.truthy() {
       self.eval_block(&e.if_true, EnvRef::new_with_enclosing(self.env.snapshot()))
     } else if let Some(if_false) = &e.if_false {
       self.eval_stmt(&if_false)
@@ -840,7 +857,7 @@ impl Visitor<WhileStmt, StmtEvalResult> for Evaluator {
 
     loop {
       let res = self.eval_expr(&e.condition)?;
-      if !self.is_truthy(&res) {
+      if !res.truthy() {
         break;
       }
       match self.eval_block(&e.body, EnvRef::new_with_enclosing(self.env.snapshot()))? {
@@ -858,14 +875,13 @@ impl Visitor<WhileStmt, StmtEvalResult> for Evaluator {
 
 impl Visitor<FunctionStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, e: &FunctionStmt) -> StmtEvalResult {
-    let name = e.name.lexeme.clone();
     let func = Function::new_script(
       e.name.lexeme.clone(),
       Rc::clone(&e.params),
       Rc::clone(&e.body),
       self.env.snapshot(),
     );
-    self.env.define(name, Value::Callee(func));
+    self.env.define(&e.name.lexeme, Value::Callee(func));
     Ok(StatementType::Regular(Value::Nil))
   }
 }
@@ -951,57 +967,53 @@ impl Visitor<BinaryExpr, ExprEvalResult> for Evaluator {
 
     // value comparison
     if e.operator.token_type == TokenType::EqEq {
-      return Ok(Value::Bool(left == right));
+      return Ok(Value::new(left == right));
     }
 
     if e.operator.token_type == TokenType::ExEq {
-      return Ok(Value::Bool(left != right));
+      return Ok(Value::new(left != right));
     }
 
     // number arithmetic and comparison
-    if let Value::Num(l) = left {
-      if let Value::Num(r) = right {
-        return match e.operator.token_type {
-          TokenType::Plus => Ok(Value::Num(l + r)),
-          TokenType::Minus => Ok(Value::Num(l - r)),
-          TokenType::Slash => Ok(Value::Num(l / r)),
-          TokenType::Asterisk => Ok(Value::Num(l * r)),
-          TokenType::GreaterThan => Ok(Value::Bool(l > r)),
-          TokenType::GreaterEq => Ok(Value::Bool(l >= r)),
-          TokenType::LessThan => Ok(Value::Bool(l < r)),
-          TokenType::LessEq => Ok(Value::Bool(l <= r)),
-          _ => Err(ScriptError {
-            file: self.file.clone(),
-            line: e.operator.line,
-            msg: format!("Invalid operator ({:?}) for {} and {}", e.operator, l, r),
-          }),
-        };
-      }
+    match e.operator.token_type {
+      TokenType::Plus => Ok(left + right),
+      TokenType::Minus => Ok(left - right),
+      TokenType::Asterisk => Ok(left * right),
+      TokenType::Slash => Ok(left / right),
+      TokenType::GreaterThan => Ok(Value::Bool(left > right)),
+      TokenType::GreaterEq => Ok(Value::Bool(left >= right)),
+      TokenType::LessThan => Ok(Value::Bool(left < right)),
+      TokenType::LessEq => Ok(Value::Bool(left <= right)),
+      _ => Err(ScriptError {
+        file: self.file.clone(),
+        line: e.operator.line,
+        msg: format!(
+          "Invalid operator ({:?}) for {} and {}",
+          e.operator, left, right
+        ),
+      }),
     }
+  }
+}
 
-    // string concatenation
-    if e.operator.token_type == TokenType::Plus {
-      if let Value::Str(l) = &left {
-        if let Value::Str(r) = right {
-          return Ok(Value::Str(format!("{}{}", l, r)));
-        } else if let Value::Num(r) = right {
-          return Ok(Value::Str(format!("{}{}", l, r)));
-        }
-      } else if let Value::Num(l) = left {
-        if let Value::Str(r) = right {
-          return Ok(Value::Str(format!("{}{}", l, r)));
-        }
-      }
-    }
+impl Visitor<IsExpr, ExprEvalResult> for Evaluator {
+  fn visit(&mut self, e: &IsExpr) -> ExprEvalResult {
+    let value = self.eval_expr(&e.value)?;
 
-    Err(ScriptError {
-      file: self.file.clone(),
-      line: e.operator.line,
-      msg: format!(
-        "Combination of {:?} and {:?} not allowed with {:?}",
-        left, right, e.operator
-      ),
-    })
+    Ok(Value::new(
+      e.datatype.token_type
+        == match value {
+          Value::Nil => TokenType::Nil,
+          Value::Error(_) => TokenType::Error,
+          Value::Bool(_) => TokenType::Bool,
+          Value::Num(_) => TokenType::Number,
+          Value::Str(_) => TokenType::String,
+          Value::List(_) => TokenType::List,
+          Value::Callee(_) => TokenType::Fn,
+          Value::Class(_) => TokenType::Class,
+          _ => panic!("this should not be ever reached"),
+        },
+    ))
   }
 }
 
@@ -1009,7 +1021,7 @@ impl Visitor<TernaryExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &TernaryExpr) -> ExprEvalResult {
     let result = self.eval_expr(&e.condition)?;
 
-    if self.is_truthy(&result) {
+    if result.truthy() {
       self.eval_expr(&e.if_true)
     } else {
       self.eval_expr(&e.if_false)
@@ -1034,29 +1046,18 @@ impl Visitor<UnaryExpr, ExprEvalResult> for Evaluator {
     let right = self.eval_expr(&e.right)?;
 
     match e.operator.token_type {
-      TokenType::Exclamation => Ok(Value::Bool(!self.is_truthy(&right))),
-      TokenType::Minus => {
-        if let Value::Num(n) = right {
-          Ok(Value::Num(-n))
-        } else {
-          Err(ScriptError {
-            file: self.file.clone(),
-            line: e.operator.line,
-            msg: format!("invalid negation on type {}", right),
-          })
-        }
-      }
+      TokenType::Exclamation => Ok(!right),
+      TokenType::Minus => Ok(-right),
       TokenType::Plus => {
         if let Value::Num(n) = right {
-          Ok(Value::Num(n.abs()))
+          Ok(Value::new(n.abs()))
         } else if let Value::Str(s) = right {
-          match s.parse() {
-            Ok(n) => Ok(Value::Num(n)),
-            Err(err) => Err(ScriptError {
-              file: self.file.clone(),
-              line: e.operator.line,
-              msg: format!("string parse error: {}", err),
-            }),
+          match s.parse::<f64>() {
+            Ok(n) => Ok(Value::new(n)),
+            Err(err) => Ok(Value::new_err(format!(
+              "error converting string to number: {}",
+              err
+            ))),
           }
         } else {
           Err(ScriptError {
@@ -1113,12 +1114,12 @@ impl Visitor<LogicalExpr, ExprEvalResult> for Evaluator {
 
     match e.operator.token_type {
       TokenType::Or => {
-        if self.is_truthy(&left) {
+        if left.truthy() {
           return Ok(left);
         }
       }
       TokenType::And => {
-        if !self.is_truthy(&left) {
+        if !left.truthy() {
           return Ok(left);
         }
       }
@@ -1139,14 +1140,9 @@ impl Visitor<SetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &SetExpr) -> ExprEvalResult {
     let obj = self.eval_expr(&e.object)?;
 
-    if let Value::Instance {
-      instance_of: _,
-      methods: _,
-      mut members,
-    } = obj
-    {
+    if let Value::Instance(mut instance) = obj {
       let value = self.eval_expr(&e.value)?;
-      members.define(e.name.lexeme.clone(), value.clone());
+      instance.members.define(&e.name.lexeme, value.clone());
       Ok(value)
     } else {
       Err(ScriptError {
@@ -1159,44 +1155,33 @@ impl Visitor<SetExpr, ExprEvalResult> for Evaluator {
 }
 
 impl Visitor<RangeExpr, ExprEvalResult> for Evaluator {
-  fn visit(&mut self, e: &RangeExpr) -> ExprEvalResult {
-    let begin = self.eval_expr(&e.begin)?;
-    let end = self.eval_expr(&e.end)?;
+  fn visit(&mut self, _: &RangeExpr) -> ExprEvalResult {
+    //Err(ScriptError {
+    //  file: self.file.clone(),
+    //  line: e.token.line,
+    //  msg: String::from("expected number with range expression"),
+    //});
 
-    if let Value::Num(begin) = begin {
-      if let Value::Num(end) = end {
-        return Ok(Value::List(Values::new(
-          ((begin.round() as i64)..(end.round() as i64))
-            .map(|n| Value::Num(n as f64))
-            .collect(),
-        )));
-      }
-    }
-
-    Err(ScriptError {
-      file: self.file.clone(),
-      line: e.token.line,
-      msg: String::from("expected number with range expression"),
-    })
+    panic!("unimplemented");
   }
 }
 
 impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &CallExpr) -> ExprEvalResult {
     let callee = self.eval_expr(&e.callee)?;
-
     if let Value::Callee(func) = callee {
       let mut args = Vec::new();
       for arg in e.args.iter() {
         args.push(self.eval_expr(arg)?);
       }
       Ok(func.call(self, args, e.paren.line)?)
-    } else if let Value::Class { name, methods } = callee {
-      Ok(Value::Instance {
-        instance_of: name,
-        methods: methods.snapshot(),
-        members: EnvRef::default(),
-      })
+    } else if let Value::Class(class) = callee {
+      let instance = Instance::new(
+        class.name.clone(),
+        class.instance_methods.snapshot(),
+        EnvRef::default(),
+      );
+      Ok(Value::Instance(instance))
     } else {
       Err(ScriptError {
         file: self.file.clone(),
@@ -1210,26 +1195,23 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
 impl Visitor<GetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &GetExpr) -> ExprEvalResult {
     match self.eval_expr(&e.object)? {
-      Value::Instance {
-        instance_of,
-        methods,
-        members,
-      } => {
-        self.last_object = Some(Value::Instance {
-          instance_of,
-          methods: methods.snapshot(),
-          members: members.snapshot(),
-        });
-        Ok(if let Some(v) = methods.get(&e.name.lexeme) {
+      Value::Instance(instance) => {
+        self.last_object = Some(Value::Instance(Instance {
+          instance_of: instance.instance_of,
+          methods: instance.methods.snapshot(),
+          members: instance.members.snapshot(),
+        }));
+
+        Ok(if let Some(v) = instance.methods.get(&e.name.lexeme) {
           v
-        } else if let Some(v) = members.get(&e.name.lexeme.clone()) {
+        } else if let Some(v) = instance.members.get(&e.name.lexeme.clone()) {
           v
         } else {
           Value::Nil
         })
       }
-      Value::Class { name, methods } => {
-        if let Some(v) = methods.get(&e.name.lexeme) {
+      Value::Class(class) => {
+        if let Some(v) = class.static_methods.get(&e.name.lexeme) {
           Ok(v)
         } else {
           Err(ScriptError {
@@ -1237,7 +1219,7 @@ impl Visitor<GetExpr, ExprEvalResult> for Evaluator {
             line: e.name.line,
             msg: format!(
               "static method {} not defined on class {}",
-              e.name.lexeme, name
+              e.name.lexeme, class.name
             ),
           })
         }
@@ -1316,6 +1298,107 @@ mod tests {
     use super::*;
 
     #[test]
+    fn evaluation_of_is_should_result_in_expected_truth_values() {
+      const SRC: &str = r#"
+      fn is_nil(x) {
+        assert(x is nil, true);
+      }
+
+      fn is_error(x) {
+        assert(x is error, true);
+      }
+
+      fn is_bool(x) {
+        assert(x is bool, true);
+      }
+
+      fn is_number(x) {
+        assert(x is number, true);
+      }
+
+      fn is_string(x) {
+        assert(x is string, true);
+      }
+
+      fn is_fn(x) {
+        assert(x is fn, true);
+      }
+
+      fn is_class(x) {
+        assert(x is class, true);
+      }
+
+      let x;
+
+      x = nil;
+      is_nil(x);
+      is_nil(nil);
+
+      x = true;
+      is_bool(x);
+      is_bool(false);
+
+      x = 1.0;
+      is_number(x);
+      is_number(1);
+
+      x = "test";
+      is_string(x);
+      is_string("another");
+
+      x = is_fn;
+      is_fn(x);
+      is_fn(is_class);
+
+      class Test {}
+
+      x = Test;
+      is_class(x);
+      is_class(Test);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn evaluation_of_static_method_should_be_callable_from_class() {
+      const SRC: &str = r#"
+      class Test {
+        fn @test() {
+          return 100;
+        }
+      }
+
+      assert(Test.test(), 100);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn evaluation_of_static_method_should_not_be_callable_from_class_when_method_does_not_begin_with_at(
+    ) {
+      const SRC: &str = r#"
+      class Test {
+        fn test() {
+          return 100;
+        }
+      }
+
+      assert(Test.test(), 100);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      assert!(matches!(i.exec(&"test".into(), SRC), Err(_)));
+    }
+
+    #[test]
     fn evaluation_should_pass_correct_variables_to_member_functions() {
       const SRC: &str = r#"
       let x = 100;
@@ -1339,10 +1422,10 @@ mod tests {
     fn evaluation_should_not_allow_class_methods_if_they_do_not_start_with_an_at() {
       const SRC: &str = r#"
       class Test {
-        fn test() {}
+        fn test(self) {}
       }
 
-      Test.test()
+      Test.test();
       "#;
 
       let i = Interpreter::new_with_test_support();
@@ -1356,11 +1439,34 @@ mod tests {
         fn @test() {}
       }
 
-      Test.test()
+      Test.test();
       "#;
 
       let i = Interpreter::new_with_test_support();
-      assert!(i.exec(&"test".into(), SRC).is_err())
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn evaluator_should_allow_functions_within_functions() {
+      const SRC: &str = r#"
+      fn outer() {
+        fn inner() {
+          return 1;
+        }
+
+        return inner;
+      }
+
+      let f = outer();
+      assert(f(), 1);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
     }
   }
 }

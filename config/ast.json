@@ -188,6 +188,23 @@
             "type": "Token"
           }
         ]
+      },
+      {
+        "name": "Is",
+        "members": [
+          {
+            "name": "value",
+            "type": "Box<Expr>"
+          },
+          {
+            "name": "is",
+            "type": "Token"
+          },
+          {
+            "name": "datatype",
+            "type": "Token"
+          }
+        ]
       }
     ]
   },

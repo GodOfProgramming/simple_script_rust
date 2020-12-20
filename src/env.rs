@@ -1,4 +1,4 @@
-use crate::types::{Airity, Function, NativeFn, Value};
+use crate::types::{Airity, Class, Function, NativeFn, Value};
 use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
@@ -27,8 +27,8 @@ impl Env {
     }
   }
 
-  fn define(&mut self, name: String, value: Value) -> bool {
-    self.scope.insert(name, value).is_some()
+  fn define(&mut self, name: &str, value: Value) -> bool {
+    self.scope.insert(String::from(name), value).is_some()
   }
 
   fn lookup(&self, name: &str) -> Option<Value> {
@@ -85,15 +85,31 @@ impl EnvRef {
     }
   }
 
-  pub fn define_native(&mut self, name: String, airity: Airity, func: NativeFn) {
+  pub fn define_native(&mut self, name: &str, airity: Airity, func: NativeFn) -> bool {
     self.define(
-      name.clone(),
-      Value::Callee(Function::new_native(name, airity, func)),
-    );
+      name,
+      Value::Callee(Function::new_native(String::from(name), airity, func)),
+    )
+  }
+
+  pub fn define_class(
+    &mut self,
+    name: &str,
+    static_methods: EnvRef,
+    instance_methods: EnvRef,
+  ) -> bool {
+    self.define(
+      name,
+      Value::Class(Class {
+        name: String::from(name),
+        static_methods,
+        instance_methods,
+      }),
+    )
   }
 
   // returns true if variable was already defined
-  pub fn define(&mut self, name: String, value: Value) -> bool {
+  pub fn define(&mut self, name: &str, value: Value) -> bool {
     self.env.borrow_mut().define(name, value)
   }
 

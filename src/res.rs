@@ -1,7 +1,7 @@
 use crate::ast::Evaluator;
 use crate::expr::{
-  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, LiteralExpr,
-  LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
+  self, AssignExpr, BinaryExpr, CallExpr, ClosureExpr, Expr, GetExpr, GroupingExpr, IsExpr,
+  LiteralExpr, LogicalExpr, RangeExpr, SetExpr, TernaryExpr, UnaryExpr, VariableExpr,
 };
 use crate::lex::Token;
 use crate::stmt::{
@@ -109,7 +109,7 @@ impl<'eval> Resolver<'eval> {
       self.declare(param)?;
       self.define(param)?;
     }
-    self.resolve_statements(&*e.body)?;
+    self.resolve_statements(&e.body)?;
     self.end_function();
     Ok(())
   }
@@ -233,6 +233,12 @@ impl Visitor<RangeExpr, ResolveResult> for Resolver<'_> {
   }
 }
 
+impl Visitor<IsExpr, ResolveResult> for Resolver<'_> {
+  fn visit(&mut self, e: &IsExpr) -> ResolveResult {
+    self.resolve_expression(&e.value)
+  }
+}
+
 impl Visitor<TernaryExpr, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, e: &TernaryExpr) -> ResolveResult {
     self.resolve_expression(&e.condition)?;
@@ -289,9 +295,13 @@ impl Visitor<ExpressionStmt, ResolveResult> for Resolver<'_> {
 impl Visitor<IfStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &IfStmt) -> ResolveResult {
     self.resolve_expression(&s.condition)?;
+    self.begin_scope();
     self.resolve_statements(&s.if_true)?;
+    self.end_scope();
     if let Some(if_false) = &s.if_false {
+      self.begin_scope();
       self.resolve_statement(if_false)?;
+      self.end_scope();
     }
     Ok(())
   }
@@ -322,7 +332,10 @@ impl Visitor<ReturnStmt, ResolveResult> for Resolver<'_> {
 impl Visitor<WhileStmt, ResolveResult> for Resolver<'_> {
   fn visit(&mut self, s: &WhileStmt) -> ResolveResult {
     self.resolve_expression(&s.condition)?;
-    self.resolve_statements(&s.body)
+    self.begin_scope();
+    self.resolve_statements(&s.body)?;
+    self.end_scope();
+    Ok(())
   }
 }
 
@@ -669,6 +682,128 @@ mod tests {
       "#;
       let i = Interpreter::new_with_test_support();
       assert!(i.exec(&"test".into(), SRC).is_err());
+    }
+
+    #[test]
+    fn resolver_should_find_variables_within_if_statements() {
+      const SRC: &str = r#"
+      let e = 1;
+
+      if true {
+        e = 2;
+      }
+
+      assert(e, 2);
+      "#;
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_should_find_variables_within_while_statements() {
+      const SRC: &str = r#"
+      let e = true;
+
+      while e {
+        e = false;
+      }
+      "#;
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_should_find_variables_within_for_statements() {
+      const SRC: &str = r#"
+      let e;
+
+      for let x = 0; x < 1; x = x + 1 {
+        e = x;
+        if true {
+          e = x + 1;
+        }
+      }
+
+      assert(e, 1);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_should_bind_to_lambda_parameters() {
+      const SRC: &str = r#"
+      fn new_test() {
+        |x, y, z| {
+          if x < 1 or y < 1 {
+            return;
+          }
+          assert(x, 1);
+          assert(y, 2);
+          z(x - 1, y - 1, z);
+        };
+      }
+
+      let test = new_test();
+      test(1, 2, test);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_should_bind_to_fn_params() {
+      const SRC: &str = r#"
+      fn outer(a) {
+        fn inner(b) {
+          return a + b;
+        }
+
+        return inner;
+      }
+
+      let f1 = outer(1);
+      assert(f1(1), 2);
+
+      let f2 = outer(2);
+      assert(f1(1), 2);
+      assert(f2(1), 3);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
+    }
+
+    #[test]
+    fn resolver_allows_for_recursion() {
+      const SRC: &str = r#"
+      fn rec(n) {
+        if n == 0 {
+          return;
+        }
+
+        rec(n - 1);
+      }
+
+      rec(10);
+      "#;
+
+      let i = Interpreter::new_with_test_support();
+      if let Err(err) = i.exec(&"test".into(), SRC) {
+        panic!(format!("{}", err));
+      }
     }
   }
 }

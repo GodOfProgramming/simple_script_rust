@@ -1,12 +1,3 @@
-use crate::env::EnvRef;
-use crate::types::Value;
-use std::ffi::OsString;
-use std::fmt::{self, Display};
-use std::fs;
-use std::io::{self, Write};
-
-pub mod types;
-
 mod ast;
 mod builtin;
 mod env;
@@ -14,6 +5,14 @@ mod expr;
 mod lex;
 mod res;
 mod stmt;
+mod types;
+
+use crate::env::EnvRef;
+pub use crate::types::{New, Value};
+use std::ffi::OsString;
+use std::fmt::{self, Display};
+use std::fs;
+use std::io::{self, Write};
 
 #[derive(Debug)]
 pub struct ScriptError {
@@ -66,7 +65,7 @@ impl Interpreter {
   }
 
   pub fn set_var(&mut self, name: &str, value: Value) {
-    self.globals.define(name.to_string(), value);
+    self.globals.define(name, value);
   }
 
   pub fn exec(&self, script_name: &OsString, src: &str) -> Result<Value, ScriptError> {
@@ -179,10 +178,10 @@ mod tests {
     let i = Interpreter::default();
 
     let results = vec![
-      Value::Num(12345.0),
-      Value::Str(String::from("some string")),
-      Value::Bool(true),
-      Value::Bool(false),
+      Value::new(12345.0),
+      Value::new("some string"),
+      Value::new(true),
+      Value::new(false),
       Value::Nil,
     ];
     let tests = vec![
@@ -210,7 +209,10 @@ mod tests {
     let closure = i1.exec(&"test".into(), CLOSURE_INIT_SCRIPT).unwrap();
     i2.set_var(&String::from("closure"), closure);
 
-    handle_result(Value::Num(3.0), i2.exec(&"test".into(), CLOSURE_CALL_SCRIPT));
+    handle_result(
+      Value::new(3.0),
+      i2.exec(&"test".into(), CLOSURE_CALL_SCRIPT),
+    );
   }
 
   fn handle_result(expected: Value, res: ExecResult) {

@@ -2,6 +2,10 @@ class Test {
   fn test(self, arg) {
     self.x = arg;
   }
+
+  fn exam(self) {
+    print("test");
+  }
 }
 
 class Other {
@@ -38,3 +42,5 @@ print other1.x;
 print other == other1;
 print other == t1;
 print other == t2;
+
+Test.exam(1);

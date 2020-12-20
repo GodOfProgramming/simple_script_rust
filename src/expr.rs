@@ -17,6 +17,7 @@ pub enum Expr {
     Literal(LiteralExpr),
     Unary(UnaryExpr),
     Variable(VariableExpr),
+    Is(IsExpr),
 }
 
 impl Expr {
@@ -66,6 +67,9 @@ impl Expr {
     pub fn new_variable(name: Token, id: usize) -> Self {
         Self::Variable(VariableExpr::new(name, id))
     }
+    pub fn new_is(value: Box<Expr>, is: Token, datatype: Token, id: usize) -> Self {
+        Self::Is(IsExpr::new(value, is, datatype, id))
+    }
 }
 
 pub fn accept<V, R>(e: &Expr, visitor: &mut V) -> R
@@ -82,7 +86,8 @@ where
         + Visitor<GroupingExpr, R>
         + Visitor<LiteralExpr, R>
         + Visitor<UnaryExpr, R>
-        + Visitor<VariableExpr, R>,
+        + Visitor<VariableExpr, R>
+        + Visitor<IsExpr, R>,
 {
     match e {
         Expr::Closure(x) => visitor.visit(x),
@@ -98,6 +103,7 @@ where
         Expr::Literal(x) => visitor.visit(x),
         Expr::Unary(x) => visitor.visit(x),
         Expr::Variable(x) => visitor.visit(x),
+        Expr::Is(x) => visitor.visit(x),
     }
 }
 
@@ -291,5 +297,23 @@ pub struct VariableExpr {
 impl VariableExpr {
     pub fn new(name: Token, id: usize) -> Self {
         Self { name, id }
+    }
+}
+
+pub struct IsExpr {
+    pub value: Box<Expr>,
+    pub is: Token,
+    pub datatype: Token,
+    pub id: usize,
+}
+
+impl IsExpr {
+    pub fn new(value: Box<Expr>, is: Token, datatype: Token, id: usize) -> Self {
+        Self {
+            value,
+            is,
+            datatype,
+            id,
+        }
     }
 }

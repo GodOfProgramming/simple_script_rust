@@ -24,6 +24,7 @@ load            → "load" expression ";" ;
 
 expression 			→ literal | unary | binary | grouping ;
 arguments       → expression ( "," expression )* ;
+is              → ternary "is" ( "nil" | "error" | "bool" | "number" | "string" | "fn" | IDENTIFIER )
 ternary         → assignment "?" expression ":" expression ;
 assignment      → ( call "." )? IDENTIFIER "=" assignment | range ;
 range           → logical_or ".." logical_or ;
