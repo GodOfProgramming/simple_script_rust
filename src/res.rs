@@ -690,8 +690,10 @@ mod tests {
       let e = 1;
 
       if true {
-        e = e;
+        e = 2;
       }
+
+      assert(e, 2);
       "#;
       let i = Interpreter::new_with_test_support();
       if let Err(err) = i.exec(&"test".into(), SRC) {

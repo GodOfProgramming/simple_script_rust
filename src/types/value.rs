@@ -25,10 +25,6 @@ impl Value {
       return false;
     }
 
-    if let Value::Error(_) = self {
-      return false;
-    }
-
     if let Value::Bool(b) = self {
       return *b;
     }
@@ -87,6 +83,12 @@ impl New<String> for Value {
   }
 }
 
+impl New<&str> for Value {
+  fn new(item: &str) -> Self {
+    Self::new(String::from(item))
+  }
+}
+
 impl New<Values> for Value {
   fn new(item: Values) -> Self {
     Self::List(item)
@@ -120,6 +122,12 @@ impl ValueError<bool> for Value {
 impl ValueError<f64> for Value {
   fn new_err(err: f64) -> Self {
     Self::Error(Box::new(Self::Num(err)))
+  }
+}
+
+impl ValueError<&str> for Value {
+  fn new_err(err: &str) -> Self {
+    Self::new_err(String::from(err))
   }
 }
 
@@ -288,15 +296,15 @@ impl Neg for Value {
 
   fn neg(self) -> Self::Output {
     match self {
-      Self::Nil => Self::Nil,
-      Self::Error(_) => Self::new_err(String::from("cannot negate an error")),
-      Self::Bool(b) => Self::Bool(!b),
+      Self::Nil => Self::new_err("cannot negate nil"),
+      Self::Error(_) => Self::new_err("cannot negate an error"),
+      Self::Bool(_) => Self::new_err("cannot negate a bool"),
       Self::Num(n) => Self::Num(-n),
-      Self::Str(_) => Self::new_err(String::from("cannot negate a string")),
-      Self::List(_) => Self::new_err(String::from("cannot negate a list")),
-      Self::Callee(_) => Self::new_err(String::from("cannot negate a function")),
-      Self::Class(_) => Self::new_err(String::from("cannot negate a class")),
-      Self::Instance(_) => panic!("unimplemented"),
+      Self::Str(_) => Self::new_err("cannot negate a string"),
+      Self::List(_) => Self::new_err("cannot negate a list"),
+      Self::Callee(_) => Self::new_err("cannot negate a function"),
+      Self::Class(_) => Self::new_err("cannot negate a class"),
+      Self::Instance(i) => Self::new_err(format!("cannot negate a {}", i.instance_of)),
     }
   }
 }
@@ -477,6 +485,51 @@ mod tests {
   use crate::env::EnvRef;
   use crate::types::Airity;
 
+  #[test]
+  fn is_truthy() {
+    let true_expectations = |t: Value| {
+      assert!(t.truthy());
+    };
+
+    let false_expectations = |t: Value| {
+      assert!(!t.truthy());
+    };
+
+    run_assertions(
+      vec![true_expectations],
+      vec![
+        Value::new_err("can be any error type"),
+        Value::new(true),
+        Value::new(0.0),
+        Value::new(1.0),
+        Value::new(-1.0),
+        Value::new("some string"),
+        Value::new(Values::new(Vec::new())),
+        // TODO
+        // Value::new(Function::new_native(
+        //   String::from("example"),
+        //   Airity::Fixed(0),
+        //   |_, _| Ok(Value::Nil),
+        // )),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+
+    run_assertions(
+      vec![false_expectations],
+      vec![Value::Nil, Value::new(false)],
+    );
+  }
+
   fn run_assertions(funcs: Vec<fn(Value)>, values: Vec<Value>) {
     for func in funcs {
       let values = values.clone();
@@ -487,30 +540,30 @@ mod tests {
   }
 
   #[test]
-  fn can_add_values() {
+  fn can_add() {
     let x = Value::new(1.0);
     let y = Value::new(2.0);
 
     assert_eq!(x + y, Value::new(3.0));
 
-    let x = Value::new(String::from("x"));
-    let y = Value::new(String::from("y"));
+    let x = Value::new("x");
+    let y = Value::new("y");
 
-    assert_eq!(x + y, Value::new(String::from("xy")));
+    assert_eq!(x + y, Value::new("xy"));
 
     let x = Value::new(1.0);
-    let y = Value::new(String::from("y"));
+    let y = Value::new("y");
 
-    assert_eq!(x + y, Value::new(String::from("1y")));
+    assert_eq!(x + y, Value::new("1y"));
 
-    let x = Value::new(String::from("x"));
+    let x = Value::new("x");
     let y = Value::new(2.0);
 
-    assert_eq!(x + y, Value::new(String::from("x2")));
+    assert_eq!(x + y, Value::new("x2"));
   }
 
   #[test]
-  fn adding_invalid_combinations_result_in_errors() {
+  fn cannot_add_invalid() {
     let assert_err_with_num = |t: Value| {
       let num = Value::new(1.0);
       assert!(matches!(num + t.clone(), Value::Error(_)));
@@ -519,9 +572,9 @@ mod tests {
     };
 
     let assert_err_with_str = |t: Value| {
-      let s = Value::new(String::from("a"));
+      let s = Value::new("a");
       assert!(matches!(s + t.clone(), Value::Error(_)));
-      let s = Value::new(String::from("a"));
+      let s = Value::new("a");
       assert!(matches!(t + s, Value::Error(_)));
     };
 
@@ -529,7 +582,7 @@ mod tests {
       vec![assert_err_with_num, assert_err_with_str],
       vec![
         Value::Nil,
-        Value::new_err(String::from("test error")),
+        Value::new_err("test error"),
         Value::new(true),
         Value::new(false),
         Value::new(Values(Vec::new())),
@@ -538,7 +591,11 @@ mod tests {
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),
@@ -549,34 +606,34 @@ mod tests {
   }
 
   #[test]
-  fn can_add_assign_values() {
+  fn can_add_assign() {
     let mut x = Value::new(1.0);
     let y = Value::new(2.0);
     x += y;
 
     assert_eq!(x, Value::new(3.0));
 
-    let mut x = Value::new(String::from("x"));
-    let y = Value::new(String::from("y"));
+    let mut x = Value::new("x");
+    let y = Value::new("y");
     x += y;
 
-    assert_eq!(x, Value::new(String::from("xy")));
+    assert_eq!(x, Value::new("xy"));
 
     let mut x = Value::new(1.0);
-    let y = Value::new(String::from("y"));
+    let y = Value::new("y");
     x += y;
 
-    assert_eq!(x, Value::new(String::from("1y")));
+    assert_eq!(x, Value::new("1y"));
 
-    let mut x = Value::new(String::from("x"));
+    let mut x = Value::new("x");
     let y = Value::new(2.0);
     x += y;
 
-    assert_eq!(x, Value::new(String::from("x2")));
+    assert_eq!(x, Value::new("x2"));
   }
 
   #[test]
-  fn add_assign_with_invalid_combo_results_in_error() {
+  fn cannot_add_assign_invalid() {
     let assert_err_with_num = |mut t: Value| {
       let mut num = Value::new(1.0);
       num += t.clone();
@@ -587,10 +644,10 @@ mod tests {
     };
 
     let assert_err_with_str = |mut t: Value| {
-      let mut num = Value::new(String::from("a"));
+      let mut num = Value::new("a");
       num += t.clone();
       assert!(matches!(num, Value::Error(_)));
-      let num = Value::new(String::from("a"));
+      let num = Value::new("a");
       t += num;
       assert!(matches!(t, Value::Error(_)));
     };
@@ -599,7 +656,7 @@ mod tests {
       vec![assert_err_with_num, assert_err_with_str],
       vec![
         Value::Nil,
-        Value::new_err(String::from("test error")),
+        Value::new_err("test error"),
         Value::new(true),
         Value::new(false),
         Value::new(Values(Vec::new())),
@@ -608,7 +665,11 @@ mod tests {
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),
@@ -619,7 +680,7 @@ mod tests {
   }
 
   #[test]
-  fn can_sub_values() {
+  fn can_sub() {
     let x = Value::new(3.0);
     let y = Value::new(2.0);
 
@@ -627,7 +688,7 @@ mod tests {
   }
 
   #[test]
-  fn invalid_sub_returns_errors() {
+  fn cannot_sub_invalid() {
     let assert_err_with_num = |t: Value| {
       let num = Value::new(1.0);
       assert!(matches!(num - t.clone(), Value::Error(_)));
@@ -639,17 +700,21 @@ mod tests {
       vec![assert_err_with_num],
       vec![
         Value::Nil,
-        Value::new_err(String::from("test error")),
+        Value::new_err("test error"),
         Value::new(true),
         Value::new(false),
-        Value::new(String::from("test")),
+        Value::new("test"),
         Value::new(Values(Vec::new())),
         Value::new(Function::new_native(
           String::from("example"),
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),
@@ -669,7 +734,7 @@ mod tests {
   }
 
   #[test]
-  fn sub_assign_with_invalid_values_returns_errors() {
+  fn cannot_sub_assign_invalid() {
     let assert_err_with_num = |mut t: Value| {
       let mut num = Value::new(1.0);
       num -= t.clone();
@@ -683,17 +748,21 @@ mod tests {
       vec![assert_err_with_num],
       vec![
         Value::Nil,
-        Value::new_err(String::from("test error")),
+        Value::new_err("test error"),
         Value::new(true),
         Value::new(false),
-        Value::new(String::from("test")),
+        Value::new("test"),
         Value::new(Values(Vec::new())),
         Value::new(Function::new_native(
           String::from("example"),
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),
@@ -704,25 +773,25 @@ mod tests {
   }
 
   #[test]
-  fn can_multiply() {
+  fn can_mul() {
     let x = Value::new(2.0);
     let y = Value::new(3.0);
 
     assert_eq!(x * y, Value::new(6.0));
 
     let x = Value::new(2.0);
-    let y = Value::new(String::from("a"));
+    let y = Value::new("a");
 
-    assert_eq!(x * y, Value::new(String::from("aa")));
+    assert_eq!(x * y, Value::new("aa"));
 
     let x = Value::new(2.0);
-    let y = Value::new(String::from("a"));
+    let y = Value::new("a");
 
-    assert_eq!(x * y, Value::new(String::from("aa")));
+    assert_eq!(x * y, Value::new("aa"));
   }
 
   #[test]
-  fn multiplying_with_invalid_values_results_in_an_error() {
+  fn cannot_mul_invalid() {
     let assert_err_with_num = |t: Value| {
       let num = Value::new(1.0);
       assert!(matches!(num * t.clone(), Value::Error(_)));
@@ -731,9 +800,9 @@ mod tests {
     };
 
     let assert_err_with_str = |t: Value| {
-      let s = Value::new(String::from("a"));
+      let s = Value::new("a");
       assert!(matches!(s * t.clone(), Value::Error(_)));
-      let s = Value::new(String::from("a"));
+      let s = Value::new("a");
       assert!(matches!(t * s, Value::Error(_)));
     };
 
@@ -741,7 +810,7 @@ mod tests {
       vec![assert_err_with_num, assert_err_with_str],
       vec![
         Value::Nil,
-        Value::new_err(String::from("test error")),
+        Value::new_err("test error"),
         Value::new(true),
         Value::new(false),
         Value::new(Values(Vec::new())),
@@ -750,7 +819,11 @@ mod tests {
           Airity::Fixed(0),
           |_, _| Ok(Value::Nil),
         )),
-        Value::new(Class::new(String::from("example"), EnvRef::default(), EnvRef::default())),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
         Value::new(Instance::new(
           String::from("example"),
           EnvRef::default(),
@@ -761,7 +834,348 @@ mod tests {
 
     run_assertions(
       vec![assert_err_with_str],
-      vec![Value::new(-1.0), Value::new(String::from("test"))],
+      vec![Value::new(-1.0), Value::new("test")],
+    );
+  }
+
+  #[test]
+  fn can_mul_assign() {
+    let mut x = Value::new(2.0);
+    let y = Value::new(3.0);
+    x *= y;
+
+    assert_eq!(x, Value::new(6.0));
+
+    let mut x = Value::new(2.0);
+    let y = Value::new("a");
+    x *= y;
+
+    assert_eq!(x, Value::new("aa"));
+
+    let mut x = Value::new(2.0);
+    let y = Value::new("a");
+    x *= y;
+
+    assert_eq!(x, Value::new("aa"));
+  }
+
+  #[test]
+  fn cannot_mul_assign_invalid() {
+    let assert_err_with_num = |mut t: Value| {
+      let mut num = Value::new(1.0);
+      num *= t.clone();
+      assert!(matches!(num, Value::Error(_)));
+      let num = Value::new(1.0);
+      t *= num;
+      assert!(matches!(t, Value::Error(_)));
+    };
+
+    let assert_err_with_str = |mut t: Value| {
+      let mut s = Value::new("a");
+      s *= t.clone();
+      assert!(matches!(s, Value::Error(_)));
+      let s = Value::new("a");
+      t *= s;
+      assert!(matches!(t, Value::Error(_)));
+    };
+
+    run_assertions(
+      vec![assert_err_with_num, assert_err_with_str],
+      vec![
+        Value::Nil,
+        Value::new_err("test error"),
+        Value::new(true),
+        Value::new(false),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+
+    run_assertions(
+      vec![assert_err_with_str],
+      vec![Value::new(-1.0), Value::new("test")],
+    );
+  }
+
+  #[test]
+  fn can_div() {
+    let x = Value::new(3.0);
+    let y = Value::new(2.0);
+
+    assert_eq!(x / y, Value::new(1.5));
+  }
+
+  #[test]
+  fn cannot_div_invalid() {
+    let assert_err_with_num = |t: Value| {
+      let num = Value::new(1.0);
+      assert!(matches!(num / t.clone(), Value::Error(_)));
+      let num = Value::new(1.0);
+      assert!(matches!(t / num, Value::Error(_)));
+    };
+
+    run_assertions(
+      vec![assert_err_with_num],
+      vec![
+        Value::Nil,
+        Value::new_err("test error"),
+        Value::new(true),
+        Value::new(false),
+        Value::new("test"),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+  }
+
+  #[test]
+  fn can_div_assign() {
+    let mut x = Value::new(3.0);
+    let y = Value::new(2.0);
+    x /= y;
+
+    assert_eq!(x, Value::new(1.5));
+  }
+
+  #[test]
+  fn cannot_div_assign_invalid() {
+    let assert_err_with_num = |mut t: Value| {
+      let mut num = Value::new(1.0);
+      num /= t.clone();
+      assert!(matches!(num, Value::Error(_)));
+      let num = Value::new(1.0);
+      t /= num;
+      assert!(matches!(t, Value::Error(_)));
+    };
+
+    run_assertions(
+      vec![assert_err_with_num],
+      vec![
+        Value::Nil,
+        Value::new_err("test error"),
+        Value::new(true),
+        Value::new(false),
+        Value::new("test"),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+  }
+
+  #[test]
+  fn can_mod() {
+    let x = Value::new(3.0);
+    let y = Value::new(2.0);
+
+    assert_eq!(x % y, Value::new(1.0));
+  }
+
+  #[test]
+  fn cannot_mod_invalid() {
+    let assert_err_with_num = |t: Value| {
+      let num = Value::new(1.0);
+      assert!(matches!(num % t.clone(), Value::Error(_)));
+      let num = Value::new(1.0);
+      assert!(matches!(t % num, Value::Error(_)));
+    };
+
+    run_assertions(
+      vec![assert_err_with_num],
+      vec![
+        Value::Nil,
+        Value::new_err("test error"),
+        Value::new(true),
+        Value::new(false),
+        Value::new("test"),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+  }
+
+  #[test]
+  fn can_mod_assign() {
+    let mut x = Value::new(3.0);
+    let y = Value::new(2.0);
+    x %= y;
+
+    assert_eq!(x, Value::new(1.0));
+  }
+
+  #[test]
+  fn cannot_mod_assign_invalid() {
+    let assert_err_with_num = |mut t: Value| {
+      let mut num = Value::new(1.0);
+      num %= t.clone();
+      assert!(matches!(num, Value::Error(_)));
+      let num = Value::new(1.0);
+      t %= num;
+      assert!(matches!(t, Value::Error(_)));
+    };
+
+    run_assertions(
+      vec![assert_err_with_num],
+      vec![
+        Value::Nil,
+        Value::new_err("test error"),
+        Value::new(true),
+        Value::new(false),
+        Value::new("test"),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+  }
+
+  #[test]
+  fn not_a_value_returns_opposite_truthiness() {
+    let true_expectations = |t: Value| {
+      assert_eq!(Value::new(true), !t);
+    };
+
+    let false_expectations = |t: Value| {
+      assert_eq!(Value::new(false), !t);
+    };
+
+    run_assertions(vec![true_expectations], vec![Value::Nil, Value::new(false)]);
+
+    run_assertions(
+      vec![false_expectations],
+      vec![
+        Value::new_err("can be any error type"),
+        Value::new(true),
+        Value::new(0.0),
+        Value::new(1.0),
+        Value::new(-1.0),
+        Value::new("some string"),
+        Value::new(Values::new(Vec::new())),
+        // TODO
+        // Value::new(Function::new_native(
+        //   String::from("example"),
+        //   Airity::Fixed(0),
+        //   |_, _| Ok(Value::Nil),
+        // )),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
+    );
+  }
+
+  #[test]
+  fn can_negate() {
+    let x = Value::new(1.0);
+    assert_eq!(-x, Value::new(-1.0));
+  }
+
+  #[test]
+  fn cannot_negate_invalid() {
+    let assert_err = |t: Value| {
+      assert!(matches!(-t, Value::Error(_)));
+    };
+
+    run_assertions(
+      vec![assert_err],
+      vec![
+        Value::Nil,
+        Value::new_err("test error"),
+        Value::new(true),
+        Value::new(false),
+        Value::new("test"),
+        Value::new(Values(Vec::new())),
+        Value::new(Function::new_native(
+          String::from("example"),
+          Airity::Fixed(0),
+          |_, _| Ok(Value::Nil),
+        )),
+        Value::new(Class::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+        Value::new(Instance::new(
+          String::from("example"),
+          EnvRef::default(),
+          EnvRef::default(),
+        )),
+      ],
     );
   }
 }

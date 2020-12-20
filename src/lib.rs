@@ -179,7 +179,7 @@ mod tests {
 
     let results = vec![
       Value::new(12345.0),
-      Value::new(String::from("some string")),
+      Value::new("some string"),
       Value::new(true),
       Value::new(false),
       Value::Nil,
