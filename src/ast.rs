@@ -23,29 +23,73 @@ type StatementResult = Result<Stmt, ScriptError>;
 type ExprResult = Result<Expr, ScriptError>;
 
 macro_rules! check {
-  ($this:ident, $types:pat) => {
-    !$this.is_at_end() && matches!($this.peek().kind, $types)
-  }
+  ($self:ident, $( $pattern:pat )|+ $( if $guard: expr )? $(,)?) => {
+    {
+    !$self.is_at_end() && matches!($self.peek().kind, $( $pattern )|+ $( if $guard )?)
+    }
+  };
 }
 
 // if the token type matches, advance
 macro_rules! consume {
-  ($this:ident, $types:pat, $alt:block) => {
-    if check!($this, $types) {
-      Ok($this.advance())
-    } else $alt
-  }
+  ($self:ident, $types:pat, $alt:expr) => {{
+    if check!($self, $types) {
+      Ok($self.advance())
+    } else {
+      $self.make_err($alt)
+    }
+  }};
+}
+
+macro_rules! advance {
+  ($self:ident) => {{
+    if !$self.is_at_end() {
+      $self.current += 1;
+    }
+
+    $self.previous()
+  }};
 }
 
 macro_rules! advance_if_matches {
-  ($this:ident, $types:pat) => {
-    if check!($this, $types) {
-      $this.advance();
+  ($self:ident, $( $pattern:pat )|+ $( if $guard: expr )? $(,)?) => {
+    {
+    if check!($self, $( $pattern )|+ $( if $guard )?) {
+      advance!($self);
       true
     } else {
       false
     }
+    }
   }
+}
+
+macro_rules! left_associative_binary {
+  ($self:ident, $next:ident, $( $pattern:pat )|+ $( if $guard: expr )? $(,)?) => {
+    {
+    let mut expr = $self.$next()?;
+
+    while advance_if_matches!($self, $( $pattern )|+ $( if $guard )?) {
+      let op = $self.previous();
+      let right = $self.$next()?;
+      expr = Expr::new_logical(Box::new(expr), op, Box::new(right), $self.next_id());
+    }
+
+    Ok(expr)
+    }
+  }
+}
+
+macro_rules! right_associative_unary {
+  ($self:ident, $next:ident, $( $pattern:pat )|+ $( if $guard: expr )? $(,)?) => {{
+    if advance_if_matches!($self, $( $pattern )|+ $( if $guard )?) {
+      let op = $self.previous();
+      let right = $self.unary()?;
+      Ok(Expr::new_unary(op, Box::new(right), $self.next_id()))
+    } else {
+      $self.$next()
+    }
+  }};
 }
 
 pub fn parse(file_id: usize, tokens: &[Token]) -> ParseResult {
@@ -97,27 +141,27 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn statement(&mut self) -> StatementResult {
-    if self.advance_if_match(&[TokenKind::Let]) {
+    if advance_if_matches!(self, TokenKind::Let) {
       self.var_decl()
-    } else if self.advance_if_match(&[TokenKind::Fn]) {
+    } else if advance_if_matches!(self, TokenKind::Fn) {
       self.fn_decl("function")
-    } else if self.advance_if_match(&[TokenKind::Class]) {
+    } else if advance_if_matches!(self, TokenKind::Class) {
       self.class_decl()
-    } else if self.advance_if_match(&[TokenKind::Print]) {
+    } else if advance_if_matches!(self, TokenKind::Print) {
       self.print_statement()
-    } else if self.advance_if_match(&[TokenKind::Return]) {
+    } else if advance_if_matches!(self, TokenKind::Return) {
       self.return_statement()
-    } else if self.advance_if_match(&[TokenKind::For]) {
+    } else if advance_if_matches!(self, TokenKind::For) {
       self.for_statement()
-    } else if self.advance_if_match(&[TokenKind::While]) {
+    } else if advance_if_matches!(self, TokenKind::While) {
       self.while_statement()
-    } else if self.advance_if_match(&[TokenKind::If]) {
+    } else if advance_if_matches!(self, TokenKind::If) {
       self.if_statement()
-    } else if self.advance_if_match(&[TokenKind::LeftBrace]) {
+    } else if advance_if_matches!(self, TokenKind::LeftBrace) {
       Ok(Stmt::new_block(self.block()?, self.next_id()))
-    } else if self.advance_if_match(&[TokenKind::Load]) {
+    } else if advance_if_matches!(self, TokenKind::Load) {
       self.load_statement()
-    } else if self.advance_if_match(&[TokenKind::Loadr]) {
+    } else if advance_if_matches!(self, TokenKind::Loadr) {
       self.loadr_statement()
     } else {
       self.expr_statement()
@@ -125,45 +169,51 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn var_decl(&mut self) -> StatementResult {
-    let name = consume!(self, TokenKind::Identifier(_), {
-      self.make_err("expected variable name")
-    })?;
+    let name = consume!(self, TokenKind::Identifier(_), "expected variable name")?;
     let mut expr = None;
-    if self.advance_if_match(&[TokenKind::Equal]) {
+    if advance_if_matches!(self, TokenKind::Equal) {
       expr = Some(self.expression()?);
     }
 
-    consume!(self, TokenKind::Semicolon, {
-      self.make_err("expected ';' after variable decl")
-    })?;
+    consume!(
+      self,
+      TokenKind::Semicolon,
+      "expected ';' after variable decl"
+    )?;
     Ok(Stmt::new_let(name, expr, self.next_id()))
   }
 
   fn fn_decl(&mut self, kind: &str) -> StatementResult {
-    let name = consume!(self, TokenKind::Identifier(_), {
-      self.make_err(&format!("expect {} name", kind))
-    })?;
-    consume!(self, TokenKind::LeftParen, {
-      self.make_err(&format!("expect '(' after {} name", kind))
-    })?;
+    let name = consume!(
+      self,
+      TokenKind::Identifier(_),
+      &format!("expect {} name", kind)
+    )?;
+    consume!(
+      self,
+      TokenKind::LeftParen,
+      &format!("expect '(' after {} name", kind)
+    )?;
     let mut params = Vec::new();
-    if !self.check(TokenKind::RightParen) {
+    if check!(self, TokenKind::RightParen) {
       loop {
-        params.push(consume!(self, TokenKind::Identifier(_), {
-          self.make_err("expected identifier")
-        })?);
+        params.push(consume!(
+          self,
+          TokenKind::Identifier(_),
+          "expected identifier"
+        )?);
 
-        if !self.advance_if_match(&[TokenKind::Comma]) {
+        if !advance_if_matches!(self, TokenKind::Comma) {
           break;
         }
       }
     }
 
-    self.consume(TokenKind::RightParen, "expect ')' after parameters")?;
-
-    self.consume(
+    consume!(self, TokenKind::RightParen, "expect ')' after parameters")?;
+    consume!(
+      self,
       TokenKind::LeftBrace,
-      &format!("Expect '{{' before {} body", kind),
+      &format!("Expect '{{' before {} body", kind)
     )?;
 
     let body = self.block()?;
@@ -177,58 +227,63 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn class_decl(&mut self) -> StatementResult {
-    let name = self.consume(TokenKind::Identifier, "expect class name")?;
-    self.consume(TokenKind::LeftBrace, "expect '{' before class body")?;
+    let name = consume!(self, TokenKind::Identifier(_), "expect class name")?;
+    consume!(self, TokenKind::LeftBrace, "expect '{' before class body")?;
 
     let mut methods = Vec::new();
-    while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
-      if self.advance_if_match(&[TokenKind::Fn]) {
+    while !check!(self, TokenKind::RightBrace) {
+      if advance_if_matches!(self, TokenKind::Fn) {
         methods.push(self.fn_decl("method")?);
       } else {
         return Err(ScriptError {
-          file: self.file.clone(),
+          file_id: self.file_id,
           line: name.line,
           msg: String::from("invalid token found"),
         });
       }
     }
 
-    self.consume(TokenKind::RightBrace, "expect '}' after class body")?;
+    consume!(self, TokenKind::RightBrace, "expect '}' after class body")?;
 
     Ok(Stmt::new_class(name, methods, self.next_id()))
   }
 
   fn print_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
-    self.consume(TokenKind::Semicolon, "expected ';' after value")?;
+    consume!(self, TokenKind::Semicolon, "expected ';' after value")?;
     Ok(Stmt::new_print(expr, self.next_id()))
   }
 
   fn return_statement(&mut self) -> StatementResult {
     let keyword = self.previous();
     let mut value = None;
-    if !self.check(TokenKind::Semicolon) {
+
+    if !check!(self, TokenKind::Semicolon) {
       value = Some(self.expression()?);
     }
 
-    self.consume(TokenKind::Semicolon, "expected ';' after return value")?;
+    consume!(
+      self,
+      TokenKind::Semicolon,
+      "expected ';' after return value"
+    )?;
     Ok(Stmt::new_return(keyword, value, self.next_id()))
   }
 
   fn for_statement(&mut self) -> StatementResult {
     let token = self.previous();
 
-    let initializer = if self.advance_if_match(&[TokenKind::Let]) {
+    let initializer = if advance_if_matches!(self, TokenKind::Let) {
       self.var_decl()?
     } else {
       self.expr_statement()?
     };
 
     let condition = self.expression()?;
-    self.consume(TokenKind::Semicolon, "Expect ';' after condition")?;
+    consume!(self, TokenKind::Semicolon, "Expect ';' after condition")?;
 
     let increment = self.expression()?;
-    self.consume(TokenKind::LeftBrace, "Expect '{' after increment")?;
+    consume!(self, TokenKind::LeftBrace, "Expect '{' after increment")?;
 
     let body = Stmt::new_block(
       vec![
@@ -252,25 +307,25 @@ impl<'tokens> Parser<'tokens> {
   fn while_statement(&mut self) -> StatementResult {
     let token = self.previous();
     let condition = self.expression()?;
-    self.consume(TokenKind::LeftBrace, "missing '{' after if condition")?;
+    consume!(self, TokenKind::LeftBrace, "missing '{' after if condition")?;
     let body = self.block()?;
     Ok(Stmt::new_while(token, condition, body, self.next_id()))
   }
 
   fn if_statement(&mut self) -> StatementResult {
     let condition = self.expression()?;
-    self.consume(TokenKind::LeftBrace, "missing '{' after if condition")?;
+    consume!(self, TokenKind::LeftBrace, "missing '{' after if condition")?;
     let if_true = self.block()?;
     let mut if_false = None;
 
-    if self.advance_if_match(&[TokenKind::Else]) {
-      if_false = if self.advance_if_match(&[TokenKind::LeftBrace]) {
+    if advance_if_matches!(self, TokenKind::Else) {
+      if_false = if advance_if_matches!(self, TokenKind::LeftBrace) {
         Some(Box::new(Stmt::new_block(self.block()?, self.next_id())))
-      } else if self.advance_if_match(&[TokenKind::If]) {
+      } else if advance_if_matches!(self, TokenKind::If) {
         Some(Box::new(self.if_statement()?))
       } else {
         return Err(ScriptError {
-          file: self.file.clone(),
+          file_id: self.file_id,
           line: self.peek().line,
           msg: format!("invalid token after token {}", self.peek()),
         });
@@ -282,21 +337,21 @@ impl<'tokens> Parser<'tokens> {
 
   fn expr_statement(&mut self) -> StatementResult {
     let expr = self.expression()?;
-    self.consume(TokenKind::Semicolon, "expected ';' after value")?;
+    consume!(self, TokenKind::Semicolon, "expected ';' after value")?;
     Ok(Stmt::new_expression(expr, self.next_id()))
   }
 
   fn load_statement(&mut self) -> StatementResult {
     let load = self.previous();
     let file = self.expression()?;
-    self.consume(TokenKind::Semicolon, "expected ';' after value")?;
+    consume!(self, TokenKind::Semicolon, "expected ';' after value")?;
     Ok(Stmt::new_load(load, file, self.next_id()))
   }
 
   fn loadr_statement(&mut self) -> StatementResult {
     let loadr = self.previous();
     let file = self.expression()?;
-    self.consume(TokenKind::Semicolon, "expected ';' after value")?;
+    consume!(self, TokenKind::Semicolon, "expected ';' after value")?;
     Ok(Stmt::new_loadr(loadr, file, self.next_id()))
   }
 
@@ -307,18 +362,19 @@ impl<'tokens> Parser<'tokens> {
   fn is(&mut self) -> ExprResult {
     let mut expr = self.ternary()?;
 
-    if self.advance_if_match(&[TokenKind::Is]) {
+    if advance_if_matches!(self, TokenKind::Is) {
       let token = self.previous();
-      if self.advance_if_match(&[
-        TokenKind::Nil,
-        TokenKind::Error,
-        TokenKind::Bool,
-        TokenKind::Number,
-        TokenKind::String,
-        TokenKind::List,
-        TokenKind::Fn,
-        TokenKind::Class,
-      ]) {
+      if advance_if_matches!(
+        self,
+        TokenKind::Nil
+          | TokenKind::Error
+          | TokenKind::Bool
+          | TokenKind::Number
+          | TokenKind::String
+          | TokenKind::List
+          | TokenKind::Fn
+          | TokenKind::Class
+      ) {
         let datatype = self.previous();
         expr = Expr::Is(IsExpr::new(Box::new(expr), token, datatype, self.next_id()))
       }
@@ -335,9 +391,13 @@ impl<'tokens> Parser<'tokens> {
   fn ternary(&mut self) -> ExprResult {
     let mut expr = self.assignment()?;
 
-    if self.advance_if_match(&[TokenKind::Conditional]) {
+    if advance_if_matches!(self, TokenKind::Conditional) {
       let if_true = self.expression()?;
-      self.consume(TokenKind::Colon, "expected ':' for conditional operator")?;
+      consume!(
+        self,
+        TokenKind::Colon,
+        "expected ':' for conditional operator"
+      )?;
       let if_false = self.expression()?;
       expr = Expr::new_ternary(
         Box::new(expr),
@@ -353,7 +413,7 @@ impl<'tokens> Parser<'tokens> {
   fn assignment(&mut self) -> ExprResult {
     let expr = self.range()?;
 
-    if self.advance_if_match(&[TokenKind::Equal]) {
+    if advance_if_matches!(self, TokenKind::Equal) {
       let equals = self.previous();
       let value = self.assignment()?;
 
@@ -368,7 +428,7 @@ impl<'tokens> Parser<'tokens> {
         ))
       } else {
         Err(ScriptError {
-          file: self.file.clone(),
+          file_id: self.file_id,
           line: equals.line,
           msg: String::from("invalid assignment target"),
         })
@@ -381,7 +441,7 @@ impl<'tokens> Parser<'tokens> {
   fn range(&mut self) -> ExprResult {
     let mut begin = self.or()?;
 
-    if self.advance_if_match(&[TokenKind::Range]) {
+    if advance_if_matches!(self, TokenKind::Range) {
       let token = self.previous();
       let end = self.or()?;
       begin = Expr::new_range(Box::new(begin), token, Box::new(end), self.next_id());
@@ -399,33 +459,30 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn equality(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::comparison, &[TokenKind::ExEq, TokenKind::EqEq])
+    left_associative_binary!(self, comparison, TokenKind::ExEq | TokenKind::EqEq)
   }
 
   fn comparison(&mut self) -> ExprResult {
-    self.left_associative_binary(
-      Parser::addition,
-      &[
-        TokenKind::GreaterThan,
-        TokenKind::GreaterEq,
-        TokenKind::LessThan,
-        TokenKind::LessEq,
-      ],
+    left_associative_binary!(
+      self,
+      addition,
+      TokenKind::GreaterThan | TokenKind::GreaterEq | TokenKind::LessThan | TokenKind::LessEq
     )
   }
 
   fn addition(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::multiplication, &[TokenKind::Plus, TokenKind::Minus])
+    left_associative_binary!(self, multiplication, TokenKind::Plus | TokenKind::Minus)
   }
 
   fn multiplication(&mut self) -> ExprResult {
-    self.left_associative_binary(Parser::unary, &[TokenKind::Slash, TokenKind::Asterisk])
+    left_associative_binary!(self, unary, TokenKind::Slash | TokenKind::Asterisk)
   }
 
   fn unary(&mut self) -> ExprResult {
-    self.right_associative_unary(
-      Parser::call,
-      &[TokenKind::Exclamation, TokenKind::Minus, TokenKind::Plus],
+    right_associative_unary!(
+      self,
+      call,
+      TokenKind::Exclamation | TokenKind::Minus | TokenKind::Plus
     )
   }
 
@@ -433,10 +490,14 @@ impl<'tokens> Parser<'tokens> {
     let mut expr = self.primary()?;
 
     loop {
-      if self.advance_if_match(&[TokenKind::LeftParen]) {
+      if advance_if_matches!(self, TokenKind::LeftParen) {
         expr = self.finish_call(expr)?;
-      } else if self.advance_if_match(&[TokenKind::Dot]) {
-        let name = self.consume(TokenKind::Identifier, "expected property name after '.'")?;
+      } else if advance_if_matches!(self, TokenKind::Dot) {
+        let name = consume!(
+          self,
+          TokenKind::Identifier(_),
+          "expected property name after '.'"
+        )?;
         expr = Expr::Get(GetExpr::new(Box::new(expr), name, self.next_id()));
       } else {
         break;
@@ -447,45 +508,53 @@ impl<'tokens> Parser<'tokens> {
   }
 
   fn primary(&mut self) -> ExprResult {
-    if self.advance_if_match(&[
-      TokenKind::False,
-      TokenKind::True,
-      TokenKind::Nil,
-      TokenKind::NumberLiteral,
-      TokenKind::StringLiteral,
-    ]) {
-      let prev = self.previous();
-
-      if let Some(v) = &prev.literal {
-        return Ok(Expr::new_literal(v.clone(), self.next_id()));
+    if !self.is_at_end() {
+      if let Some(value) = match self.peek().kind {
+        TokenKind::Nil => Some(Value::Nil),
+        TokenKind::False => Some(Value::new(false)),
+        TokenKind::True => Some(Value::new(true)),
+        TokenKind::NumberLiteral(n) => Some(Value::new(n)),
+        TokenKind::StringLiteral(s) => Some(Value::new(s)),
+        _ => None,
+      } {
+        advance!(self);
+        let prev = self.previous();
+        return Ok(Expr::new_literal(value, self.next_id()));
       }
     }
 
-    if self.advance_if_match(&[TokenKind::Identifier]) {
+    if advance_if_matches!(self, TokenKind::Identifier(_)) {
       return Ok(Expr::new_variable(self.previous(), self.next_id()));
     }
 
-    if self.advance_if_match(&[TokenKind::LeftParen]) {
+    if advance_if_matches!(self, TokenKind::LeftParen) {
       let expr = self.expression()?;
-      self.consume(TokenKind::RightParen, "Expect ')' after expression.")?;
+      consume!(self, TokenKind::RightParen, "Expect ')' after expression.")?;
       return Ok(Expr::new_grouping(Box::new(expr), self.next_id()));
     }
 
-    if self.advance_if_match(&[TokenKind::Pipe]) {
+    if advance_if_matches!(self, TokenKind::Pipe) {
       let mut params = Vec::new();
-      if !self.check(TokenKind::Pipe) {
+      if !check!(self, TokenKind::Pipe) {
         loop {
-          params.push(self.consume(TokenKind::Identifier, "expected identifier")?);
+          params.push(consume!(
+            self,
+            TokenKind::Identifier(_),
+            "expected identifier"
+          )?);
 
-          if !self.advance_if_match(&[TokenKind::Comma]) {
+          if !advance_if_matches!(self, TokenKind::Comma) {
             break;
           }
         }
       }
 
-      self.consume(TokenKind::Pipe, "expect '|' after closure parameters")?;
-
-      self.consume(TokenKind::LeftBrace, "expect '{{' before closure body")?;
+      consume!(self, TokenKind::Pipe, "expect '|' after closure parameters")?;
+      consume!(
+        self,
+        TokenKind::LeftBrace,
+        "expect '{{' before closure body"
+      )?;
 
       let body = self.block()?;
 
@@ -497,7 +566,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     Err(ScriptError {
-      file: self.file.clone(),
+      file_id: self.file_id,
       line: self.peek().line,
       msg: String::from("could not find valid primary token"),
     })
@@ -510,7 +579,7 @@ impl<'tokens> Parser<'tokens> {
   ) -> ExprResult {
     let mut expr = next(self)?;
 
-    while self.advance_if_match(types) {
+    while advance_if_matches!(self, types) {
       let op = self.previous();
       let right = next(self)?;
       expr = Expr::new_logical(Box::new(expr), op, Box::new(right), self.next_id());
@@ -519,57 +588,16 @@ impl<'tokens> Parser<'tokens> {
     Ok(expr)
   }
 
-  fn left_associative_binary(
-    &mut self,
-    next: fn(&mut Self) -> ExprResult,
-    types: &[TokenKind],
-  ) -> ExprResult {
-    let mut expr = next(self)?;
-
-    while self.advance_if_match(types) {
-      let op = self.previous();
-      let right = next(self)?;
-      expr = Expr::new_binary(Box::new(expr), op, Box::new(right), self.next_id());
-    }
-
-    Ok(expr)
-  }
-
-  fn right_associative_unary(
-    &mut self,
-    next: fn(&mut Self) -> ExprResult,
-    types: &[TokenKind],
-  ) -> ExprResult {
-    if self.advance_if_match(types) {
-      let op = self.previous();
-      let right = self.unary()?;
-      Ok(Expr::new_unary(op, Box::new(right), self.next_id()))
-    } else {
-      next(self)
-    }
-  }
-
   fn block(&mut self) -> Result<Vec<Stmt>, ScriptError> {
     let mut v = Vec::new();
 
-    while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+    while !check!(self, TokenKind::RightBrace) {
       v.push(self.decl()?);
     }
 
-    self.consume(TokenKind::RightBrace, "Expect '}' after block")?;
+    consume!(self, TokenKind::RightBrace, "Expect '}' after block")?;
 
     Ok(v)
-  }
-
-  fn advance_if_match(&mut self, types: &[TokenKind]) -> bool {
-    for token_type in types.iter() {
-      if self.check(*token_type) {
-        self.advance();
-        return true;
-      }
-    }
-
-    false
   }
 
   fn advance(&mut self) -> Token {
@@ -596,11 +624,11 @@ impl<'tokens> Parser<'tokens> {
     self.advance();
 
     while !self.is_at_end() {
-      if self.previous().token_type == TokenKind::Semicolon {
+      if self.previous().kind == TokenKind::Semicolon {
         return;
       }
 
-      match self.peek().token_type {
+      match self.peek().kind {
         TokenKind::Class => return,
         TokenKind::Fn => return,
         TokenKind::Let => return,
@@ -619,17 +647,17 @@ impl<'tokens> Parser<'tokens> {
   fn finish_call(&mut self, callee: Expr) -> ExprResult {
     let mut args = Vec::new();
 
-    if !self.check(TokenKind::RightParen) {
+    if !check!(self, TokenKind::RightParen) {
       loop {
         args.push(self.expression()?);
 
-        if !self.advance_if_match(&[TokenKind::Comma]) {
+        if !advance_if_matches!(self, TokenKind::Comma) {
           break;
         }
       }
     }
 
-    let paren = self.consume(TokenKind::RightParen, "Expect ')' after arguments")?;
+    let paren = consume!(self, TokenKind::RightParen, "Expect ')' after arguments")?;
 
     Ok(Expr::new_call(
       Box::new(callee),
@@ -656,8 +684,8 @@ pub enum StatementType {
 type ExprEvalResult = Result<Value, ScriptError>;
 pub type StmtEvalResult = Result<StatementType, ScriptError>;
 
-pub fn exec(file: OsString, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
-  let mut e = Evaluator::new(file, globals.snapshot());
+pub fn exec(file_id: usize, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
+  let mut e = Evaluator::new(file_id, globals.snapshot());
   res::resolve(&mut e, &prgm)?;
   let mut res = StatementType::Regular(Value::Nil);
 
@@ -672,16 +700,16 @@ pub fn exec(file: OsString, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult 
 }
 
 pub struct Evaluator {
-  pub file: OsString,
+  pub file_id: usize,
   pub env: EnvRef,
   pub last_object: Option<Value>,
   locals: HashMap<usize, usize>,
 }
 
 impl Evaluator {
-  pub fn new(file: OsString, env: EnvRef) -> Self {
+  pub fn new(file_id: usize, env: EnvRef) -> Self {
     Self {
-      file,
+      file_id,
       env,
       last_object: None,
       locals: HashMap::new(),
@@ -728,17 +756,25 @@ impl Evaluator {
   }
 
   pub fn lookup_variable(&self, name: &Token, id: usize) -> ExprEvalResult {
-    match if let Some(depth) = self.locals.get(&id) {
-      self.env.lookup_at(*depth, &name.lexeme)
+    if let TokenKind::Identifier(ident) = &name.kind {
+      match if let Some(depth) = self.locals.get(&id) {
+        self.env.lookup_at(*depth, ident)
+      } else {
+        self.env.lookup(ident)
+      } {
+        Some(v) => Ok(v),
+        None => Err(ScriptError {
+          file_id: self.file_id,
+          line: name.line,
+          msg: format!("used uninitialized variable '{}'", ident),
+        }),
+      }
     } else {
-      self.env.lookup(&name.lexeme)
-    } {
-      Some(v) => Ok(v),
-      None => Err(ScriptError {
-        file: self.file.clone(),
+      return Err(ScriptError {
+        file_id: self.file_id,
         line: name.line,
-        msg: format!("used uninitialized variable '{}'", name.lexeme),
-      }),
+        msg: format!("tried to lookup non variable"),
+      });
     }
   }
 }
@@ -764,7 +800,15 @@ impl Visitor<LetStmt, StmtEvalResult> for Evaluator {
       value = self.eval_expr(i)?;
     }
 
-    self.env.define(&e.name.lexeme, value);
+    if let TokenKind::Identifier(ident) = &e.name.kind {
+      self.env.define(ident, value);
+    } else {
+      return Err(ScriptError {
+        file_id: self.file_id,
+        line: e.name.line,
+        msg: format!("tried to instantiate an invalid variable name"),
+      });
+    }
 
     Ok(StatementType::Regular(Value::Nil))
   }
@@ -781,85 +825,91 @@ impl Visitor<BlockStmt, StmtEvalResult> for Evaluator {
 
 impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, s: &ClassStmt) -> StmtEvalResult {
-    self.env.define(&s.name.lexeme, Value::Nil);
+    if let TokenKind::Identifier(ident) = &s.name.kind {
+      self.env.define(ident, Value::Nil);
 
-    let mut static_methods = EnvRef::new_with_enclosing(self.env.snapshot());
-    let mut instance_methods = EnvRef::new_with_enclosing(self.env.snapshot());
+      let mut static_methods = EnvRef::new_with_enclosing(self.env.snapshot());
+      let mut instance_methods = EnvRef::new_with_enclosing(self.env.snapshot());
 
-    // for every method in the class body
-    for method in s.methods.iter() {
-      // pull out the function from the method
-      if let Stmt::Function(f) = method {
-        // if it begins with an '@' it is static
-        if f.name.lexeme.starts_with('@') {
-          // function names must be longer than one character
-          if f.name.lexeme.len() == 1 {
-            return Err(ScriptError {
-              file: self.file.clone(),
-              line: f.name.line,
-              msg: format!(
-                "class method {} for class {} cannot be one char long if its only char is '@'",
-                f.name.lexeme, s.name.lexeme,
-              ),
-            });
-          }
-          // strip off the '@'
-          let name = &f.name.lexeme[1..];
-          let func = Function::new_script(
-            String::from(name),
-            Rc::clone(&f.params),
-            Rc::clone(&f.body),
-            static_methods.snapshot(),
-          );
+      // for every method in the class body
+      for method in s.methods.iter() {
+        // pull out the function from the method
+        if let Stmt::Function(f) = method {
+          if let TokenKind::Identifier(func_name) = f.name.kind {
+            // if it begins with an '@' it is static
+            if func_name.starts_with('@') {
+              // function names must be longer than one character
+              if func_name.len() == 1 {
+                return Err(ScriptError {
+                  file_id: self.file_id,
+                  line: f.name.line,
+                  msg: format!(
+                    "class method {} for class {} cannot be one char long if its only char is '@'",
+                    func_name, ident,
+                  ),
+                });
+              }
+              // strip off the '@'
+              let name = &func_name[1..];
+              let func = Function::new_script(
+                String::from(name),
+                Rc::clone(&f.params),
+                Rc::clone(&f.body),
+                static_methods.snapshot(),
+              );
 
-          if static_methods.define(name, Value::new(func)) {
-            return Err(ScriptError {
-              file: self.file.clone(),
-              line: f.name.line,
-              msg: format!("redeclaration of class method {}", f.name.lexeme),
-            });
+              if static_methods.define(name, Value::new(func)) {
+                return Err(ScriptError {
+                  file_id: self.file_id,
+                  line: f.name.line,
+                  msg: format!("redeclaration of class method {}", func_name),
+                });
+              }
+            } else {
+              let name = &func_name[..];
+              let func = Function::new_method(
+                func_name.clone(),
+                Rc::clone(&f.params),
+                Rc::clone(&f.body),
+                instance_methods.snapshot(),
+              );
+              if instance_methods.define(name, Value::new(func)) {
+                return Err(ScriptError {
+                  file_id: self.file_id,
+                  line: f.name.line,
+                  msg: format!("redeclaration of class method {}", func_name),
+                });
+              }
+            };
           }
         } else {
-          let name = &f.name.lexeme[..];
-          let func = Function::new_method(
-            f.name.lexeme.clone(),
-            Rc::clone(&f.params),
-            Rc::clone(&f.body),
-            instance_methods.snapshot(),
-          );
-          if instance_methods.define(name, Value::new(func)) {
-            return Err(ScriptError {
-              file: self.file.clone(),
-              line: f.name.line,
-              msg: format!("redeclaration of class method {}", f.name.lexeme),
-            });
-          }
-        };
-      } else {
-        return Err(ScriptError {
-          file: self.file.clone(),
-          line: s.name.line,
-          msg: format!("invalid declaration inside <class {}> body", s.name.lexeme),
-        });
+          return Err(ScriptError {
+            file_id: self.file_id,
+            line: s.name.line,
+            msg: format!("invalid declaration inside <class {}> body", ident),
+          });
+        }
       }
-    }
 
-    let class = Value::Class(Class::new(
-      s.name.lexeme.clone(),
-      static_methods,
-      instance_methods,
-    ));
+      let class = Value::Class(Class::new(ident.clone(), static_methods, instance_methods));
 
-    self
-      .env
-      .assign(s.name.lexeme.clone(), class)
-      .map_err(|err| ScriptError {
-        file: self.file.clone(),
+      self
+        .env
+        .assign(ident.clone(), class)
+        .map_err(|err| ScriptError {
+          file_id: self.file_id,
+          line: s.name.line,
+          msg: format!("error assigning class: {}", err),
+        })?;
+
+      Ok(StatementType::Regular(Value::Nil))
+    } else {
+      Err(ScriptError {
+        file_id: self.file_id,
         line: s.name.line,
-        msg: format!("error assigning class: {}", err),
-      })?;
-
-    Ok(StatementType::Regular(Value::Nil))
+        msg: format!(""),
+      })
+    }
   }
 }
 
@@ -900,14 +950,22 @@ impl Visitor<WhileStmt, StmtEvalResult> for Evaluator {
 
 impl Visitor<FunctionStmt, StmtEvalResult> for Evaluator {
   fn visit(&mut self, e: &FunctionStmt) -> StmtEvalResult {
-    let func = Function::new_script(
-      e.name.lexeme.clone(),
-      Rc::clone(&e.params),
-      Rc::clone(&e.body),
-      self.env.snapshot(),
-    );
-    self.env.define(&e.name.lexeme, Value::Callee(func));
-    Ok(StatementType::Regular(Value::Nil))
+    if let TokenKind::Identifier(ident) = &e.name.kind {
+      let func = Function::new_script(
+        ident.clone(),
+        Rc::clone(&e.params),
+        Rc::clone(&e.body),
+        self.env.snapshot(),
+      );
+      self.env.define(ident, Value::Callee(func));
+      Ok(StatementType::Regular(Value::Nil))
+    } else {
+      Err(ScriptError {
+        file_id: self.file_id,
+        line: e.name.line,
+        msg: format!("tried to declare a function with a non-identifier: {}", e.name),
+      })
+    }
   }
 }
 
@@ -1026,7 +1084,7 @@ impl Visitor<IsExpr, ExprEvalResult> for Evaluator {
     let value = self.eval_expr(&e.value)?;
 
     Ok(Value::new(
-      e.datatype.token_type
+      e.datatype.kind
         == match value {
           Value::Nil => TokenKind::Nil,
           Value::Error(_) => TokenKind::Error,
