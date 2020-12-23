@@ -1,5 +1,6 @@
 mod ast;
 mod builtin;
+mod code;
 mod env;
 mod expr;
 mod lex;
@@ -7,12 +8,27 @@ mod res;
 mod stmt;
 mod types;
 
-use crate::env::EnvRef;
-pub use crate::types::{New, Value};
+use code::{Chunk, OpCode, VM};
+use env::EnvRef;
 use std::ffi::OsString;
 use std::fmt::{self, Display};
 use std::fs;
 use std::io::{self, Write};
+pub use types::{New, Value};
+
+pub fn test() {
+  let mut vm = VM::new();
+  let mut chunk = Chunk::new(String::from("test"));
+  chunk.write(OpCode::Constant { location: 0 }, 1);
+  chunk.write(OpCode::Constant { location: 1 }, 1);
+  chunk.add_constant(Value::Num(1.0));
+  chunk.add_constant(Value::Num(2.0));
+  chunk.write(OpCode::Return, 2);
+  match vm.run(chunk) {
+    Ok(_) => println!("terminated successfully"),
+    Err(e) => println!("process exited with error: {:?}", e),
+  }
+}
 
 #[derive(Debug)]
 pub struct ScriptError {

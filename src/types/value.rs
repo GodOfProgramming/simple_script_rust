@@ -7,6 +7,31 @@ use std::ops::{
 };
 
 #[derive(Clone)]
+
+pub struct ValueArray {
+  values: Vec<Value>,
+}
+
+impl ValueArray {
+  pub fn new() -> Self {
+    Self { values: Vec::new() }
+  }
+
+  // returns the location of the added constant
+  pub fn write(&mut self, value: Value) -> usize {
+    self.values.push(value);
+    self.values.len() - 1
+  }
+}
+
+impl Index<usize> for ValueArray {
+  type Output = Value;
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.values[index]
+  }
+}
+
+#[derive(Clone)]
 pub enum Value {
   Nil,
   Error(Box<Value>),
