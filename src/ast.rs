@@ -25,7 +25,7 @@ type ExprResult = Result<Expr, ScriptError>;
 macro_rules! check {
   ($self:ident, $( $pattern:pat )|+ $( if $guard: expr )? $(,)?) => {
     {
-    !$self.is_at_end() && matches!($self.peek().kind, $( $pattern )|+ $( if $guard )?)
+    !$self.is_at_end() && matches!(&$self.peek().kind, $( $pattern )|+ $( if $guard )?)
     }
   };
 }
@@ -92,22 +92,22 @@ macro_rules! right_associative_unary {
   }};
 }
 
-pub fn parse(file_id: usize, tokens: &[Token]) -> ParseResult {
-  let mut parser = Parser::new(file_id, tokens);
+pub fn parse(file: OsString, tokens: &[Token]) -> ParseResult {
+  let mut parser = Parser::new(file, tokens);
   parser.parse()
 }
 
 struct Parser<'tokens> {
-  file_id: usize,
+  file: OsString,
   tokens: &'tokens [Token],
   current: usize,
   current_id: usize,
 }
 
 impl<'tokens> Parser<'tokens> {
-  fn new(file_id: usize, tokens: &'tokens [Token]) -> Self {
+  fn new(file: OsString, tokens: &'tokens [Token]) -> Self {
     Self {
-      file_id,
+      file,
       tokens,
       current: 0,
       current_id: 0,
@@ -236,7 +236,7 @@ impl<'tokens> Parser<'tokens> {
         methods.push(self.fn_decl("method")?);
       } else {
         return Err(ScriptError {
-          file_id: self.file_id,
+          file: self.file.clone().clone(),
           line: name.line,
           msg: String::from("invalid token found"),
         });
@@ -325,7 +325,7 @@ impl<'tokens> Parser<'tokens> {
         Some(Box::new(self.if_statement()?))
       } else {
         return Err(ScriptError {
-          file_id: self.file_id,
+          file: self.file.clone().clone(),
           line: self.peek().line,
           msg: format!("invalid token after token {}", self.peek()),
         });
@@ -428,7 +428,7 @@ impl<'tokens> Parser<'tokens> {
         ))
       } else {
         Err(ScriptError {
-          file_id: self.file_id,
+          file: self.file.clone().clone(),
           line: equals.line,
           msg: String::from("invalid assignment target"),
         })
@@ -509,12 +509,12 @@ impl<'tokens> Parser<'tokens> {
 
   fn primary(&mut self) -> ExprResult {
     if !self.is_at_end() {
-      if let Some(value) = match self.peek().kind {
+      if let Some(value) = match &self.peek().kind {
         TokenKind::Nil => Some(Value::Nil),
         TokenKind::False => Some(Value::new(false)),
         TokenKind::True => Some(Value::new(true)),
-        TokenKind::NumberLiteral(n) => Some(Value::new(n)),
-        TokenKind::StringLiteral(s) => Some(Value::new(s)),
+        TokenKind::NumberLiteral(n) => Some(Value::new(*n)),
+        TokenKind::StringLiteral(s) => Some(Value::new(s.clone())),
         _ => None,
       } {
         advance!(self);
@@ -566,7 +566,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     Err(ScriptError {
-      file_id: self.file_id,
+      file: self.file.clone().clone(),
       line: self.peek().line,
       msg: String::from("could not find valid primary token"),
     })
@@ -669,7 +669,7 @@ impl<'tokens> Parser<'tokens> {
 
   fn make_err(&self, msg: &str) -> Result<Token, ScriptError> {
     Err(ScriptError {
-      file_id: self.file_id,
+      file: self.file.clone().clone(),
       line: self.peek().line,
       msg: String::from(msg),
     })
@@ -684,8 +684,8 @@ pub enum StatementType {
 type ExprEvalResult = Result<Value, ScriptError>;
 pub type StmtEvalResult = Result<StatementType, ScriptError>;
 
-pub fn exec(file_id: usize, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
-  let mut e = Evaluator::new(file_id, globals.snapshot());
+pub fn exec(file: OsString, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult {
+  let mut e = Evaluator::new(file, globals.snapshot());
   res::resolve(&mut e, &prgm)?;
   let mut res = StatementType::Regular(Value::Nil);
 
@@ -700,16 +700,16 @@ pub fn exec(file_id: usize, globals: EnvRef, prgm: Vec<Stmt>) -> ExprEvalResult 
 }
 
 pub struct Evaluator {
-  pub file_id: usize,
+  pub file: OsString,
   pub env: EnvRef,
   pub last_object: Option<Value>,
   locals: HashMap<usize, usize>,
 }
 
 impl Evaluator {
-  pub fn new(file_id: usize, env: EnvRef) -> Self {
+  pub fn new(file: OsString, env: EnvRef) -> Self {
     Self {
-      file_id,
+      file,
       env,
       last_object: None,
       locals: HashMap::new(),
@@ -764,14 +764,14 @@ impl Evaluator {
       } {
         Some(v) => Ok(v),
         None => Err(ScriptError {
-          file_id: self.file_id,
+          file: self.file.clone().clone(),
           line: name.line,
           msg: format!("used uninitialized variable '{}'", ident),
         }),
       }
     } else {
       return Err(ScriptError {
-        file_id: self.file_id,
+        file: self.file.clone().clone(),
         line: name.line,
         msg: format!("tried to lookup non variable"),
       });
@@ -804,7 +804,7 @@ impl Visitor<LetStmt, StmtEvalResult> for Evaluator {
       self.env.define(ident, value);
     } else {
       return Err(ScriptError {
-        file_id: self.file_id,
+        file: self.file.clone().clone(),
         line: e.name.line,
         msg: format!("tried to instantiate an invalid variable name"),
       });
@@ -835,13 +835,13 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
       for method in s.methods.iter() {
         // pull out the function from the method
         if let Stmt::Function(f) = method {
-          if let TokenKind::Identifier(func_name) = f.name.kind {
+          if let TokenKind::Identifier(func_name) = &f.name.kind {
             // if it begins with an '@' it is static
             if func_name.starts_with('@') {
               // function names must be longer than one character
               if func_name.len() == 1 {
                 return Err(ScriptError {
-                  file_id: self.file_id,
+                  file: self.file.clone().clone(),
                   line: f.name.line,
                   msg: format!(
                     "class method {} for class {} cannot be one char long if its only char is '@'",
@@ -860,7 +860,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
 
               if static_methods.define(name, Value::new(func)) {
                 return Err(ScriptError {
-                  file_id: self.file_id,
+                  file: self.file.clone().clone(),
                   line: f.name.line,
                   msg: format!("redeclaration of class method {}", func_name),
                 });
@@ -875,7 +875,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
               );
               if instance_methods.define(name, Value::new(func)) {
                 return Err(ScriptError {
-                  file_id: self.file_id,
+                  file: self.file.clone().clone(),
                   line: f.name.line,
                   msg: format!("redeclaration of class method {}", func_name),
                 });
@@ -884,7 +884,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
           }
         } else {
           return Err(ScriptError {
-            file_id: self.file_id,
+            file: self.file.clone().clone(),
             line: s.name.line,
             msg: format!("invalid declaration inside <class {}> body", ident),
           });
@@ -897,7 +897,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
         .env
         .assign(ident.clone(), class)
         .map_err(|err| ScriptError {
-          file_id: self.file_id,
+          file: self.file.clone().clone(),
           line: s.name.line,
           msg: format!("error assigning class: {}", err),
         })?;
@@ -905,7 +905,7 @@ impl Visitor<ClassStmt, StmtEvalResult> for Evaluator {
       Ok(StatementType::Regular(Value::Nil))
     } else {
       Err(ScriptError {
-        file_id: self.file_id,
+        file: self.file.clone().clone(),
         line: s.name.line,
         msg: format!(""),
       })
@@ -961,9 +961,12 @@ impl Visitor<FunctionStmt, StmtEvalResult> for Evaluator {
       Ok(StatementType::Regular(Value::Nil))
     } else {
       Err(ScriptError {
-        file_id: self.file_id,
+        file: self.file.clone().clone(),
         line: e.name.line,
-        msg: format!("tried to declare a function with a non-identifier: {}", e.name),
+        msg: format!(
+          "tried to declare a function with a non-identifier: {}",
+          e.name
+        ),
       })
     }
   }
@@ -992,14 +995,14 @@ impl Visitor<LoadStmt, StmtEvalResult> for Evaluator {
           Ok(StatementType::Regular(result))
         }
         Err(err) => Err(ScriptError {
-          file: self.file.clone(),
+          file: self.file.clone().clone(),
           line: s.load.line,
           msg: format!("failed loading file {}: {}", path, err),
         }),
       }
     } else {
       Err(ScriptError {
-        file: self.file.clone(),
+        file: self.file.clone().clone(),
         line: s.load.line,
         msg: "cannot load non string value".to_string(),
       })
@@ -1012,11 +1015,11 @@ impl Visitor<LoadrStmt, StmtEvalResult> for Evaluator {
     let path = self.eval_expr(&s.path)?;
     if let Value::Str(path) = path {
       let mut wd: PathBuf = env::current_dir().map_err(|_| ScriptError {
-        file: self.file.clone(),
+        file: self.file.clone().clone(),
         line: s.loadr.line,
         msg: "unable to check current working directory".to_string(),
       })?;
-      let mut fp = PathBuf::from(&self.file);
+      let mut fp = PathBuf::from(&self.file.clone().clone());
       fp.pop();
       wd.push(fp);
       wd.push(&path);
@@ -1028,14 +1031,14 @@ impl Visitor<LoadrStmt, StmtEvalResult> for Evaluator {
           Ok(StatementType::Regular(result))
         }
         Err(err) => Err(ScriptError {
-          file: self.file.clone(),
+          file: self.file.clone().clone(),
           line: s.loadr.line,
           msg: format!("failed loading file {}: {}", wd.as_path().display(), err),
         }),
       }
     } else {
       Err(ScriptError {
-        file: self.file.clone(),
+        file: self.file.clone().clone(),
         line: s.loadr.line,
         msg: "cannot load non string value".to_string(),
       })
@@ -1049,16 +1052,16 @@ impl Visitor<BinaryExpr, ExprEvalResult> for Evaluator {
     let right = self.eval_expr(&e.right)?;
 
     // value comparison
-    if e.operator.token_type == TokenKind::EqEq {
+    if e.operator.kind == TokenKind::EqEq {
       return Ok(Value::new(left == right));
     }
 
-    if e.operator.token_type == TokenKind::ExEq {
+    if e.operator.kind == TokenKind::ExEq {
       return Ok(Value::new(left != right));
     }
 
     // number arithmetic and comparison
-    match e.operator.token_type {
+    match e.operator.kind {
       TokenKind::Plus => Ok(left + right),
       TokenKind::Minus => Ok(left - right),
       TokenKind::Asterisk => Ok(left * right),
@@ -1068,7 +1071,7 @@ impl Visitor<BinaryExpr, ExprEvalResult> for Evaluator {
       TokenKind::LessThan => Ok(Value::Bool(left < right)),
       TokenKind::LessEq => Ok(Value::Bool(left <= right)),
       _ => Err(ScriptError {
-        file: self.file.clone(),
+        file: self.file.clone().clone(),
         line: e.operator.line,
         msg: format!(
           "Invalid operator ({:?}) for {} and {}",
@@ -1128,7 +1131,7 @@ impl Visitor<UnaryExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &UnaryExpr) -> ExprEvalResult {
     let right = self.eval_expr(&e.right)?;
 
-    match e.operator.token_type {
+    match e.operator.kind {
       TokenKind::Exclamation => Ok(!right),
       TokenKind::Minus => Ok(-right),
       TokenKind::Plus => {
@@ -1144,14 +1147,14 @@ impl Visitor<UnaryExpr, ExprEvalResult> for Evaluator {
           }
         } else {
           Err(ScriptError {
-            file: self.file.clone(),
+            file: self.file.clone().clone(),
             line: e.operator.line,
             msg: format!("invalid absolution on type {}", right),
           })
         }
       }
       _ => Err(ScriptError {
-        file: self.file.clone(),
+        file: self.file.clone().clone(),
         line: e.operator.line,
         msg: format!("invalid unary operator {}", e.operator),
       }),
@@ -1167,27 +1170,31 @@ impl Visitor<VariableExpr, ExprEvalResult> for Evaluator {
 
 impl Visitor<AssignExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &AssignExpr) -> ExprEvalResult {
-    let value = self.eval_expr(&e.value)?;
-
-    if let Some(depth) = self.locals.get(&e.id) {
-      if let Err(msg) = self
-        .env
-        .assign_at(*depth, e.name.lexeme.clone(), value.clone())
-      {
+    if let TokenKind::Identifier(ident) = &e.name.kind {
+      let value = self.eval_expr(&e.value)?;
+      if let Some(depth) = self.locals.get(&e.id) {
+        if let Err(msg) = self.env.assign_at(*depth, ident.clone(), value.clone()) {
+          return Err(ScriptError {
+            file: self.file.clone().clone(),
+            line: e.name.line,
+            msg: format!("assignment error: {}", msg),
+          });
+        }
+      } else if let Err(msg) = self.env.assign(ident.clone(), value.clone()) {
         return Err(ScriptError {
-          file: self.file.clone(),
+          file: self.file.clone().clone(),
           line: e.name.line,
           msg: format!("assignment error: {}", msg),
         });
       }
-    } else if let Err(msg) = self.env.assign(e.name.lexeme.clone(), value.clone()) {
-      return Err(ScriptError {
-        file: self.file.clone(),
+      Ok(value)
+    } else {
+      Err(ScriptError {
+        file: self.file.clone().clone(),
         line: e.name.line,
-        msg: format!("assignment error: {}", msg),
-      });
+        msg: format!("tried to assign to non-identifier"),
+      })
     }
-    Ok(value)
   }
 }
 
@@ -1195,7 +1202,7 @@ impl Visitor<LogicalExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &LogicalExpr) -> ExprEvalResult {
     let left = self.eval_expr(&e.left)?;
 
-    match e.operator.token_type {
+    match e.operator.kind {
       TokenKind::Or => {
         if left.truthy() {
           return Ok(left);
@@ -1208,7 +1215,7 @@ impl Visitor<LogicalExpr, ExprEvalResult> for Evaluator {
       }
       _ => {
         return Err(ScriptError {
-          file: self.file.clone(),
+          file: self.file.clone().clone(),
           line: e.operator.line,
           msg: String::from("invalid attempt for logical comparison"),
         })
@@ -1221,17 +1228,24 @@ impl Visitor<LogicalExpr, ExprEvalResult> for Evaluator {
 
 impl Visitor<SetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &SetExpr) -> ExprEvalResult {
-    let obj = self.eval_expr(&e.object)?;
-
-    if let Value::Instance(mut instance) = obj {
-      let value = self.eval_expr(&e.value)?;
-      instance.members.define(&e.name.lexeme, value.clone());
-      Ok(value)
+    if let TokenKind::Identifier(ident) = &e.name.kind {
+      let obj = self.eval_expr(&e.object)?;
+      if let Value::Instance(mut instance) = obj {
+        let value = self.eval_expr(&e.value)?;
+        instance.members.define(ident, value.clone());
+        Ok(value)
+      } else {
+        Err(ScriptError {
+          file: self.file.clone().clone(),
+          line: e.name.line,
+          msg: String::from("only instances have properties"),
+        })
+      }
     } else {
       Err(ScriptError {
-        file: self.file.clone(),
+        file: self.file.clone().clone(),
         line: e.name.line,
-        msg: String::from("only instances have properties"),
+        msg: String::from("tried to assign to non-identifier"),
       })
     }
   }
@@ -1240,7 +1254,7 @@ impl Visitor<SetExpr, ExprEvalResult> for Evaluator {
 impl Visitor<RangeExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, _: &RangeExpr) -> ExprEvalResult {
     //Err(ScriptError {
-    //  file: self.file.clone(),
+    //  file: self.file.clone().clone().clone(),
     //  line: e.token.line,
     //  msg: String::from("expected number with range expression"),
     //});
@@ -1267,7 +1281,7 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
       Ok(Value::Instance(instance))
     } else {
       Err(ScriptError {
-        file: self.file.clone(),
+        file: self.file.clone().clone(),
         line: e.paren.line,
         msg: format!("can't call type {}", callee),
       })
@@ -1277,41 +1291,49 @@ impl Visitor<CallExpr, ExprEvalResult> for Evaluator {
 
 impl Visitor<GetExpr, ExprEvalResult> for Evaluator {
   fn visit(&mut self, e: &GetExpr) -> ExprEvalResult {
-    match self.eval_expr(&e.object)? {
-      Value::Instance(instance) => {
-        self.last_object = Some(Value::Instance(Instance {
-          instance_of: instance.instance_of,
-          methods: instance.methods.snapshot(),
-          members: instance.members.snapshot(),
-        }));
+    if let TokenKind::Identifier(ident) = &e.name.kind {
+      match self.eval_expr(&e.object)? {
+        Value::Instance(instance) => {
+          self.last_object = Some(Value::Instance(Instance {
+            instance_of: instance.instance_of,
+            methods: instance.methods.snapshot(),
+            members: instance.members.snapshot(),
+          }));
 
-        Ok(if let Some(v) = instance.methods.get(&e.name.lexeme) {
-          v
-        } else if let Some(v) = instance.members.get(&e.name.lexeme.clone()) {
-          v
-        } else {
-          Value::Nil
-        })
-      }
-      Value::Class(class) => {
-        if let Some(v) = class.static_methods.get(&e.name.lexeme) {
-          Ok(v)
-        } else {
-          Err(ScriptError {
-            file: self.file.clone(),
-            line: e.name.line,
-            msg: format!(
-              "static method {} not defined on class {}",
-              e.name.lexeme, class.name
-            ),
+          Ok(if let Some(v) = instance.methods.get(ident) {
+            v
+          } else if let Some(v) = instance.members.get(ident) {
+            v
+          } else {
+            Value::Nil
           })
         }
+        Value::Class(class) => {
+          if let Some(v) = class.static_methods.get(ident) {
+            Ok(v)
+          } else {
+            Err(ScriptError {
+              file: self.file.clone().clone(),
+              line: e.name.line,
+              msg: format!(
+                "static method {} not defined on class {}",
+                ident, class.name
+              ),
+            })
+          }
+        }
+        _ => Err(ScriptError {
+          file: self.file.clone().clone(),
+          line: e.name.line,
+          msg: String::from("only instances have properties"),
+        }),
       }
-      _ => Err(ScriptError {
-        file: self.file.clone(),
+    } else {
+      Err(ScriptError {
+        file: self.file.clone().clone(),
         line: e.name.line,
-        msg: String::from("only instances have properties"),
-      }),
+        msg: String::from("tried to read from non-identifier"),
+      })
     }
   }
 }
@@ -1350,10 +1372,10 @@ mod tests {
       fn test_parser_load_stmt() {
         const TEST_NAME: &str = "test_parser_load_stmt";
         const SCRIPT_SRC: &str = "load \"some_file.ss\";";
-        let analysis = lex::analyze(TEST_NAME.into(), SCRIPT_SRC);
+        let analysis = lex::analyze("test".into(), SCRIPT_SRC);
         assert!(analysis.is_ok());
         let analysis = analysis.unwrap();
-        let res = parse(TEST_NAME.into(), &analysis.tokens);
+        let res = parse("test".into(), &analysis.tokens);
         assert!(res.is_ok());
         let res = res.unwrap();
 

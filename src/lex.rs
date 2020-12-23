@@ -71,17 +71,12 @@ pub enum TokenKind {
 #[derive(Clone, PartialEq)]
 pub struct Token {
   pub kind: TokenKind,
-  pub file_id: usize,
   pub line: usize,
 }
 
 impl Token {
-  pub fn new(kind: TokenKind, file_id: usize, line: usize) -> Token {
-    Token {
-      kind,
-      file_id,
-      line,
-    }
+  pub fn new(kind: TokenKind, line: usize) -> Token {
+    Token { kind, line }
   }
 }
 
@@ -136,7 +131,7 @@ pub struct AnalyzeResult {
   pub lines_analyzed: usize,
 }
 
-pub fn analyze(file_id: usize, src: &str) -> Result<AnalyzeResult, ScriptError> {
+pub fn analyze(file: OsString, src: &str) -> Result<AnalyzeResult, ScriptError> {
   enum TokenResult {
     Valid(TokenKind),
     Skip,
@@ -234,7 +229,7 @@ pub fn analyze(file_id: usize, src: &str) -> Result<AnalyzeResult, ScriptError> 
           current_pos += 1;
         } {
           return Err(ScriptError {
-            file_id,
+            file: file.clone(),
             line,
             msg: String::from("missing closing \" for string"),
           });
@@ -244,7 +239,7 @@ pub fn analyze(file_id: usize, src: &str) -> Result<AnalyzeResult, ScriptError> 
 
         let lexeme =
           str::from_utf8(&bytes[start_pos + 1..current_pos - 1]).map_err(|err| ScriptError {
-            file_id,
+            file: file.clone(),
             line,
             msg: format!("cannot read string literal: {}", err),
           })?;
@@ -277,13 +272,14 @@ pub fn analyze(file_id: usize, src: &str) -> Result<AnalyzeResult, ScriptError> 
           }
         }
 
-        let lexeme = match str::from_utf8(&bytes[start_pos..current_pos]) {
-          Ok(string) => string,
-          Err(err) => return Err(format!("{}", err)),
-        };
+        let lexeme = str::from_utf8(&bytes[start_pos..current_pos]).map_err(|err| ScriptError {
+          file: file.clone(),
+          line,
+          msg: format!("{}", err),
+        })?;
 
         let num = lexeme.parse().map_err(|err| ScriptError {
-          file_id,
+          file: file.clone(),
           line,
           msg: format!("{}", err),
         })?;
@@ -301,12 +297,12 @@ pub fn analyze(file_id: usize, src: &str) -> Result<AnalyzeResult, ScriptError> 
 
         match str::from_utf8(&bytes[start_pos..current_pos + 1]) {
           Ok(string) => match keywords.get(string) {
-            Some(token) => TokenResult::Valid(*token),
+            Some(token) => TokenResult::Valid(token.clone()),
             None => TokenResult::Valid(TokenKind::Identifier(String::from(string))),
           },
           Err(err) => {
             return Err(ScriptError {
-              file_id,
+              file: file.clone(),
               line,
               msg: format!("{}", err),
             });
@@ -315,7 +311,7 @@ pub fn analyze(file_id: usize, src: &str) -> Result<AnalyzeResult, ScriptError> 
       }
       c => {
         return Err(ScriptError {
-          file_id,
+          file: file.clone(),
           line,
           msg: format!("invalid character '{}'", c),
         })
@@ -325,11 +321,11 @@ pub fn analyze(file_id: usize, src: &str) -> Result<AnalyzeResult, ScriptError> 
     current_pos += 1;
 
     if let TokenResult::Valid(token_type) = token {
-      tokens.push(Token::new(token_type, file_id, line));
+      tokens.push(Token::new(token_type, line));
     }
   }
 
-  tokens.push(Token::new(TokenKind::Eof, file_id, line));
+  tokens.push(Token::new(TokenKind::Eof, line));
 
   Ok(AnalyzeResult {
     tokens,
@@ -375,15 +371,15 @@ mod tests {
 
   #[test]
   fn lexer_analyze_with_no_error_basic() {
-    let result = analyze(0, GOOD_SRC);
+    let result = analyze("test".into(), GOOD_SRC);
 
     let expected_tokens = vec![
-      Token::new(TokenKind::Let, 0, 1),
-      Token::new(TokenKind::Identifier(String::from("var_1")), 0, 1),
-      Token::new(TokenKind::Equal, 0, 1),
-      Token::new(TokenKind::NumberLiteral(1.0), 0, 1),
-      Token::new(TokenKind::Semicolon, 0, 1),
-      Token::new(TokenKind::Eof, 0, 1),
+      Token::new(TokenKind::Let, 1),
+      Token::new(TokenKind::Identifier(String::from("var_1")), 1),
+      Token::new(TokenKind::Equal, 1),
+      Token::new(TokenKind::NumberLiteral(1.0), 1),
+      Token::new(TokenKind::Semicolon, 1),
+      Token::new(TokenKind::Eof, 1),
     ];
 
     match result {

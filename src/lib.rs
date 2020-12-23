@@ -17,14 +17,20 @@ use std::io::{self, Write};
 
 #[derive(Debug)]
 pub struct ScriptError {
-  pub file_id: usize,
+  pub file: OsString,
   pub line: usize,
   pub msg: String,
 }
 
 impl Display for ScriptError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} ({}): {}", self.file_id, self.line, self.msg)
+    write!(
+      f,
+      "{} ({}): {}",
+      self.file.to_string_lossy(),
+      self.line,
+      self.msg
+    )
   }
 }
 
@@ -80,7 +86,7 @@ impl Interpreter {
   }
 
   pub fn exec(&self, script_name: &OsString, src: &str) -> Result<Value, ScriptError> {
-    let analysis = lex::analyze(self.get_file_id(script_name), src)?;
+    let analysis = lex::analyze(script_name.clone(), src)?;
     let program = ast::parse(script_name.clone(), &analysis.tokens)?;
     let value = ast::exec(script_name.clone(), self.globals.snapshot(), program)?;
     Ok(value)
@@ -88,7 +94,7 @@ impl Interpreter {
 
   pub fn exec_file(&self, file: &OsString) -> Result<Value, ScriptError> {
     let src = fs::read_to_string(file).map_err(|err| ScriptError {
-      file_id: self.get_file_id(file),
+      file: file.clone(),
       line: 0,
       msg: format!("could not read file: {}", err),
     })?;
@@ -117,13 +123,13 @@ impl Interpreter {
         exit = true;
       }
 
-      let analysis = match lex::analyze(0, &input) {
+      let analysis = match lex::analyze("ss".into(), &input) {
         Ok(a) => a,
         Err(err) => {
           // - 1 because analyze will read the \n from pressing enter
           println!(
-            "{:?} ({}): {}",
-            self.get_file_name(err.file_id),
+            "{} ({}): {}",
+            err.file.to_string_lossy(),
             err.line + line_number - 1,
             err.msg
           );
@@ -135,8 +141,8 @@ impl Interpreter {
         Ok(p) => p,
         Err(err) => {
           println!(
-            "{:?} ({}): {}",
-            self.get_file_name(err.file_id),
+            "{} ({}): {}",
+            err.file.to_string_lossy(),
             err.line + line_number - 1,
             err.msg
           );
@@ -150,8 +156,8 @@ impl Interpreter {
           line_number += analysis.lines_analyzed;
         }
         Err(err) => println!(
-          "{:?} ({}): {}",
-          self.get_file_name(err.file_id),
+          "{} ({}): {}",
+          err.file.to_string_lossy(),
           err.line + line_number - 1,
           err.msg
         ),
@@ -159,28 +165,6 @@ impl Interpreter {
     }
 
     true
-  }
-
-  fn get_file_id(&mut self, file: &OsString) -> usize {
-    let id = self.loaded_file_ids.get(file);
-    if let Some(id) = id {
-      *id
-    } else {
-      let id = self.next_file_id();
-      self.loaded_file_names.insert(id, file.clone());
-      self.loaded_file_ids.insert(file.clone(), id);
-      id
-    }
-  }
-
-  fn get_file_name(&self, id: usize) -> OsString {
-    self.loaded_file_names[&id]
-  }
-
-  fn next_file_id(&mut self) -> usize {
-    let id = self.current_file_id;
-    self.current_file_id += 1;
-    id
   }
 }
 

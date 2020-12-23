@@ -1,7 +1,7 @@
 use super::{Instance, Value};
 use crate::ast::{Evaluator, StatementType};
 use crate::env::EnvRef;
-use crate::lex::Token;
+use crate::lex::{Token, TokenKind};
 use crate::stmt::Stmt;
 use crate::ScriptError;
 use std::fmt::{self, Display};
@@ -208,7 +208,15 @@ impl Function {
     }
 
     for (param, arg) in params.iter().zip(args.iter()) {
-      env.define(&param.lexeme, arg.clone());
+      if let TokenKind::Identifier(ident) = &param.kind {
+        env.define(ident, arg.clone());
+      } else {
+        return Err(ScriptError {
+          file: e.file.clone(),
+          line: param.line,
+          msg: String::from("tried to pass non-identifier"),
+        });
+      }
     }
 
     Ok(match e.eval_block(&body, env)? {
@@ -250,7 +258,15 @@ impl Function {
     }
 
     for (param, arg) in params.iter().zip(args.iter()) {
-      env.define(&param.lexeme, arg.clone());
+      if let TokenKind::Identifier(ident) = &param.kind {
+        env.define(ident, arg.clone());
+      } else {
+        return Err(ScriptError {
+          file: e.file.clone(),
+          line: param.line,
+          msg: String::from("tried to pass non-identifier"),
+        });
+      }
     }
 
     Ok(match e.eval_block(&body, env)? {
@@ -300,28 +316,36 @@ impl Function {
     }
 
     if let Some(self_ref) = params.first() {
-      if let Some(instance) = &e.last_object {
-        if let Value::Instance(instance) = instance {
-          env.define(
-            &self_ref.lexeme,
-            Value::Instance(Instance {
-              instance_of: instance.instance_of.clone(),
-              methods: instance.methods.snapshot(),
-              members: instance.members.snapshot(),
-            }),
-          );
+      if let TokenKind::Identifier(ident) = &self_ref.kind {
+        if let Some(instance) = &e.last_object {
+          if let Value::Instance(instance) = instance {
+            env.define(
+              ident,
+              Value::Instance(Instance {
+                instance_of: instance.instance_of.clone(),
+                methods: instance.methods.snapshot(),
+                members: instance.members.snapshot(),
+              }),
+            );
+          } else {
+            return Err(ScriptError {
+              file: e.file.clone(),
+              line,
+              msg: String::from("calling method on non-objects is not allowed"),
+            });
+          }
         } else {
           return Err(ScriptError {
             file: e.file.clone(),
             line,
-            msg: String::from("calling method on non-objects is not allowed"),
+            msg: String::from("method called on void space"),
           });
         }
       } else {
         return Err(ScriptError {
           file: e.file.clone(),
-          line,
-          msg: String::from("method called on void space"),
+          line: self_ref.line,
+          msg: String::from("tried to use non-identifier as self parameter"),
         });
       }
     } else {
@@ -333,7 +357,15 @@ impl Function {
     }
 
     for (param, arg) in params.iter().skip(1).zip(args.iter()) {
-      env.define(&param.lexeme, arg.clone());
+      if let TokenKind::Identifier(ident) = &param.kind {
+        env.define(ident, arg.clone());
+      } else {
+        return Err(ScriptError {
+          file: e.file.clone(),
+          line: param.line,
+          msg: String::from("tried to pass non-identifier"),
+        });
+      }
     }
 
     Ok(match e.eval_block(&body, env.snapshot())? {
