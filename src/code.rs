@@ -1,9 +1,14 @@
+use crate::is_debug;
 use crate::types::{Value, ValueArray};
-use std::fmt::{self, Display};
 
 #[derive(Debug)]
 pub enum OpCode {
   Constant { location: usize },
+  Add,
+  Subtract,
+  Multiply,
+  Divide,
+  Negate,
   Return,
 }
 
@@ -13,7 +18,7 @@ pub enum Error {
   Runtime,
 }
 
-pub type Result = std::result::Result<(), Error>;
+pub type VMResult = std::result::Result<(), Error>;
 
 pub struct VM {}
 
@@ -22,20 +27,74 @@ impl VM {
     Self {}
   }
 
-  pub fn run(&mut self, chunk: Chunk) -> Result {
-    let sp: usize = 0;
-    let stack: Vec<Value> = Vec::new();
+  pub fn run(&mut self, chunk: Chunk) -> VMResult {
+    let mut sp: usize = 0;
+    let mut stack: Vec<Value> = Vec::new();
 
     for (ip, instruction) in chunk.code.iter().enumerate() {
+      if is_debug!() {
+        for slot in &stack {
+          print!("[ {} ]", slot);
+        }
+        if !stack.is_empty() {
+          println!();
+        }
+
+        chunk.print_instruction(ip, instruction);
+      }
       match instruction {
         OpCode::Constant { location } => {
           let constant = &chunk.constants[*location];
-          println!("{}", constant);
+          stack.push(constant.clone());
         }
-        OpCode::Return => return Ok(()),
+        OpCode::Add => {
+          let res = self.operate_on(&mut stack, |a, b| a + b)?;
+          stack.push(res);
+        }
+        OpCode::Subtract => {
+          let res = self.operate_on(&mut stack, |a, b| a - b)?;
+          stack.push(res);
+        }
+        OpCode::Multiply => {
+          let res = self.operate_on(&mut stack, |a, b| a * b)?;
+          stack.push(res);
+        }
+        OpCode::Divide => {
+          let res = self.operate_on(&mut stack, |a, b| a / b)?;
+          stack.push(res);
+        }
+        OpCode::Negate => {
+          if let Some(v) = stack.pop() {
+            stack.push(-v);
+          } else {
+            return Err(Error::Runtime); // tried to negate a void value
+          }
+        }
+        OpCode::Return => {
+          if let Some(v) = stack.pop() {
+            println!("{}", v);
+          }
+          return Ok(());
+        }
       }
     }
     Ok(())
+  }
+
+  fn operate_on(
+    &mut self,
+    stack: &mut Vec<Value>,
+    f: fn(a: Value, b: Value) -> Value,
+  ) -> Result<Value, Error> {
+    if let Some(a) = stack.pop() {
+      if let Some(b) = stack.pop() {
+        Ok(f(a, b))
+      } else {
+        Err(Error::Runtime) // cannot add with void on rhs
+      }
+    } else {
+      Err(Error::Runtime) // cannot add with void on lhs
+    }
   }
 }
 
@@ -96,42 +155,36 @@ impl Chunk {
     self.lines.len()
   }
 
-  fn print_instruction(
-    &self,
-    f: &mut fmt::Formatter<'_>,
-    offset: usize,
-    inst: &OpCode,
-  ) -> fmt::Result {
-    write!(f, "{:04} ", offset)?;
+  fn print_instruction(&self, offset: usize, instruction: &OpCode) {
+    print!("{:04} ", offset);
     if offset > 0 && self.line_at(offset) == self.line_at(offset - 1) {
-      write!(f, "   | ")?;
+      print!("   | ");
     } else {
-      write!(f, "{:04} ", self.line_at(offset))?;
+      print!("{:04} ", self.line_at(offset));
     }
-    match inst {
-      OpCode::Return => writeln!(f, "RETURN"),
-      OpCode::Constant { location } => writeln!(
-        f,
+    match instruction {
+      OpCode::Return => println!("RETURN"),
+      OpCode::Negate => println!("NEGATE"),
+      OpCode::Add => println!("ADD"),
+      OpCode::Subtract => println!("SUBTRACT"),
+      OpCode::Multiply => println!("MULTIPLY"),
+      OpCode::Divide => println!("DIVIDE"),
+      OpCode::Constant { location } => println!(
         "{:<16} {:04} {}",
         "CONSTANT", location, self.constants[*location]
       ),
-    }?;
-    Ok(())
-  }
-}
-
-impl Display for Chunk {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    writeln!(f, "== {} ==", self.name)?;
-
-    writeln!(
-      f,
-      "{:<4} {:<4} {:<16} {:<4}",
-      "off", "line", "opcode", "extra"
-    )?;
-    for (offset, inst) in self.code.iter().enumerate() {
-      self.print_instruction(f, offset, inst)?;
     }
-    Ok(())
+  }
+
+  fn print_header(&self) {
+    println!("== {} ==", self.name);
+    println!("{:<4} {:<4} {:<16} {:<4}", "off", "line", "opcode", "extra");
+  }
+
+  fn print(&self) {
+    self.print_header();
+    self.code.iter().enumerate().for_each(|(offset, inst)| {
+      self.print_instruction(offset, inst);
+    });
   }
 }

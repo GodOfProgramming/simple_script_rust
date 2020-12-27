@@ -4,9 +4,6 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
-  simple_script::test();
-  std::process::exit(1);
-
   let mut exit_code = 0;
   let mut inter = Interpreter::default();
   let args: Vec<String> = env::args().collect();

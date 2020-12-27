@@ -16,18 +16,11 @@ use std::fs;
 use std::io::{self, Write};
 pub use types::{New, Value};
 
-pub fn test() {
-  let mut vm = VM::new();
-  let mut chunk = Chunk::new(String::from("test"));
-  chunk.write(OpCode::Constant { location: 0 }, 1);
-  chunk.write(OpCode::Constant { location: 1 }, 1);
-  chunk.add_constant(Value::Num(1.0));
-  chunk.add_constant(Value::Num(2.0));
-  chunk.write(OpCode::Return, 2);
-  match vm.run(chunk) {
-    Ok(_) => println!("terminated successfully"),
-    Err(e) => println!("process exited with error: {:?}", e),
-  }
+#[macro_export]
+macro_rules! is_debug {
+  () => {
+    cfg!(debug_assertions)
+  };
 }
 
 #[derive(Debug)]
