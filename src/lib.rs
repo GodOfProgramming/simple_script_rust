@@ -1549,53 +1549,47 @@ mod code {
         })
       }
 
-      fn is_digit(c: char) -> bool {
-        c >= '0' && c <= '9'
-      }
-
-      fn is_alpha(c: char) -> bool {
-        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
-      }
-
-      fn peek_next(chars: &mut SrcIter, skips: usize) -> Option<char> {
-        chars.clone().nth(skips)
-      }
-
-      fn make_ident<'src>(&mut self, src: &'src str, chars: &mut SrcIter) -> Token<'src> {
-        while let Some(c) = self.advance(chars) {
-          if !Self::is_alpha(c) && !Self::is_digit(c) {
-            break;
-          }
-        }
-
-        self.make_token(src, self.ident(src))
-      }
-
       fn make_number<'src>(
         &mut self,
         src: &'src str,
         chars: &mut SrcIter,
       ) -> Result<Token<'src>, ScriptError> {
-        while let Some(c) = self.advance(chars) {
-          if !Scanner::is_digit(c) {
+        while let Some(c) = chars.peek() {
+          if !Scanner::is_digit(*c) {
             break;
           }
+          self.advance(chars);
         }
 
         if let Some(c) = chars.peek() {
           if *c == '.' {
             if let Some(c) = Scanner::peek_next(chars, 1) {
-              self.advance(chars);
-              while let Some(c) = self.advance(chars) {
-                if !Scanner::is_digit(c) {
-                  break;
+              if Self::is_digit(c) {
+                self.advance(chars);
+                while let Some(c) = chars.peek() {
+                  if !Self::is_digit(*c) {
+                    break;
+                  }
+                  self.advance(chars);
                 }
               }
             }
           }
         }
 
-        Ok(self.make_token(src, TokenKind::Number))
+        Ok(self.make_token(src, TokenKind::NumberLiteral))
+      }
+
+      fn make_ident<'src>(&mut self, src: &'src str, chars: &mut SrcIter) -> Token<'src> {
+        while let Some(c) = chars.peek() {
+          if !Self::is_alpha(*c) && !Self::is_digit(*c) {
+            break;
+          }
+
+          self.advance(chars);
+        }
+
+        self.make_token(src, self.ident(src))
       }
 
       fn ident(&self, src: &str) -> TokenKind {
@@ -1662,6 +1656,18 @@ mod code {
           TokenKind::Identifier
         }
       }
+
+      fn is_digit(c: char) -> bool {
+        c >= '0' && c <= '9'
+      }
+
+      fn is_alpha(c: char) -> bool {
+        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+      }
+
+      fn peek_next(chars: &mut SrcIter, skips: usize) -> Option<char> {
+        chars.clone().nth(skips)
+      }
     }
 
     #[cfg(test)]
@@ -1685,6 +1691,9 @@ mod code {
             let expected = vec![$($x),+];
             cmp_tokens(&expected, &actual);
           }
+        };
+        ($func:ident, [$($x:expr),+ $(,)?]) => {
+          gen_scan_test!($func, stringify!($func), [$($x),+]);
         };
       }
 
@@ -1813,6 +1822,254 @@ mod code {
         [
           Token::new(TokenKind::EqEq, "==", 1),
           Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        greater_than,
+        ">",
+        [
+          Token::new(TokenKind::GreaterThan, ">", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        greater_equal,
+        ">=",
+        [
+          Token::new(TokenKind::GreaterEq, ">=", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        less_than,
+        "<",
+        [
+          Token::new(TokenKind::LessThan, "<", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        less_equal,
+        "<=",
+        [
+          Token::new(TokenKind::LessEq, "<=", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        ident,
+        "abcxyz _abcxyz ABCXYZ",
+        [
+          Token::new(TokenKind::Identifier, "abcxyz", 1),
+          Token::new(TokenKind::Identifier, "_abcxyz", 1),
+          Token::new(TokenKind::Identifier, "ABCXYZ", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        string_literal,
+        "\"some string\"",
+        [
+          Token::new(TokenKind::StringLiteral, "\"some string\"", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        number_literal,
+        "0 1 2 3 4 5 6 7 8 9 10 0.0 1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0",
+        [
+          Token::new(TokenKind::NumberLiteral, "0", 1),
+          Token::new(TokenKind::NumberLiteral, "1", 1),
+          Token::new(TokenKind::NumberLiteral, "2", 1),
+          Token::new(TokenKind::NumberLiteral, "3", 1),
+          Token::new(TokenKind::NumberLiteral, "4", 1),
+          Token::new(TokenKind::NumberLiteral, "5", 1),
+          Token::new(TokenKind::NumberLiteral, "6", 1),
+          Token::new(TokenKind::NumberLiteral, "7", 1),
+          Token::new(TokenKind::NumberLiteral, "8", 1),
+          Token::new(TokenKind::NumberLiteral, "9", 1),
+          Token::new(TokenKind::NumberLiteral, "10", 1),
+          Token::new(TokenKind::NumberLiteral, "0.0", 1),
+          Token::new(TokenKind::NumberLiteral, "1.0", 1),
+          Token::new(TokenKind::NumberLiteral, "2.0", 1),
+          Token::new(TokenKind::NumberLiteral, "3.0", 1),
+          Token::new(TokenKind::NumberLiteral, "4.0", 1),
+          Token::new(TokenKind::NumberLiteral, "5.0", 1),
+          Token::new(TokenKind::NumberLiteral, "6.0", 1),
+          Token::new(TokenKind::NumberLiteral, "7.0", 1),
+          Token::new(TokenKind::NumberLiteral, "8.0", 1),
+          Token::new(TokenKind::NumberLiteral, "9.0", 1),
+          Token::new(TokenKind::NumberLiteral, "10.0", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        and,
+        [
+          Token::new(TokenKind::And, "and", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_bool,
+        "bool",
+        [
+          Token::new(TokenKind::Bool, "bool", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        class,
+        [
+          Token::new(TokenKind::Class, "class", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_else,
+        "else",
+        [
+          Token::new(TokenKind::Else, "else", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        error,
+        [
+          Token::new(TokenKind::Error, "error", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_false,
+        "false",
+        [
+          Token::new(TokenKind::False, "false", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_fn,
+        "fn",
+        [
+          Token::new(TokenKind::Fn, "fn", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_for,
+        "for",
+        [
+          Token::new(TokenKind::For, "for", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_if,
+        "if",
+        [
+          Token::new(TokenKind::If, "if", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_let,
+        "let",
+        [
+          Token::new(TokenKind::Let, "let", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        list,
+        [
+          Token::new(TokenKind::List, "list", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        nil,
+        [
+          Token::new(TokenKind::Nil, "nil", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        number,
+        [
+          Token::new(TokenKind::Number, "number", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        or,
+        [
+          Token::new(TokenKind::Or, "or", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        print,
+        [
+          Token::new(TokenKind::Print, "print", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_return,
+        "return",
+        [
+          Token::new(TokenKind::Return, "return", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        string,
+        [
+          Token::new(TokenKind::String, "string", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_true,
+        "true",
+        [
+          Token::new(TokenKind::True, "true", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        keyword_while,
+        "while",
+        [
+          Token::new(TokenKind::While, "while", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
         ]
       );
     }
