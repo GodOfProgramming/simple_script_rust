@@ -17,7 +17,7 @@ pub struct ScriptError {
 
 impl Display for ScriptError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{} ({}): {}", self.file, self.line, self.msg)
+    write!(f, "({}): {}", self.line, self.msg)
   }
 }
 
@@ -56,10 +56,10 @@ impl VM {
     self.compile(script)
   }
 
-  fn compile(&mut self, _script: &str) -> VMResult {
-    let scanner = Scanner::default();
+  fn compile(&mut self, script: &str) -> VMResult {
+    let mut scanner = Scanner::new(script);
     let mut last_line: Option<usize> = None;
-    while let Some(token) = scanner.scan() {
+    while let Ok(token) = scanner.scan() {
       if let Some(line) = last_line {
         if token.line != line {
           print!("{:04} ", token.line);
@@ -72,7 +72,7 @@ impl VM {
         last_line = Some(token.line);
       }
 
-      println!("{:02} {}", token.kind, token);
+      println!("{}", token);
     }
     Ok(())
   }
@@ -118,7 +118,6 @@ impl VM {
             stack.push(-v);
           } else {
             return Err(Error::Runtime(ScriptError {
-              file: chunk.name,
               line: chunk.line_at(ip),
               msg: String::from("tried to negate a void value"),
             })); // tried to negate a void value
@@ -159,6 +158,8 @@ impl VM {
 
       if let Err(e) = self.run_script(&input) {
         println!("{}", e);
+      } else {
+        line_number += 1;
       }
     }
 
@@ -178,14 +179,12 @@ impl VM {
         Ok(f(a, b))
       } else {
         Err(Error::Runtime(ScriptError {
-          file: chunk.name,
           line: chunk.line_at(offset),
           msg: format!("cannot {} with {} and void", operator, a),
         }))
       }
     } else {
       Err(Error::Runtime(ScriptError {
-        file: chunk.name,
         line: chunk.line_at(offset),
         msg: format!("cannot {} with void", operator),
       }))
@@ -292,6 +291,7 @@ impl Chunk {
 
 mod scanner {
   use super::ScriptError;
+  use std::fmt::{self, Display};
   use std::iter::{Peekable, Skip};
 
   pub enum TokenKind {
@@ -323,8 +323,9 @@ mod scanner {
     Dot,
     Range,
 
-    // Literals.
     Identifier,
+
+    // Literals.
     StringLiteral,
     NumberLiteral,
 
@@ -338,7 +339,6 @@ mod scanner {
     Fn,
     For,
     If,
-    Is,
     Let,
     List,
     Nil,
@@ -354,14 +354,20 @@ mod scanner {
   }
 
   pub struct Token<'lexeme> {
-    kind: TokenKind,
-    lexeme: &'lexeme str,
-    line: usize,
+    pub kind: TokenKind,
+    pub lexeme: &'lexeme str,
+    pub line: usize,
   }
 
   impl<'lexeme> Token<'lexeme> {
     fn new(kind: TokenKind, lexeme: &'lexeme str, line: usize) -> Token {
       Token { kind, lexeme, line }
+    }
+  }
+
+  impl Display for Token<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      write!(f, "{}", self.lexeme)
     }
   }
 
@@ -374,7 +380,7 @@ mod scanner {
   }
 
   impl<'src> Scanner<'src> {
-    fn new(src: &'src str) -> Self {
+    pub fn new(src: &'src str) -> Self {
       Self {
         start: 0,
         current: 0,
@@ -383,7 +389,7 @@ mod scanner {
       }
     }
 
-    fn scan(&mut self) -> Result<Token, ScriptError> {
+    pub fn scan(&mut self) -> Result<Token, ScriptError> {
       let mut chars = self.src.chars().skip(self.current).peekable();
       self.skip_nontokens(&mut chars);
       self.start = self.current;
@@ -429,6 +435,7 @@ mod scanner {
             }
           }
           '"' => self.make_string(&mut chars),
+          _ if Scanner::is_alpha(c) => Ok(self.make_ident(&mut chars)),
           _ if Scanner::is_digit(c) => self.make_number(&mut chars),
           _ => Err(ScriptError {
             line: self.line,
@@ -439,8 +446,12 @@ mod scanner {
       }
     }
 
+    fn current_lexeme(&self) -> &str {
+      &self.src[self.start..self.current]
+    }
+
     fn make_token(&self, kind: TokenKind) -> Token {
-      Token::new(kind, &self.src[self.start..self.current], self.line)
+      Token::new(kind, self.current_lexeme(), self.line)
     }
 
     fn advance(&mut self, chars: &mut Peekable<Skip<std::str::Chars>>) -> Option<char> {
@@ -494,9 +505,10 @@ mod scanner {
       chars: &mut Peekable<Skip<std::str::Chars>>,
     ) -> Result<Token, ScriptError> {
       while let Some(c) = self.advance(chars) {
-        match c {
-          '\n' => self.line += 1,
-          '"' => return Ok(self.make_token(TokenKind::StringLiteral)),
+        if c == '\n' {
+          self.line += 1;
+        } else if c == '"' {
+          return Ok(self.make_token(TokenKind::StringLiteral));
         }
       }
 
@@ -510,8 +522,22 @@ mod scanner {
       c >= '0' && c <= '9'
     }
 
+    fn is_alpha(c: char) -> bool {
+      (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+    }
+
     fn peek_next(chars: &mut Peekable<Skip<std::str::Chars>>, skips: usize) -> Option<char> {
       chars.clone().skip(skips).next()
+    }
+
+    fn make_ident(&mut self, chars: &mut Peekable<Skip<std::str::Chars>>) -> Token {
+      while let Some(c) = self.advance(chars) {
+        if !Self::is_alpha(c) && !Self::is_digit(c) {
+          break;
+        }
+      }
+
+      self.make_token(self.ident())
     }
 
     fn make_number(
@@ -539,14 +565,75 @@ mod scanner {
 
       Ok(self.make_token(TokenKind::Number))
     }
+
+    fn ident(&self) -> TokenKind {
+      let lex = self.current_lexeme();
+      let mut chars = lex.chars();
+      match chars.next().unwrap() {
+        'a' => self.check_keyword(1, "nd", TokenKind::And),
+        'b' => self.check_keyword(1, "ool", TokenKind::Bool),
+        'c' => self.check_keyword(1, "lass", TokenKind::Class),
+        'e' => match chars.next() {
+          Some(c) => match c {
+            'l' => self.check_keyword(2, "se", TokenKind::Else),
+            'r' => self.check_keyword(2, "ror", TokenKind::Error),
+            _ => TokenKind::Identifier,
+          },
+          None => TokenKind::Identifier,
+        },
+        'f' => match chars.next() {
+          Some(c) => match c {
+            'a' => self.check_keyword(2, "lse", TokenKind::False),
+            'n' => self.check_keyword(2, "", TokenKind::Fn),
+            'o' => self.check_keyword(2, "r", TokenKind::For),
+            _ => TokenKind::Identifier,
+          },
+          None => TokenKind::Identifier,
+        },
+        'i' => self.check_keyword(1, "f", TokenKind::If),
+        'l' => match chars.next() {
+          Some(c) => match c {
+            'e' => self.check_keyword(2, "t", TokenKind::Let),
+            'i' => self.check_keyword(2, "st", TokenKind::List),
+            _ => TokenKind::Identifier,
+          },
+          None => TokenKind::Identifier,
+        },
+        'n' => match chars.next() {
+          Some(c) => match c {
+            'i' => self.check_keyword(2, "l", TokenKind::Nil),
+            'u' => self.check_keyword(2, "mber", TokenKind::Number),
+            _ => TokenKind::Identifier,
+          },
+          None => TokenKind::Identifier,
+        },
+        'o' => self.check_keyword(1, "r", TokenKind::Or),
+        'p' => self.check_keyword(1, "rint", TokenKind::Print),
+        'r' => self.check_keyword(1, "eturn", TokenKind::Return),
+        's' => self.check_keyword(1, "tring", TokenKind::String),
+        't' => self.check_keyword(1, "rue", TokenKind::True),
+        'w' => self.check_keyword(1, "hile", TokenKind::While),
+        _ => TokenKind::Identifier,
+      }
+    }
+
+    fn check_keyword(&self, cmp_start: usize, rest: &str, keyword: TokenKind) -> TokenKind {
+      if &self.current_lexeme()[cmp_start..] == rest {
+        keyword
+      } else {
+        TokenKind::Identifier
+      }
+    }
   }
 }
 
 mod types {
-  use super::*;
-  pub use call::{Airity, Function, NativeFn};
-  pub use oo::{Class, Instance};
-  pub use value::{Value, ValueArray};
+  use std::cmp::{Ordering, PartialEq, PartialOrd};
+  use std::fmt::{self, Debug, Display};
+  use std::ops::{
+    Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Not, Rem, RemAssign, Sub,
+    SubAssign,
+  };
 
   trait New<T> {
     fn new(item: T) -> Self;
@@ -556,1841 +643,1013 @@ mod types {
     fn new_err(err: T) -> Self;
   }
 
-  mod value {
-    use super::{Class, Function, Instance, New, ValueError};
-    use std::cmp::{Ordering, PartialEq, PartialOrd};
-    use std::fmt::{self, Debug, Display};
-    use std::ops::{
-      Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Not, Rem, RemAssign,
-      Sub, SubAssign,
-    };
+  #[derive(Clone)]
 
-    #[derive(Clone)]
+  pub struct ValueArray {
+    values: Vec<Value>,
+  }
 
-    pub struct ValueArray {
-      values: Vec<Value>,
+  impl ValueArray {
+    pub fn new() -> Self {
+      Self { values: Vec::new() }
     }
 
-    impl ValueArray {
-      pub fn new() -> Self {
-        Self { values: Vec::new() }
-      }
-
-      // returns the location of the added constant
-      pub fn write(&mut self, value: Value) -> usize {
-        self.values.push(value);
-        self.values.len() - 1
-      }
-    }
-
-    impl Index<usize> for ValueArray {
-      type Output = Value;
-      fn index(&self, index: usize) -> &Self::Output {
-        &self.values[index]
-      }
-    }
-
-    #[derive(Clone)]
-    pub enum Value {
-      Nil,
-      Error(Box<Value>),
-      Bool(bool),
-      Num(f64),
-      Str(String),
-      List(Values),
-      Callee(Function),
-      Class(Class),
-      Instance(Instance),
-    }
-
-    impl Value {
-      pub fn truthy(&self) -> bool {
-        if *self == Value::Nil {
-          return false;
-        }
-
-        if let Value::Bool(b) = self {
-          return *b;
-        }
-
-        true
-      }
-
-      pub fn len(&self) -> Option<usize> {
-        if let Self::List(list) = self {
-          Some(list.len())
-        } else {
-          None
-        }
-      }
-
-      pub fn is_empty(&self) -> Option<bool> {
-        if let Self::List(list) = self {
-          Some(list.is_empty())
-        } else {
-          None
-        }
-      }
-
-      pub fn index(&'_ self, idx: usize) -> Option<&'_ Self> {
-        if let Self::List(list) = self {
-          Some(&list[idx])
-        } else {
-          None
-        }
-      }
-
-      pub fn index_mut(&'_ mut self, idx: usize) -> Option<&'_ mut Self> {
-        if let Self::List(list) = self {
-          Some(&mut list[idx])
-        } else {
-          None
-        }
-      }
-    }
-
-    impl New<bool> for Value {
-      fn new(item: bool) -> Self {
-        Self::Bool(item)
-      }
-    }
-
-    impl New<f64> for Value {
-      fn new(item: f64) -> Self {
-        Self::Num(item)
-      }
-    }
-
-    impl New<String> for Value {
-      fn new(item: String) -> Self {
-        Self::Str(item)
-      }
-    }
-
-    impl New<&str> for Value {
-      fn new(item: &str) -> Self {
-        Self::new(String::from(item))
-      }
-    }
-
-    impl New<Values> for Value {
-      fn new(item: Values) -> Self {
-        Self::List(item)
-      }
-    }
-
-    impl New<Function> for Value {
-      fn new(item: Function) -> Self {
-        Self::Callee(item)
-      }
-    }
-
-    impl New<Class> for Value {
-      fn new(item: Class) -> Self {
-        Self::Class(item)
-      }
-    }
-
-    impl New<Instance> for Value {
-      fn new(item: Instance) -> Self {
-        Self::Instance(item)
-      }
-    }
-
-    impl ValueError<bool> for Value {
-      fn new_err(err: bool) -> Self {
-        Self::Error(Box::new(Self::Bool(err)))
-      }
-    }
-
-    impl ValueError<f64> for Value {
-      fn new_err(err: f64) -> Self {
-        Self::Error(Box::new(Self::Num(err)))
-      }
-    }
-
-    impl ValueError<&str> for Value {
-      fn new_err(err: &str) -> Self {
-        Self::new_err(String::from(err))
-      }
-    }
-
-    impl ValueError<String> for Value {
-      fn new_err(err: String) -> Self {
-        Self::Error(Box::new(Self::Str(err)))
-      }
-    }
-
-    impl ValueError<Values> for Value {
-      fn new_err(err: Values) -> Self {
-        Self::Error(Box::new(Self::List(err)))
-      }
-    }
-
-    impl ValueError<Function> for Value {
-      fn new_err(err: Function) -> Self {
-        Self::Error(Box::new(Self::Callee(err)))
-      }
-    }
-
-    impl ValueError<Class> for Value {
-      fn new_err(err: Class) -> Self {
-        Self::Error(Box::new(Self::Class(err)))
-      }
-    }
-
-    impl ValueError<Instance> for Value {
-      fn new_err(err: Instance) -> Self {
-        Self::Error(Box::new(Self::Instance(err)))
-      }
-    }
-
-    impl Add for Value {
-      type Output = Self;
-      fn add(self, other: Self) -> Self {
-        match self {
-          Self::Num(a) => match other {
-            Self::Num(b) => Self::Num(a + b),
-            Self::Str(b) => Self::Str(format!("{}{}", a, b)),
-            _ => Self::new_err(format!("cannot add {} and {}", a, other)),
-          },
-          Self::Str(a) => match other {
-            Self::Num(b) => Self::Str(format!("{}{}", a, b)),
-            Self::Str(b) => Self::Str(format!("{}{}", a, b)),
-            _ => Self::new_err(format!("cannot add {} and {}", a, other)),
-          },
-          _ => Self::new_err(format!("cannot add {} and {}", self, other)),
-        }
-      }
-    }
-
-    impl AddAssign for Value {
-      fn add_assign(&mut self, other: Self) {
-        *self = self.clone() + other;
-      }
-    }
-
-    impl Sub for Value {
-      type Output = Self;
-
-      fn sub(self, other: Self) -> Self::Output {
-        match self {
-          Self::Num(a) => match other {
-            Self::Num(b) => Self::Num(a - b),
-            _ => Self::new_err(format!("cannot sub {} and {}", a, other)),
-          },
-          _ => Self::new_err(format!("cannot sub {} and {}", self, other)),
-        }
-      }
-    }
-
-    impl SubAssign for Value {
-      fn sub_assign(&mut self, other: Self) {
-        *self = self.clone() - other;
-      }
-    }
-
-    impl Mul for Value {
-      type Output = Self;
-
-      fn mul(self, other: Self) -> Self::Output {
-        match self {
-          Self::Num(a) => match other {
-            Self::Num(b) => Self::Num(a * b),
-            Self::Str(b) => {
-              if a > 0.0 {
-                Self::Str(b.repeat(a as usize))
-              } else {
-                Self::new_err(format!("cannot repeat a string {} times", b))
-              }
-            }
-            _ => Self::new_err(format!("cannot multiply {} and {}", a, other)),
-          },
-          Self::Str(a) => match other {
-            Self::Num(b) => {
-              if b > 0.0 {
-                Self::new(a.repeat(b as usize))
-              } else {
-                Self::new_err(format!("cannot repeat a string {} times", a))
-              }
-            }
-            _ => Self::new_err(format!("cannot multiply {} and {}", a, other)),
-          },
-          _ => Self::new_err(format!("cannot multiply {} and {}", self, other)),
-        }
-      }
-    }
-
-    impl MulAssign for Value {
-      fn mul_assign(&mut self, other: Self) {
-        *self = self.clone() * other;
-      }
-    }
-
-    impl Div for Value {
-      type Output = Self;
-
-      fn div(self, other: Self) -> Self::Output {
-        match self {
-          Self::Num(a) => match other {
-            Self::Num(b) => Self::new(a / b),
-            _ => Self::new_err(format!("cannot divide {} by {}", self, other)),
-          },
-          _ => Self::new_err(format!("cannot divide {} by {}", self, other)),
-        }
-      }
-    }
-
-    impl DivAssign for Value {
-      fn div_assign(&mut self, other: Self) {
-        *self = self.clone() / other;
-      }
-    }
-
-    impl Rem for Value {
-      type Output = Self;
-
-      fn rem(self, other: Self) -> Self::Output {
-        match self {
-          Self::Num(a) => match other {
-            Self::Num(b) => Self::new(a % b),
-            _ => Self::new_err(format!("cannot modulus {} by {}", self, other)),
-          },
-          _ => Self::new_err(format!("cannot modulus {} by {}", self, other)),
-        }
-      }
-    }
-
-    impl RemAssign for Value {
-      fn rem_assign(&mut self, other: Self) {
-        *self = self.clone() % other;
-      }
-    }
-
-    impl Not for Value {
-      type Output = Self;
-
-      fn not(self) -> Self::Output {
-        Value::Bool(!self.truthy())
-      }
-    }
-
-    impl Neg for Value {
-      type Output = Self;
-
-      fn neg(self) -> Self::Output {
-        match self {
-          Self::Nil => Self::new_err("cannot negate nil"),
-          Self::Error(_) => Self::new_err("cannot negate an error"),
-          Self::Bool(_) => Self::new_err("cannot negate a bool"),
-          Self::Num(n) => Self::Num(-n),
-          Self::Str(_) => Self::new_err("cannot negate a string"),
-          Self::List(_) => Self::new_err("cannot negate a list"),
-          Self::Callee(_) => Self::new_err("cannot negate a function"),
-          Self::Class(_) => Self::new_err("cannot negate a class"),
-          Self::Instance(i) => Self::new_err(format!("cannot negate a {}", i.instance_of)),
-        }
-      }
-    }
-
-    impl PartialEq for Value {
-      fn eq(&self, other: &Self) -> bool {
-        match self {
-          Self::Error(a) => {
-            if let Self::Error(b) = other {
-              a == b
-            } else {
-              false
-            }
-          }
-          Self::Bool(a) => {
-            if let Self::Bool(b) = other {
-              a == b
-            } else {
-              false
-            }
-          }
-          Self::Str(a) => {
-            if let Self::Str(b) = other {
-              a == b
-            } else {
-              false
-            }
-          }
-          Self::Num(a) => {
-            if let Self::Num(b) = other {
-              a == b
-            } else {
-              false
-            }
-          }
-          Self::List(a) => {
-            if let Self::List(b) = other {
-              let a = &a.0;
-              let b = &b.0;
-
-              if a.len() == b.len() {
-                for it in a.iter().zip(b.iter()) {
-                  let (ai, bi) = it;
-                  if ai != bi {
-                    return false;
-                  }
-                }
-
-                true
-              } else {
-                false
-              }
-            } else {
-              false
-            }
-          }
-          Self::Callee(_) => panic!("comparing functions is unimplemented"),
-          Self::Class(a) => {
-            if let Self::Class(b) = other {
-              a == b
-            } else {
-              false
-            }
-          }
-          Self::Instance(a) => {
-            if let Self::Instance(b) = other {
-              a == b
-            } else {
-              false
-            }
-          }
-          Self::Nil => {
-            matches!(other, Value::Nil)
-          }
-        }
-      }
-    }
-
-    impl PartialOrd for Value {
-      fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self {
-          Self::Num(a) => match other {
-            Self::Num(b) => {
-              if a < b {
-                Some(Ordering::Less)
-              } else if a > b {
-                Some(Ordering::Greater)
-              } else if (a - b).abs() < f64::EPSILON {
-                Some(Ordering::Equal)
-              } else {
-                None
-              }
-            }
-            _ => None,
-          },
-          Self::Str(a) => match other {
-            Self::Str(b) => Some(a.cmp(&b)),
-            _ => None,
-          },
-          _ => None,
-        }
-      }
-    }
-
-    impl Display for Value {
-      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-          Self::Nil => write!(f, "nil"),
-          Self::Error(e) => write!(f, "{}", e),
-          Self::Bool(b) => write!(f, "{}", b),
-          Self::Num(n) => write!(f, "{}", n),
-          Self::Str(s) => write!(f, "{}", s),
-          Self::List(l) => write!(f, "{}", l),
-          Self::Callee(c) => write!(f, "{}", c),
-          Self::Class(c) => write!(f, "<class {}>", c),
-          Self::Instance(i) => write!(f, "<instance of {}>", i),
-        }
-      }
-    }
-
-    impl Debug for Value {
-      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(self, f)
-      }
-    }
-
-    #[derive(Clone)]
-    pub struct Values(Vec<Value>);
-
-    impl Values {
-      pub fn new(values: Vec<Value>) -> Self {
-        Self(values)
-      }
-
-      pub fn len(&self) -> usize {
-        self.0.len()
-      }
-
-      pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-      }
-    }
-
-    impl Index<usize> for Values {
-      type Output = Value;
-
-      fn index(&self, idx: usize) -> &Self::Output {
-        &self.0[idx]
-      }
-    }
-
-    impl IndexMut<usize> for Values {
-      fn index_mut(&mut self, idx: usize) -> &mut Value {
-        &mut self.0[idx]
-      }
-    }
-
-    impl IntoIterator for Values {
-      type Item = Value;
-      type IntoIter = std::vec::IntoIter<Self::Item>;
-
-      fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-      }
-    }
-
-    impl Display for Values {
-      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.iter().fold(Ok(()), |result, value| {
-          result.and_then(|_| writeln!(f, "{}", value))
-        })
-      }
-    }
-
-    #[cfg(test)]
-    mod tests {
-      use super::*;
-      use crate::env::EnvRef;
-      use crate::types::Airity;
-
-      #[test]
-      fn is_truthy() {
-        let true_expectations = |t: Value| {
-          assert!(t.truthy());
-        };
-
-        let false_expectations = |t: Value| {
-          assert!(!t.truthy());
-        };
-
-        run_assertions(
-          vec![true_expectations],
-          vec![
-            Value::new_err("can be any error type"),
-            Value::new(true),
-            Value::new(0.0),
-            Value::new(1.0),
-            Value::new(-1.0),
-            Value::new("some string"),
-            Value::new(Values::new(Vec::new())),
-            // TODO
-            // Value::new(Function::new_native(
-            //   String::from("example"),
-            //   Airity::Fixed(0),
-            //   |_, _| Ok(Value::Nil),
-            // )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-
-        run_assertions(
-          vec![false_expectations],
-          vec![Value::Nil, Value::new(false)],
-        );
-      }
-
-      fn run_assertions(funcs: Vec<fn(Value)>, values: Vec<Value>) {
-        for func in funcs {
-          let values = values.clone();
-          for value in values {
-            func(value);
-          }
-        }
-      }
-
-      #[test]
-      fn can_add() {
-        let x = Value::new(1.0);
-        let y = Value::new(2.0);
-
-        assert_eq!(x + y, Value::new(3.0));
-
-        let x = Value::new("x");
-        let y = Value::new("y");
-
-        assert_eq!(x + y, Value::new("xy"));
-
-        let x = Value::new(1.0);
-        let y = Value::new("y");
-
-        assert_eq!(x + y, Value::new("1y"));
-
-        let x = Value::new("x");
-        let y = Value::new(2.0);
-
-        assert_eq!(x + y, Value::new("x2"));
-      }
-
-      #[test]
-      fn cannot_add_invalid() {
-        let assert_err_with_num = |t: Value| {
-          let num = Value::new(1.0);
-          assert!(matches!(num + t.clone(), Value::Error(_)));
-          let num = Value::new(1.0);
-          assert!(matches!(t + num, Value::Error(_)));
-        };
-
-        let assert_err_with_str = |t: Value| {
-          let s = Value::new("a");
-          assert!(matches!(s + t.clone(), Value::Error(_)));
-          let s = Value::new("a");
-          assert!(matches!(t + s, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num, assert_err_with_str],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
-
-      #[test]
-      fn can_add_assign() {
-        let mut x = Value::new(1.0);
-        let y = Value::new(2.0);
-        x += y;
-
-        assert_eq!(x, Value::new(3.0));
-
-        let mut x = Value::new("x");
-        let y = Value::new("y");
-        x += y;
-
-        assert_eq!(x, Value::new("xy"));
-
-        let mut x = Value::new(1.0);
-        let y = Value::new("y");
-        x += y;
-
-        assert_eq!(x, Value::new("1y"));
-
-        let mut x = Value::new("x");
-        let y = Value::new(2.0);
-        x += y;
-
-        assert_eq!(x, Value::new("x2"));
-      }
-
-      #[test]
-      fn cannot_add_assign_invalid() {
-        let assert_err_with_num = |mut t: Value| {
-          let mut num = Value::new(1.0);
-          num += t.clone();
-          assert!(matches!(num, Value::Error(_)));
-          let num = Value::new(1.0);
-          t += num;
-          assert!(matches!(t, Value::Error(_)));
-        };
-
-        let assert_err_with_str = |mut t: Value| {
-          let mut num = Value::new("a");
-          num += t.clone();
-          assert!(matches!(num, Value::Error(_)));
-          let num = Value::new("a");
-          t += num;
-          assert!(matches!(t, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num, assert_err_with_str],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
-
-      #[test]
-      fn can_sub() {
-        let x = Value::new(3.0);
-        let y = Value::new(2.0);
-
-        assert_eq!(x - y, Value::new(1.0));
-      }
-
-      #[test]
-      fn cannot_sub_invalid() {
-        let assert_err_with_num = |t: Value| {
-          let num = Value::new(1.0);
-          assert!(matches!(num - t.clone(), Value::Error(_)));
-          let num = Value::new(1.0);
-          assert!(matches!(t - num, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new("test"),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
-
-      #[test]
-      fn can_sub_assign() {
-        let mut x = Value::new(3.0);
-        let y = Value::new(2.0);
-        x -= y;
-
-        assert_eq!(x, Value::new(1.0));
-      }
-
-      #[test]
-      fn cannot_sub_assign_invalid() {
-        let assert_err_with_num = |mut t: Value| {
-          let mut num = Value::new(1.0);
-          num -= t.clone();
-          assert!(matches!(num, Value::Error(_)));
-          let num = Value::new(1.0);
-          t -= num;
-          assert!(matches!(t, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new("test"),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
-
-      #[test]
-      fn can_mul() {
-        let x = Value::new(2.0);
-        let y = Value::new(3.0);
-
-        assert_eq!(x * y, Value::new(6.0));
-
-        let x = Value::new(2.0);
-        let y = Value::new("a");
-
-        assert_eq!(x * y, Value::new("aa"));
-
-        let x = Value::new(2.0);
-        let y = Value::new("a");
-
-        assert_eq!(x * y, Value::new("aa"));
-      }
-
-      #[test]
-      fn cannot_mul_invalid() {
-        let assert_err_with_num = |t: Value| {
-          let num = Value::new(1.0);
-          assert!(matches!(num * t.clone(), Value::Error(_)));
-          let num = Value::new(1.0);
-          assert!(matches!(t * num, Value::Error(_)));
-        };
-
-        let assert_err_with_str = |t: Value| {
-          let s = Value::new("a");
-          assert!(matches!(s * t.clone(), Value::Error(_)));
-          let s = Value::new("a");
-          assert!(matches!(t * s, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num, assert_err_with_str],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-
-        run_assertions(
-          vec![assert_err_with_str],
-          vec![Value::new(-1.0), Value::new("test")],
-        );
-      }
-
-      #[test]
-      fn can_mul_assign() {
-        let mut x = Value::new(2.0);
-        let y = Value::new(3.0);
-        x *= y;
-
-        assert_eq!(x, Value::new(6.0));
-
-        let mut x = Value::new(2.0);
-        let y = Value::new("a");
-        x *= y;
-
-        assert_eq!(x, Value::new("aa"));
-
-        let mut x = Value::new(2.0);
-        let y = Value::new("a");
-        x *= y;
-
-        assert_eq!(x, Value::new("aa"));
-      }
-
-      #[test]
-      fn cannot_mul_assign_invalid() {
-        let assert_err_with_num = |mut t: Value| {
-          let mut num = Value::new(1.0);
-          num *= t.clone();
-          assert!(matches!(num, Value::Error(_)));
-          let num = Value::new(1.0);
-          t *= num;
-          assert!(matches!(t, Value::Error(_)));
-        };
-
-        let assert_err_with_str = |mut t: Value| {
-          let mut s = Value::new("a");
-          s *= t.clone();
-          assert!(matches!(s, Value::Error(_)));
-          let s = Value::new("a");
-          t *= s;
-          assert!(matches!(t, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num, assert_err_with_str],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-
-        run_assertions(
-          vec![assert_err_with_str],
-          vec![Value::new(-1.0), Value::new("test")],
-        );
-      }
-
-      #[test]
-      fn can_div() {
-        let x = Value::new(3.0);
-        let y = Value::new(2.0);
-
-        assert_eq!(x / y, Value::new(1.5));
-      }
-
-      #[test]
-      fn cannot_div_invalid() {
-        let assert_err_with_num = |t: Value| {
-          let num = Value::new(1.0);
-          assert!(matches!(num / t.clone(), Value::Error(_)));
-          let num = Value::new(1.0);
-          assert!(matches!(t / num, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new("test"),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
-
-      #[test]
-      fn can_div_assign() {
-        let mut x = Value::new(3.0);
-        let y = Value::new(2.0);
-        x /= y;
-
-        assert_eq!(x, Value::new(1.5));
-      }
-
-      #[test]
-      fn cannot_div_assign_invalid() {
-        let assert_err_with_num = |mut t: Value| {
-          let mut num = Value::new(1.0);
-          num /= t.clone();
-          assert!(matches!(num, Value::Error(_)));
-          let num = Value::new(1.0);
-          t /= num;
-          assert!(matches!(t, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new("test"),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
-
-      #[test]
-      fn can_mod() {
-        let x = Value::new(3.0);
-        let y = Value::new(2.0);
-
-        assert_eq!(x % y, Value::new(1.0));
-      }
-
-      #[test]
-      fn cannot_mod_invalid() {
-        let assert_err_with_num = |t: Value| {
-          let num = Value::new(1.0);
-          assert!(matches!(num % t.clone(), Value::Error(_)));
-          let num = Value::new(1.0);
-          assert!(matches!(t % num, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new("test"),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
-
-      #[test]
-      fn can_mod_assign() {
-        let mut x = Value::new(3.0);
-        let y = Value::new(2.0);
-        x %= y;
-
-        assert_eq!(x, Value::new(1.0));
-      }
-
-      #[test]
-      fn cannot_mod_assign_invalid() {
-        let assert_err_with_num = |mut t: Value| {
-          let mut num = Value::new(1.0);
-          num %= t.clone();
-          assert!(matches!(num, Value::Error(_)));
-          let num = Value::new(1.0);
-          t %= num;
-          assert!(matches!(t, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err_with_num],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new("test"),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
-
-      #[test]
-      fn not_a_value_returns_opposite_truthiness() {
-        let true_expectations = |t: Value| {
-          assert_eq!(Value::new(true), !t);
-        };
-
-        let false_expectations = |t: Value| {
-          assert_eq!(Value::new(false), !t);
-        };
-
-        run_assertions(vec![true_expectations], vec![Value::Nil, Value::new(false)]);
-
-        run_assertions(
-          vec![false_expectations],
-          vec![
-            Value::new_err("can be any error type"),
-            Value::new(true),
-            Value::new(0.0),
-            Value::new(1.0),
-            Value::new(-1.0),
-            Value::new("some string"),
-            Value::new(Values::new(Vec::new())),
-            // TODO
-            // Value::new(Function::new_native(
-            //   String::from("example"),
-            //   Airity::Fixed(0),
-            //   |_, _| Ok(Value::Nil),
-            // )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
-
-      #[test]
-      fn can_negate() {
-        let x = Value::new(1.0);
-        assert_eq!(-x, Value::new(-1.0));
-      }
-
-      #[test]
-      fn cannot_negate_invalid() {
-        let assert_err = |t: Value| {
-          assert!(matches!(-t, Value::Error(_)));
-        };
-
-        run_assertions(
-          vec![assert_err],
-          vec![
-            Value::Nil,
-            Value::new_err("test error"),
-            Value::new(true),
-            Value::new(false),
-            Value::new("test"),
-            Value::new(Values(Vec::new())),
-            Value::new(Function::new_native(
-              String::from("example"),
-              Airity::Fixed(0),
-              |_, _| Ok(Value::Nil),
-            )),
-            Value::new(Class::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-            Value::new(Instance::new(
-              String::from("example"),
-              EnvRef::default(),
-              EnvRef::default(),
-            )),
-          ],
-        );
-      }
+    // returns the location of the added constant
+    pub fn write(&mut self, value: Value) -> usize {
+      self.values.push(value);
+      self.values.len() - 1
     }
   }
 
-  mod call {
-    use super::scanner::Token;
-    use super::{Value, VM};
-    use crate::env::EnvRef;
-    use crate::ScriptError;
-    use std::fmt::{self, Display};
-    use std::ops::RangeInclusive;
-    use std::rc::Rc;
-
-    pub type NativeFnResult = Result<Value, String>;
-    pub type NativeFn = fn(EnvRef, &[Value]) -> NativeFnResult;
-
-    #[derive(Clone)]
-    pub enum Airity {
-      Fixed(usize),
-      Range(RangeInclusive<usize>),
-    }
-
-    #[derive(Clone)]
-    pub enum Function {
-      Native {
-        name: String,
-        airity: Airity,
-        func: NativeFn,
-      },
-      Script {
-        name: String,
-        params: Rc<Vec<Token>>,
-        body: Rc<Vec<Stmt>>,
-        env: EnvRef,
-      },
-      Closure {
-        params: Rc<Vec<Token>>,
-        body: Rc<Vec<Stmt>>,
-        env: EnvRef,
-      },
-      Method {
-        name: String,
-        params: Rc<Vec<Token>>,
-        body: Rc<Vec<Stmt>>,
-        env: EnvRef,
-      },
-    }
-
-    pub type CallResult = Result<Value, ScriptError>;
-
-    impl Function {
-      pub fn call(&self, evaluator: &mut Evaluator, args: Vec<Value>, line: usize) -> CallResult {
-        match self {
-          Function::Native {
-            name: _,
-            airity,
-            func,
-          } => Function::call_native_fn(evaluator, line, airity, func, &args),
-          Function::Script {
-            name: _,
-            params,
-            body,
-            env,
-          } => Function::call_script_fn(
-            evaluator,
-            line,
-            params,
-            body,
-            args,
-            EnvRef::new_with_enclosing(env.snapshot()),
-          ),
-          Function::Closure { params, body, env } => Function::call_closure_fn(
-            evaluator,
-            line,
-            params,
-            body,
-            args,
-            EnvRef::new_with_enclosing(env.snapshot()),
-          ),
-          Function::Method {
-            name: _,
-            params,
-            body,
-            env,
-          } => Function::call_method(
-            evaluator,
-            line,
-            params,
-            body,
-            args,
-            EnvRef::new_with_enclosing(env.snapshot()),
-          ),
-        }
-      }
-
-      pub fn new_native(name: String, airity: Airity, func: NativeFn) -> Self {
-        Self::Native { name, airity, func }
-      }
-
-      pub fn new_script(
-        name: String,
-        params: Rc<Vec<Token>>,
-        body: Rc<Vec<Stmt>>,
-        env: EnvRef,
-      ) -> Self {
-        Self::Script {
-          name,
-          params,
-          body,
-          env,
-        }
-      }
-
-      pub fn new_closure(params: Rc<Vec<Token>>, body: Rc<Vec<Stmt>>, env: EnvRef) -> Self {
-        Self::Closure { params, body, env }
-      }
-
-      pub fn new_method(
-        name: String,
-        params: Rc<Vec<Token>>,
-        body: Rc<Vec<Stmt>>,
-        env: EnvRef,
-      ) -> Self {
-        Self::Method {
-          name,
-          params,
-          body,
-          env,
-        }
-      }
-
-      fn call_native_fn(
-        e: &mut Evaluator,
-        line: usize,
-        airity: &Airity,
-        func: &NativeFn,
-        args: &[Value],
-      ) -> CallResult {
-        match airity {
-          Airity::Fixed(len) => {
-            if *len < args.len() {
-              return Err(ScriptError {
-                file: e.file.clone(),
-                line,
-                msg: format!("too many arguments, expected {}, got {}", len, args.len()),
-              });
-            }
-            if *len > args.len() {
-              return Err(ScriptError {
-                file: e.file.clone(),
-                line,
-                msg: format!("too few arguments, expected {}, got {}", len, args.len(),),
-              });
-            }
-          }
-          Airity::Range(range) => {
-            if !range.contains(&args.len()) {
-              return Err(ScriptError {
-                file: e.file.clone(),
-                line,
-                msg: format!(
-                  "invalid number of arguments, expected range {:?}, got {}",
-                  range,
-                  args.len(),
-                ),
-              });
-            }
-          }
-        }
-
-        match (func)(e.env.snapshot(), args) {
-          Ok(v) => Ok(v),
-          Err(msg) => Err(ScriptError {
-            file: e.file.clone(),
-            line,
-            msg,
-          }),
-        }
-      }
-
-      fn call_script_fn(
-        e: &mut Evaluator,
-        line: usize,
-        params: &[Token],
-        body: &[Stmt],
-        args: Vec<Value>,
-        mut env: EnvRef,
-      ) -> CallResult {
-        if params.len() < args.len() {
-          return Err(ScriptError {
-            file: e.file.clone(),
-            line,
-            msg: format!(
-              "too many arguments, expected {}, got {}",
-              params.len(),
-              args.len()
-            ),
-          });
-        }
-
-        if params.len() > args.len() {
-          return Err(ScriptError {
-            file: e.file.clone(),
-            line,
-            msg: format!(
-              "too few arguments, expected {}, got {}",
-              params.len(),
-              args.len(),
-            ),
-          });
-        }
-
-        for (param, arg) in params.iter().zip(args.iter()) {
-          env.define(&param.lexeme, arg.clone());
-        }
-
-        Ok(match e.eval_block(&body, env)? {
-          StatementType::Regular(v) => v,
-          StatementType::Return(v) => v,
-        })
-      }
-
-      fn call_closure_fn(
-        e: &mut Evaluator,
-        line: usize,
-        params: &[Token],
-        body: &[Stmt],
-        args: Vec<Value>,
-        mut env: EnvRef,
-      ) -> CallResult {
-        if params.len() < args.len() {
-          return Err(ScriptError {
-            file: e.file.clone(),
-            line,
-            msg: format!(
-              "too many arguments, expected {}, got {}",
-              params.len(),
-              args.len()
-            ),
-          });
-        }
-
-        if params.len() > args.len() {
-          return Err(ScriptError {
-            file: e.file.clone(),
-            line,
-            msg: format!(
-              "too few arguments, expected {}, got {}",
-              params.len(),
-              args.len(),
-            ),
-          });
-        }
-
-        for (param, arg) in params.iter().zip(args.iter()) {
-          env.define(&param.lexeme, arg.clone());
-        }
-
-        Ok(match e.eval_block(&body, env)? {
-          StatementType::Regular(v) => v,
-          StatementType::Return(v) => v,
-        })
-      }
-
-      fn call_method(
-        e: &mut Evaluator,
-        line: usize,
-        params: &[Token],
-        body: &[Stmt],
-        args: Vec<Value>,
-        mut env: EnvRef,
-      ) -> CallResult {
-        if params.is_empty() {
-          return Err(ScriptError {
-            file: e.file.clone(),
-            line,
-            msg: String::from("need at least one parameter for reference to self"),
-          });
-        }
-
-        if params.len() < args.len() {
-          return Err(ScriptError {
-            file: e.file.clone(),
-            line,
-            msg: format!(
-              "too many arguments, expected {}, got {}",
-              params.len(),
-              args.len()
-            ),
-          });
-        }
-
-        if params.len() - 1 > args.len() {
-          return Err(ScriptError {
-            file: e.file.clone(),
-            line,
-            msg: format!(
-              "too few arguments, expected {}, got {}",
-              params.len() - 1,
-              args.len(),
-            ),
-          });
-        }
-
-        if let Some(self_ref) = params.first() {
-          if let Some(instance) = &e.last_object {
-            if let Value::Instance(instance) = instance {
-              env.define(
-                &self_ref.lexeme,
-                Value::Instance(Instance {
-                  instance_of: instance.instance_of.clone(),
-                  methods: instance.methods.snapshot(),
-                  members: instance.members.snapshot(),
-                }),
-              );
-            } else {
-              return Err(ScriptError {
-                file: e.file.clone(),
-                line,
-                msg: String::from("calling method on non-objects is not allowed"),
-              });
-            }
-          } else {
-            return Err(ScriptError {
-              file: e.file.clone(),
-              line,
-              msg: String::from("method called on void space"),
-            });
-          }
-        } else {
-          return Err(ScriptError {
-            file: e.file.clone(),
-            line,
-            msg: String::from("need at least one parameter for reference to self"),
-          });
-        }
-
-        for (param, arg) in params.iter().skip(1).zip(args.iter()) {
-          env.define(&param.lexeme, arg.clone());
-        }
-
-        Ok(match e.eval_block(&body, env.snapshot())? {
-          StatementType::Regular(v) => v,
-          StatementType::Return(v) => v,
-        })
-      }
-    }
-
-    impl Display for Function {
-      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-          Self::Native {
-            name,
-            airity: _,
-            func: _,
-          } => write!(f, "<nf {}>", name),
-          Self::Script {
-            name,
-            params: _,
-            body: _,
-            env: _,
-          } => write!(f, "<fn {}>", name),
-          Self::Closure {
-            params: _,
-            body: _,
-            env: _,
-          } => write!(f, "<closure>"),
-          Self::Method {
-            name,
-            params: _,
-            body: _,
-            env: _,
-          } => write!(f, "<m {}>", name),
-        }
-      }
-    }
-  }
-
-  mod oo {
-    use crate::env::EnvRef;
-    use std::fmt::{self, Display};
-
-    #[derive(Clone)]
-    pub struct Class {
-      pub name: String,
-      pub static_methods: EnvRef,
-      pub instance_methods: EnvRef,
-    }
-
-    impl Class {
-      pub fn new(name: String, static_methods: EnvRef, instance_methods: EnvRef) -> Self {
-        Self {
-          name,
-          static_methods,
-          instance_methods,
-        }
-      }
-    }
-
-    impl PartialEq for Class {
-      fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-      }
-    }
-
-    impl Display for Class {
-      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-      }
-    }
-
-    #[derive(Clone)]
-    pub struct Instance {
-      pub instance_of: String,
-      pub methods: EnvRef,
-      pub members: EnvRef,
-    }
-
-    impl Instance {
-      pub fn new(instance_of: String, methods: EnvRef, members: EnvRef) -> Self {
-        Self {
-          instance_of,
-          methods,
-          members,
-        }
-      }
-    }
-
-    impl PartialEq for Instance {
-      fn eq(&self, other: &Self) -> bool {
-        self.instance_of == other.instance_of && self.members == other.members
-      }
-    }
-
-    impl Display for Instance {
-      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.instance_of)
-      }
-    }
-  }
-}
-
-mod env {
-  use super::types::{Airity, Class, Function, NativeFn, Value};
-  use std::cell::RefCell;
-  use std::cmp::PartialEq;
-  use std::collections::HashMap;
-  use std::fmt::{self, Display};
-  use std::rc::Rc;
-
-  struct Env {
-    scope: HashMap<String, Value>,
-    enclosing: Option<EnvRef>,
-  }
-
-  impl Default for Env {
-    fn default() -> Self {
-      Self {
-        scope: HashMap::new(),
-        enclosing: None,
-      }
-    }
-  }
-
-  impl Env {
-    fn new(enclosing: EnvRef) -> Env {
-      Self {
-        scope: HashMap::new(),
-        enclosing: Some(enclosing),
-      }
-    }
-
-    fn define(&mut self, name: &str, value: Value) -> bool {
-      self.scope.insert(String::from(name), value).is_some()
-    }
-
-    fn lookup(&self, name: &str) -> Option<Value> {
-      if let Some(v) = self.scope.get(name) {
-        Some(v.clone())
-      } else if let Some(enc) = &self.enclosing {
-        enc.env.borrow().lookup(name)
-      } else {
-        None
-      }
-    }
-
-    fn assign(&mut self, name: String, value: Value) -> Result<(), String> {
-      if self.scope.contains_key(&name) {
-        self.scope.insert(name, value);
-        Ok(())
-      } else if let Some(enc) = &mut self.enclosing {
-        enc.env.borrow_mut().assign(name, value)
-      } else {
-        Err(format!("assignment of undefined variable '{}'", name))
-      }
-    }
-  }
-
-  impl PartialEq for Env {
-    fn eq(&self, other: &Self) -> bool {
-      self.scope == other.scope
+  impl Index<usize> for ValueArray {
+    type Output = Value;
+    fn index(&self, index: usize) -> &Self::Output {
+      &self.values[index]
     }
   }
 
   #[derive(Clone)]
-  pub struct EnvRef {
-    env: Rc<RefCell<Env>>,
+  pub enum ErrorValue {
+    Bool(bool),
+    Num(f64),
+    Str(String),
+    List(Values),
   }
 
-  impl Default for EnvRef {
-    fn default() -> Self {
-      Self {
-        env: Rc::new(RefCell::new(Env::default())),
-      }
+  impl New<bool> for ErrorValue {
+    fn new(b: bool) -> Self {
+      Self::Bool(b)
     }
   }
 
-  impl EnvRef {
-    pub fn new_with_enclosing(enclosing: EnvRef) -> Self {
-      Self {
-        env: Rc::new(RefCell::new(Env::new(enclosing))),
-      }
+  impl New<f64> for ErrorValue {
+    fn new(n: f64) -> Self {
+      Self::Num(n)
     }
+  }
 
-    pub fn snapshot(&self) -> Self {
-      Self {
-        env: Rc::clone(&self.env),
-      }
+  impl New<String> for ErrorValue {
+    fn new(s: String) -> Self {
+      Self::Str(s)
     }
+  }
 
-    pub fn define_native(&mut self, name: &str, airity: Airity, func: NativeFn) -> bool {
-      self.define(
-        name,
-        Value::Callee(Function::new_native(String::from(name), airity, func)),
-      )
+  impl New<Values> for ErrorValue {
+    fn new(v: Values) -> Self {
+      Self::List(v)
     }
+  }
 
-    pub fn define_class(
-      &mut self,
-      name: &str,
-      static_methods: EnvRef,
-      instance_methods: EnvRef,
-    ) -> bool {
-      self.define(
-        name,
-        Value::Class(Class {
-          name: String::from(name),
-          static_methods,
-          instance_methods,
-        }),
-      )
-    }
-
-    // returns true if variable was already defined
-    pub fn define(&mut self, name: &str, value: Value) -> bool {
-      self.env.borrow_mut().define(name, value)
-    }
-
-    pub fn lookup(&self, name: &str) -> Option<Value> {
-      self.env.borrow().lookup(name)
-    }
-
-    pub fn lookup_at(&self, distance: usize, name: &str) -> Option<Value> {
-      if let Some(envref) = self.ancestor(distance) {
-        if let Some(v) = envref.env.borrow().scope.get(name) {
-          Some(v.clone())
-        } else {
-          None
+  impl PartialEq for ErrorValue {
+    fn eq(&self, other: &ErrorValue) -> bool {
+      match self {
+        Self::Bool(a) => {
+          if let Self::Bool(b) = other {
+            a == b
+          } else {
+            false
+          }
         }
-      } else {
-        None
-      }
-    }
-
-    pub fn get(&self, name: &str) -> Option<Value> {
-      if let Some(v) = self.env.borrow().scope.get(name) {
-        Some(v.clone())
-      } else {
-        None
-      }
-    }
-
-    pub fn assign(&mut self, name: String, value: Value) -> Result<(), String> {
-      self.env.borrow_mut().assign(name, value)
-    }
-
-    pub fn assign_at(&mut self, depth: usize, name: String, value: Value) -> Result<(), String> {
-      if let Some(envref) = self.ancestor(depth) {
-        envref.env.borrow_mut().assign(name, value)
-      } else {
-        Err(format!("assignment of undefined variable '{}'", name))
-      }
-    }
-
-    fn ancestor(&self, distance: usize) -> Option<EnvRef> {
-      let mut env = Rc::clone(&self.env);
-      for _ in 0..distance {
-        let mut tmp = None;
-        if let Some(enc) = &env.borrow().enclosing {
-          tmp = Some(Rc::clone(&enc.env));
+        Self::Num(a) => {
+          if let Self::Num(b) = other {
+            a == b
+          } else {
+            false
+          }
         }
-        env = tmp?;
+        Self::Str(a) => {
+          if let Self::Str(b) = other {
+            a == b
+          } else {
+            false
+          }
+        }
+        Self::List(a) => {
+          if let Self::List(b) = other {
+            a == b
+          } else {
+            false
+          }
+        }
       }
-      Some(EnvRef { env })
-    }
-
-    fn fmt_indent(&self, f: &mut fmt::Formatter<'_>, indents: usize) -> fmt::Result {
-      let tabs = "\t".repeat(indents);
-      writeln!(f, "{}scope: {} {{", tabs, indents)?;
-      for (k, v) in self.env.borrow().scope.iter() {
-        writeln!(f, "{}{} = {}", "\t".repeat(indents + 1), k, v)?;
-      }
-      writeln!(f, "{}}}", tabs)?;
-      if let Some(enc) = &self.env.borrow().enclosing {
-        enc.fmt_indent(f, indents + 1)?;
-      }
-
-      Ok(())
     }
   }
 
-  impl Display for EnvRef {
+  impl Display for ErrorValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-      self.fmt_indent(f, 0)
+      match self {
+        Self::Bool(b) => write!(f, "{}", b),
+        Self::Num(n) => write!(f, "{}", n),
+        Self::Str(s) => write!(f, "{}", s),
+        Self::List(l) => write!(f, "{}", l),
+      }
     }
   }
 
-  impl PartialEq for EnvRef {
+  #[derive(Clone)]
+  pub enum Value {
+    Nil,
+    Error(ErrorValue),
+    Bool(bool),
+    Num(f64),
+    Str(String),
+    List(Values),
+  }
+
+  impl Value {
+    pub fn truthy(&self) -> bool {
+      if *self == Value::Nil {
+        return false;
+      }
+
+      if let Value::Bool(b) = self {
+        return *b;
+      }
+
+      true
+    }
+
+    pub fn len(&self) -> Option<usize> {
+      if let Self::List(list) = self {
+        Some(list.len())
+      } else {
+        None
+      }
+    }
+
+    pub fn is_empty(&self) -> Option<bool> {
+      if let Self::List(list) = self {
+        Some(list.is_empty())
+      } else {
+        None
+      }
+    }
+
+    pub fn index(&'_ self, idx: usize) -> Option<&'_ Self> {
+      if let Self::List(list) = self {
+        Some(&list[idx])
+      } else {
+        None
+      }
+    }
+
+    pub fn index_mut(&'_ mut self, idx: usize) -> Option<&'_ mut Self> {
+      if let Self::List(list) = self {
+        Some(&mut list[idx])
+      } else {
+        None
+      }
+    }
+  }
+
+  impl New<bool> for Value {
+    fn new(item: bool) -> Self {
+      Self::Bool(item)
+    }
+  }
+
+  impl New<f64> for Value {
+    fn new(item: f64) -> Self {
+      Self::Num(item)
+    }
+  }
+
+  impl New<String> for Value {
+    fn new(item: String) -> Self {
+      Self::Str(item)
+    }
+  }
+
+  impl New<&str> for Value {
+    fn new(item: &str) -> Self {
+      Self::new(String::from(item))
+    }
+  }
+
+  impl New<Values> for Value {
+    fn new(item: Values) -> Self {
+      Self::List(item)
+    }
+  }
+
+  impl ValueError<bool> for Value {
+    fn new_err(err: bool) -> Self {
+      Self::Error(ErrorValue::Bool(err))
+    }
+  }
+
+  impl ValueError<f64> for Value {
+    fn new_err(err: f64) -> Self {
+      Self::Error(ErrorValue::new(err))
+    }
+  }
+
+  impl ValueError<&str> for Value {
+    fn new_err(err: &str) -> Self {
+      Self::new_err(String::from(err))
+    }
+  }
+
+  impl ValueError<String> for Value {
+    fn new_err(err: String) -> Self {
+      Self::Error(ErrorValue::new(err))
+    }
+  }
+
+  impl ValueError<Values> for Value {
+    fn new_err(err: Values) -> Self {
+      Self::Error(ErrorValue::new(err))
+    }
+  }
+
+  impl Add for Value {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+      match self {
+        Self::Num(a) => match other {
+          Self::Num(b) => Self::Num(a + b),
+          Self::Str(b) => Self::Str(format!("{}{}", a, b)),
+          _ => Self::new_err(format!("cannot add {} and {}", a, other)),
+        },
+        Self::Str(a) => match other {
+          Self::Num(b) => Self::Str(format!("{}{}", a, b)),
+          Self::Str(b) => Self::Str(format!("{}{}", a, b)),
+          _ => Self::new_err(format!("cannot add {} and {}", a, other)),
+        },
+        _ => Self::new_err(format!("cannot add {} and {}", self, other)),
+      }
+    }
+  }
+
+  impl AddAssign for Value {
+    fn add_assign(&mut self, other: Self) {
+      *self = self.clone() + other;
+    }
+  }
+
+  impl Sub for Value {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+      match self {
+        Self::Num(a) => match other {
+          Self::Num(b) => Self::Num(a - b),
+          _ => Self::new_err(format!("cannot sub {} and {}", a, other)),
+        },
+        _ => Self::new_err(format!("cannot sub {} and {}", self, other)),
+      }
+    }
+  }
+
+  impl SubAssign for Value {
+    fn sub_assign(&mut self, other: Self) {
+      *self = self.clone() - other;
+    }
+  }
+
+  impl Mul for Value {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+      match self {
+        Self::Num(a) => match other {
+          Self::Num(b) => Self::Num(a * b),
+          Self::Str(b) => {
+            if a > 0.0 {
+              Self::Str(b.repeat(a as usize))
+            } else {
+              Self::new_err(format!("cannot repeat a string {} times", b))
+            }
+          }
+          _ => Self::new_err(format!("cannot multiply {} and {}", a, other)),
+        },
+        Self::Str(a) => match other {
+          Self::Num(b) => {
+            if b > 0.0 {
+              Self::new(a.repeat(b as usize))
+            } else {
+              Self::new_err(format!("cannot repeat a string {} times", a))
+            }
+          }
+          _ => Self::new_err(format!("cannot multiply {} and {}", a, other)),
+        },
+        _ => Self::new_err(format!("cannot multiply {} and {}", self, other)),
+      }
+    }
+  }
+
+  impl MulAssign for Value {
+    fn mul_assign(&mut self, other: Self) {
+      *self = self.clone() * other;
+    }
+  }
+
+  impl Div for Value {
+    type Output = Self;
+
+    fn div(self, other: Self) -> Self::Output {
+      match self {
+        Self::Num(a) => match other {
+          Self::Num(b) => Self::new(a / b),
+          _ => Self::new_err(format!("cannot divide {} by {}", self, other)),
+        },
+        _ => Self::new_err(format!("cannot divide {} by {}", self, other)),
+      }
+    }
+  }
+
+  impl DivAssign for Value {
+    fn div_assign(&mut self, other: Self) {
+      *self = self.clone() / other;
+    }
+  }
+
+  impl Rem for Value {
+    type Output = Self;
+
+    fn rem(self, other: Self) -> Self::Output {
+      match self {
+        Self::Num(a) => match other {
+          Self::Num(b) => Self::new(a % b),
+          _ => Self::new_err(format!("cannot modulus {} by {}", self, other)),
+        },
+        _ => Self::new_err(format!("cannot modulus {} by {}", self, other)),
+      }
+    }
+  }
+
+  impl RemAssign for Value {
+    fn rem_assign(&mut self, other: Self) {
+      *self = self.clone() % other;
+    }
+  }
+
+  impl Not for Value {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+      Value::Bool(!self.truthy())
+    }
+  }
+
+  impl Neg for Value {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+      match self {
+        Self::Nil => Self::new_err("cannot negate nil"),
+        Self::Error(_) => Self::new_err("cannot negate an error"),
+        Self::Bool(_) => Self::new_err("cannot negate a bool"),
+        Self::Num(n) => Self::Num(-n),
+        Self::Str(_) => Self::new_err("cannot negate a string"),
+        Self::List(_) => Self::new_err("cannot negate a list"),
+      }
+    }
+  }
+
+  impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-      self.env == other.env
+      match self {
+        Self::Error(a) => {
+          if let Self::Error(b) = other {
+            a == b
+          } else {
+            false
+          }
+        }
+        Self::Bool(a) => {
+          if let Self::Bool(b) = other {
+            a == b
+          } else {
+            false
+          }
+        }
+        Self::Str(a) => {
+          if let Self::Str(b) = other {
+            a == b
+          } else {
+            false
+          }
+        }
+        Self::Num(a) => {
+          if let Self::Num(b) = other {
+            a == b
+          } else {
+            false
+          }
+        }
+        Self::List(a) => {
+          if let Self::List(b) = other {
+            a == b
+          } else {
+            false
+          }
+        }
+        Self::Nil => {
+          matches!(other, Value::Nil)
+        }
+      }
+    }
+  }
+
+  impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      match self {
+        Self::Num(a) => match other {
+          Self::Num(b) => {
+            if a < b {
+              Some(Ordering::Less)
+            } else if a > b {
+              Some(Ordering::Greater)
+            } else if (a - b).abs() < f64::EPSILON {
+              Some(Ordering::Equal)
+            } else {
+              None
+            }
+          }
+          _ => None,
+        },
+        Self::Str(a) => match other {
+          Self::Str(b) => Some(a.cmp(&b)),
+          _ => None,
+        },
+        _ => None,
+      }
+    }
+  }
+
+  impl Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      match self {
+        Self::Nil => write!(f, "nil"),
+        Self::Error(e) => write!(f, "{}", e),
+        Self::Bool(b) => write!(f, "{}", b),
+        Self::Num(n) => write!(f, "{}", n),
+        Self::Str(s) => write!(f, "{}", s),
+        Self::List(l) => write!(f, "{}", l),
+      }
+    }
+  }
+
+  impl Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      Display::fmt(self, f)
+    }
+  }
+
+  #[derive(Clone)]
+  pub struct Values(Vec<Value>);
+
+  impl Values {
+    pub fn new(values: Vec<Value>) -> Self {
+      Self(values)
+    }
+
+    pub fn len(&self) -> usize {
+      self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+      self.0.is_empty()
+    }
+  }
+
+  impl Index<usize> for Values {
+    type Output = Value;
+
+    fn index(&self, idx: usize) -> &Self::Output {
+      &self.0[idx]
+    }
+  }
+
+  impl IndexMut<usize> for Values {
+    fn index_mut(&mut self, idx: usize) -> &mut Value {
+      &mut self.0[idx]
+    }
+  }
+
+  impl PartialEq for Values {
+    fn eq(&self, other: &Self) -> bool {
+      self.0 == other.0
+    }
+  }
+
+  impl IntoIterator for Values {
+    type Item = Value;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+      self.0.into_iter()
+    }
+  }
+
+  impl Display for Values {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      self.0.iter().fold(Ok(()), |result, value| {
+        result.and_then(|_| writeln!(f, "{}", value))
+      })
+    }
+  }
+
+  #[cfg(test)]
+  mod tests {
+    use super::*;
+
+    #[test]
+    fn is_truthy() {
+      let true_expectations = |t: Value| {
+        assert!(t.truthy());
+      };
+
+      let false_expectations = |t: Value| {
+        assert!(!t.truthy());
+      };
+
+      run_assertions(
+        vec![true_expectations],
+        vec![
+          Value::new_err("can be any error type"),
+          Value::new(true),
+          Value::new(0.0),
+          Value::new(1.0),
+          Value::new(-1.0),
+          Value::new("some string"),
+          Value::new(Values::new(Vec::new())),
+        ],
+      );
+
+      run_assertions(
+        vec![false_expectations],
+        vec![Value::Nil, Value::new(false)],
+      );
+    }
+
+    fn run_assertions(funcs: Vec<fn(Value)>, values: Vec<Value>) {
+      for func in funcs {
+        let values = values.clone();
+        for value in values {
+          func(value);
+        }
+      }
+    }
+
+    #[test]
+    fn can_add() {
+      let x = Value::new(1.0);
+      let y = Value::new(2.0);
+
+      assert_eq!(x + y, Value::new(3.0));
+
+      let x = Value::new("x");
+      let y = Value::new("y");
+
+      assert_eq!(x + y, Value::new("xy"));
+
+      let x = Value::new(1.0);
+      let y = Value::new("y");
+
+      assert_eq!(x + y, Value::new("1y"));
+
+      let x = Value::new("x");
+      let y = Value::new(2.0);
+
+      assert_eq!(x + y, Value::new("x2"));
+    }
+
+    #[test]
+    fn cannot_add_invalid() {
+      let assert_err_with_num = |t: Value| {
+        let num = Value::new(1.0);
+        assert!(matches!(num + t.clone(), Value::Error(_)));
+        let num = Value::new(1.0);
+        assert!(matches!(t + num, Value::Error(_)));
+      };
+
+      let assert_err_with_str = |t: Value| {
+        let s = Value::new("a");
+        assert!(matches!(s + t.clone(), Value::Error(_)));
+        let s = Value::new("a");
+        assert!(matches!(t + s, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num, assert_err_with_str],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+    }
+
+    #[test]
+    fn can_add_assign() {
+      let mut x = Value::new(1.0);
+      let y = Value::new(2.0);
+      x += y;
+
+      assert_eq!(x, Value::new(3.0));
+
+      let mut x = Value::new("x");
+      let y = Value::new("y");
+      x += y;
+
+      assert_eq!(x, Value::new("xy"));
+
+      let mut x = Value::new(1.0);
+      let y = Value::new("y");
+      x += y;
+
+      assert_eq!(x, Value::new("1y"));
+
+      let mut x = Value::new("x");
+      let y = Value::new(2.0);
+      x += y;
+
+      assert_eq!(x, Value::new("x2"));
+    }
+
+    #[test]
+    fn cannot_add_assign_invalid() {
+      let assert_err_with_num = |mut t: Value| {
+        let mut num = Value::new(1.0);
+        num += t.clone();
+        assert!(matches!(num, Value::Error(_)));
+        let num = Value::new(1.0);
+        t += num;
+        assert!(matches!(t, Value::Error(_)));
+      };
+
+      let assert_err_with_str = |mut t: Value| {
+        let mut num = Value::new("a");
+        num += t.clone();
+        assert!(matches!(num, Value::Error(_)));
+        let num = Value::new("a");
+        t += num;
+        assert!(matches!(t, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num, assert_err_with_str],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+    }
+
+    #[test]
+    fn can_sub() {
+      let x = Value::new(3.0);
+      let y = Value::new(2.0);
+
+      assert_eq!(x - y, Value::new(1.0));
+    }
+
+    #[test]
+    fn cannot_sub_invalid() {
+      let assert_err_with_num = |t: Value| {
+        let num = Value::new(1.0);
+        assert!(matches!(num - t.clone(), Value::Error(_)));
+        let num = Value::new(1.0);
+        assert!(matches!(t - num, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new("test"),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+    }
+
+    #[test]
+    fn can_sub_assign() {
+      let mut x = Value::new(3.0);
+      let y = Value::new(2.0);
+      x -= y;
+
+      assert_eq!(x, Value::new(1.0));
+    }
+
+    #[test]
+    fn cannot_sub_assign_invalid() {
+      let assert_err_with_num = |mut t: Value| {
+        let mut num = Value::new(1.0);
+        num -= t.clone();
+        assert!(matches!(num, Value::Error(_)));
+        let num = Value::new(1.0);
+        t -= num;
+        assert!(matches!(t, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new("test"),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+    }
+
+    #[test]
+    fn can_mul() {
+      let x = Value::new(2.0);
+      let y = Value::new(3.0);
+
+      assert_eq!(x * y, Value::new(6.0));
+
+      let x = Value::new(2.0);
+      let y = Value::new("a");
+
+      assert_eq!(x * y, Value::new("aa"));
+
+      let x = Value::new(2.0);
+      let y = Value::new("a");
+
+      assert_eq!(x * y, Value::new("aa"));
+    }
+
+    #[test]
+    fn cannot_mul_invalid() {
+      let assert_err_with_num = |t: Value| {
+        let num = Value::new(1.0);
+        assert!(matches!(num * t.clone(), Value::Error(_)));
+        let num = Value::new(1.0);
+        assert!(matches!(t * num, Value::Error(_)));
+      };
+
+      let assert_err_with_str = |t: Value| {
+        let s = Value::new("a");
+        assert!(matches!(s * t.clone(), Value::Error(_)));
+        let s = Value::new("a");
+        assert!(matches!(t * s, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num, assert_err_with_str],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+
+      run_assertions(
+        vec![assert_err_with_str],
+        vec![Value::new(-1.0), Value::new("test")],
+      );
+    }
+
+    #[test]
+    fn can_mul_assign() {
+      let mut x = Value::new(2.0);
+      let y = Value::new(3.0);
+      x *= y;
+
+      assert_eq!(x, Value::new(6.0));
+
+      let mut x = Value::new(2.0);
+      let y = Value::new("a");
+      x *= y;
+
+      assert_eq!(x, Value::new("aa"));
+
+      let mut x = Value::new(2.0);
+      let y = Value::new("a");
+      x *= y;
+
+      assert_eq!(x, Value::new("aa"));
+    }
+
+    #[test]
+    fn cannot_mul_assign_invalid() {
+      let assert_err_with_num = |mut t: Value| {
+        let mut num = Value::new(1.0);
+        num *= t.clone();
+        assert!(matches!(num, Value::Error(_)));
+        let num = Value::new(1.0);
+        t *= num;
+        assert!(matches!(t, Value::Error(_)));
+      };
+
+      let assert_err_with_str = |mut t: Value| {
+        let mut s = Value::new("a");
+        s *= t.clone();
+        assert!(matches!(s, Value::Error(_)));
+        let s = Value::new("a");
+        t *= s;
+        assert!(matches!(t, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num, assert_err_with_str],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+
+      run_assertions(
+        vec![assert_err_with_str],
+        vec![Value::new(-1.0), Value::new("test")],
+      );
+    }
+
+    #[test]
+    fn can_div() {
+      let x = Value::new(3.0);
+      let y = Value::new(2.0);
+
+      assert_eq!(x / y, Value::new(1.5));
+    }
+
+    #[test]
+    fn cannot_div_invalid() {
+      let assert_err_with_num = |t: Value| {
+        let num = Value::new(1.0);
+        assert!(matches!(num / t.clone(), Value::Error(_)));
+        let num = Value::new(1.0);
+        assert!(matches!(t / num, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new("test"),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+    }
+
+    #[test]
+    fn can_div_assign() {
+      let mut x = Value::new(3.0);
+      let y = Value::new(2.0);
+      x /= y;
+
+      assert_eq!(x, Value::new(1.5));
+    }
+
+    #[test]
+    fn cannot_div_assign_invalid() {
+      let assert_err_with_num = |mut t: Value| {
+        let mut num = Value::new(1.0);
+        num /= t.clone();
+        assert!(matches!(num, Value::Error(_)));
+        let num = Value::new(1.0);
+        t /= num;
+        assert!(matches!(t, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new("test"),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+    }
+
+    #[test]
+    fn can_mod() {
+      let x = Value::new(3.0);
+      let y = Value::new(2.0);
+
+      assert_eq!(x % y, Value::new(1.0));
+    }
+
+    #[test]
+    fn cannot_mod_invalid() {
+      let assert_err_with_num = |t: Value| {
+        let num = Value::new(1.0);
+        assert!(matches!(num % t.clone(), Value::Error(_)));
+        let num = Value::new(1.0);
+        assert!(matches!(t % num, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new("test"),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+    }
+
+    #[test]
+    fn can_mod_assign() {
+      let mut x = Value::new(3.0);
+      let y = Value::new(2.0);
+      x %= y;
+
+      assert_eq!(x, Value::new(1.0));
+    }
+
+    #[test]
+    fn cannot_mod_assign_invalid() {
+      let assert_err_with_num = |mut t: Value| {
+        let mut num = Value::new(1.0);
+        num %= t.clone();
+        assert!(matches!(num, Value::Error(_)));
+        let num = Value::new(1.0);
+        t %= num;
+        assert!(matches!(t, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err_with_num],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new("test"),
+          Value::new(Values(Vec::new())),
+        ],
+      );
+    }
+
+    #[test]
+    fn not_a_value_returns_opposite_truthiness() {
+      let true_expectations = |t: Value| {
+        assert_eq!(Value::new(true), !t);
+      };
+
+      let false_expectations = |t: Value| {
+        assert_eq!(Value::new(false), !t);
+      };
+
+      run_assertions(vec![true_expectations], vec![Value::Nil, Value::new(false)]);
+
+      run_assertions(
+        vec![false_expectations],
+        vec![
+          Value::new_err("can be any error type"),
+          Value::new(true),
+          Value::new(0.0),
+          Value::new(1.0),
+          Value::new(-1.0),
+          Value::new("some string"),
+          Value::new(Values::new(Vec::new())),
+        ],
+      );
+    }
+
+    #[test]
+    fn can_negate() {
+      let x = Value::new(1.0);
+      assert_eq!(-x, Value::new(-1.0));
+    }
+
+    #[test]
+    fn cannot_negate_invalid() {
+      let assert_err = |t: Value| {
+        assert!(matches!(-t, Value::Error(_)));
+      };
+
+      run_assertions(
+        vec![assert_err],
+        vec![
+          Value::Nil,
+          Value::new_err("test error"),
+          Value::new(true),
+          Value::new(false),
+          Value::new("test"),
+          Value::new(Values(Vec::new())),
+        ],
+      );
     }
   }
 }
