@@ -2072,6 +2072,23 @@ mod code {
           Token::new(TokenKind::EOF, "EOF", 1)
         ]
       );
+
+      gen_scan_test!(
+        math,
+        "let y = m * x + b;",
+        [
+          Token::new(TokenKind::Let, "let", 1),
+          Token::new(TokenKind::Identifier, "y", 1),
+          Token::new(TokenKind::Equal, "=", 1),
+          Token::new(TokenKind::Identifier, "m", 1),
+          Token::new(TokenKind::Asterisk, "*", 1),
+          Token::new(TokenKind::Identifier, "x", 1),
+          Token::new(TokenKind::Plus, "+", 1),
+          Token::new(TokenKind::Identifier, "b", 1),
+          Token::new(TokenKind::Semicolon, ";", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
     }
   }
 }
