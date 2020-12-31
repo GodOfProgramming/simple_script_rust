@@ -1,4 +1,4 @@
-use simple_script::{Interpreter, VM};
+use simple_script::VM;
 use std::env;
 use std::fs;
 use std::path::Path;

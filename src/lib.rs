@@ -1,7 +1,7 @@
-use scanner::Scanner;
-use std::fmt::{self, Display};
+use code::{scanner::Scanner, Chunk, Error, OpCode};
 use std::io::{self, Write};
-use types::{Value, ValueArray};
+use types::Value;
+use util::ScriptError;
 
 macro_rules! is_debug {
   () => {
@@ -9,57 +9,27 @@ macro_rules! is_debug {
   };
 }
 
-#[derive(Debug)]
-pub struct ScriptError {
-  pub line: usize,
-  pub msg: String,
-}
-
-impl Display for ScriptError {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "({}): {}", self.line, self.msg)
-  }
-}
-
-#[derive(Debug)]
-pub enum OpCode {
-  Constant { location: usize },
-  Add,
-  Subtract,
-  Multiply,
-  Divide,
-  Negate,
-  Return,
-}
-
-#[derive(Debug)]
-pub enum Error {
-  Compile(ScriptError),
-  Runtime(ScriptError),
-}
-
-impl Display for Error {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Compile(se) => write!(f, "compile error: {}", se),
-      Self::Runtime(se) => write!(f, "runtime error: {}", se),
-    }
-  }
-}
-
 pub type VMResult = std::result::Result<(), Error>;
 
-pub struct VM {}
+pub struct VM;
+
+impl Default for VM {
+  fn default() -> Self {
+    Self
+  }
+}
 
 impl VM {
   pub fn run_script(&mut self, script: &str) -> VMResult {
     self.compile(script)
   }
 
-  fn compile(&mut self, script: &str) -> VMResult {
-    let mut scanner = Scanner::new(script);
+  fn compile(&mut self, src: &str) -> VMResult {
+    let mut scanner = Scanner::default();
+    let tokens = scanner.scan(src).map_err(|err| Error::Compile(err))?;
     let mut last_line: Option<usize> = None;
-    while let Ok(token) = scanner.scan() {
+
+    for token in tokens {
       if let Some(line) = last_line {
         if token.line != line {
           print!("{:04} ", token.line);
@@ -78,7 +48,7 @@ impl VM {
   }
 
   pub fn run(&mut self, chunk: Chunk) -> VMResult {
-    let mut sp: usize = 0;
+    let mut _sp: usize = 0;
     let mut stack: Vec<Value> = Vec::new();
 
     for (ip, instruction) in chunk.code.iter().enumerate() {
@@ -192,481 +162,14 @@ impl VM {
   }
 }
 
-impl Default for VM {
-  fn default() -> Self {
-    Self {}
-  }
-}
-
-pub struct Chunk {
-  name: String,
-  code: Vec<OpCode>,
-  lines: Vec<usize>,
-  last_line: usize,
-  instructions_on_line: usize,
-  constants: ValueArray,
-}
-
-impl Chunk {
-  pub fn new(name: String) -> Self {
-    Self {
-      name,
-      code: Vec::new(),
-      lines: Vec::new(),
-      last_line: 0,
-      instructions_on_line: 0,
-      constants: ValueArray::new(),
-    }
-  }
-
-  pub fn write(&mut self, oc: OpCode, line: usize) {
-    self.code.push(oc);
-    self.add_line(line);
-  }
-
-  // returns the location of the added constant
-  pub fn add_constant(&mut self, value: Value) -> usize {
-    self.constants.write(value)
-  }
-
-  // increments the current number of instructions on a line
-  // or publishes the number and resets the count
-  fn add_line(&mut self, line: usize) {
-    if self.last_line == line {
-      // same line number
-      self.instructions_on_line += 1;
-    } else {
-      self.lines.push(self.instructions_on_line);
-      self.last_line = line;
-      self.instructions_on_line = 1; // current instruction
-    }
-  }
-
-  // extracts the line at the given instruction offset
-  pub fn line_at(&self, offset: usize) -> usize {
-    let mut accum = 0;
-    for (line, num_instns) in self.lines.iter().enumerate() {
-      if accum + num_instns > offset {
-        return line;
-      } else {
-        accum += num_instns;
-      }
-    }
-    self.lines.len()
-  }
-
-  fn print_instruction(&self, offset: usize, instruction: &OpCode) {
-    print!("{:04} ", offset);
-    if offset > 0 && self.line_at(offset) == self.line_at(offset - 1) {
-      print!("   | ");
-    } else {
-      print!("{:04} ", self.line_at(offset));
-    }
-    match instruction {
-      OpCode::Return => println!("RETURN"),
-      OpCode::Negate => println!("NEGATE"),
-      OpCode::Add => println!("ADD"),
-      OpCode::Subtract => println!("SUBTRACT"),
-      OpCode::Multiply => println!("MULTIPLY"),
-      OpCode::Divide => println!("DIVIDE"),
-      OpCode::Constant { location } => println!(
-        "{:<16} {:04} {}",
-        "CONSTANT", location, self.constants[*location]
-      ),
-    }
-  }
-
-  fn print_header(&self) {
-    println!("== {} ==", self.name);
-    println!("{:<4} {:<4} {:<16} {:<4}", "off", "line", "opcode", "extra");
-  }
-
-  fn print(&self) {
-    self.print_header();
-    self.code.iter().enumerate().for_each(|(offset, inst)| {
-      self.print_instruction(offset, inst);
-    });
-  }
-}
-
-mod scanner {
-  use super::ScriptError;
-  use std::fmt::{self, Display};
-  use std::iter::{Peekable, Skip};
-
-  pub enum TokenKind {
-    // Single-character tokens.
-    LeftParen,
-    RightParen,
-    LeftBrace,
-    RightBrace,
-    Comma,
-    Minus,
-    Plus,
-    Slash,
-    Asterisk,
-    Semicolon,
-    BackSlash,
-    Conditional,
-    Colon,
-    Pipe,
-
-    // One or two character tokens.
-    Exclamation,
-    ExEq,
-    Equal,
-    EqEq,
-    GreaterThan,
-    GreaterEq,
-    LessThan,
-    LessEq,
-    Dot,
-    Range,
-
-    Identifier,
-
-    // Literals.
-    StringLiteral,
-    NumberLiteral,
-
-    // Keywords.
-    And,
-    Bool,
-    Class,
-    Else,
-    Error,
-    False,
-    Fn,
-    For,
-    If,
-    Let,
-    List,
-    Nil,
-    Number,
-    Or,
-    Print,
-    Return,
-    String,
-    True,
-    While,
-
-    EOF,
-  }
-
-  pub struct Token<'lexeme> {
-    pub kind: TokenKind,
-    pub lexeme: &'lexeme str,
-    pub line: usize,
-  }
-
-  impl<'lexeme> Token<'lexeme> {
-    fn new(kind: TokenKind, lexeme: &'lexeme str, line: usize) -> Token {
-      Token { kind, lexeme, line }
-    }
-  }
-
-  impl Display for Token<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-      write!(f, "{}", self.lexeme)
-    }
-  }
-
-  pub struct Scanner<'src> {
-    start: usize,
-    current: usize,
-    line: usize,
-
-    src: &'src str,
-  }
-
-  impl<'src> Scanner<'src> {
-    pub fn new(src: &'src str) -> Self {
-      Self {
-        start: 0,
-        current: 0,
-        line: 1,
-        src,
-      }
-    }
-
-    pub fn scan(&mut self) -> Result<Token, ScriptError> {
-      let mut chars = self.src.chars().skip(self.current).peekable();
-      self.skip_nontokens(&mut chars);
-      self.start = self.current;
-      match self.advance(&mut chars) {
-        Some(c) => match c {
-          '(' => Ok(self.make_token(TokenKind::LeftParen)),
-          ')' => Ok(self.make_token(TokenKind::RightParen)),
-          '{' => Ok(self.make_token(TokenKind::LeftBrace)),
-          '}' => Ok(self.make_token(TokenKind::RightBrace)),
-          ';' => Ok(self.make_token(TokenKind::Semicolon)),
-          ',' => Ok(self.make_token(TokenKind::Comma)),
-          '.' => Ok(self.make_token(TokenKind::Dot)),
-          '-' => Ok(self.make_token(TokenKind::Minus)),
-          '+' => Ok(self.make_token(TokenKind::Plus)),
-          '*' => Ok(self.make_token(TokenKind::Asterisk)),
-          '/' => Ok(self.make_token(TokenKind::Slash)),
-          '!' => {
-            if self.advance_if_matches('=', &mut chars) {
-              Ok(self.make_token(TokenKind::ExEq))
-            } else {
-              Ok(self.make_token(TokenKind::Exclamation))
-            }
-          }
-          '=' => {
-            if self.advance_if_matches('=', &mut chars) {
-              Ok(self.make_token(TokenKind::EqEq))
-            } else {
-              Ok(self.make_token(TokenKind::Equal))
-            }
-          }
-          '<' => {
-            if self.advance_if_matches('=', &mut chars) {
-              Ok(self.make_token(TokenKind::LessEq))
-            } else {
-              Ok(self.make_token(TokenKind::LessThan))
-            }
-          }
-          '>' => {
-            if self.advance_if_matches('=', &mut chars) {
-              Ok(self.make_token(TokenKind::GreaterEq))
-            } else {
-              Ok(self.make_token(TokenKind::GreaterThan))
-            }
-          }
-          '"' => self.make_string(&mut chars),
-          _ if Scanner::is_alpha(c) => Ok(self.make_ident(&mut chars)),
-          _ if Scanner::is_digit(c) => self.make_number(&mut chars),
-          _ => Err(ScriptError {
-            line: self.line,
-            msg: format!("unexpected character"),
-          }),
-        },
-        None => Ok(self.make_token(TokenKind::EOF)),
-      }
-    }
-
-    fn current_lexeme(&self) -> &str {
-      &self.src[self.start..self.current]
-    }
-
-    fn make_token(&self, kind: TokenKind) -> Token {
-      Token::new(kind, self.current_lexeme(), self.line)
-    }
-
-    fn advance(&mut self, chars: &mut Peekable<Skip<std::str::Chars>>) -> Option<char> {
-      self.current += 1;
-      chars.next()
-    }
-
-    fn advance_if_matches(
-      &mut self,
-      expected: char,
-      chars: &mut Peekable<Skip<std::str::Chars>>,
-    ) -> bool {
-      match chars.peek() {
-        Some(c) => {
-          if *c == expected {
-            self.advance(chars);
-            true
-          } else {
-            false
-          }
-        }
-        None => false,
-      }
-    }
-
-    fn skip_nontokens(&mut self, chars: &mut Peekable<Skip<std::str::Chars>>) {
-      while let Some(c) = chars.peek() {
-        match c {
-          ' ' | '\r' | '\t' => {
-            self.advance(chars);
-          }
-          '\n' => {
-            self.line += 1;
-            self.advance(chars);
-          }
-          '#' => {
-            while let Some(c) = self.advance(chars) {
-              if c == '\n' {
-                self.line += 1;
-                break;
-              }
-            }
-          }
-          _ => return,
-        }
-      }
-    }
-
-    fn make_string(
-      &mut self,
-      chars: &mut Peekable<Skip<std::str::Chars>>,
-    ) -> Result<Token, ScriptError> {
-      while let Some(c) = self.advance(chars) {
-        if c == '\n' {
-          self.line += 1;
-        } else if c == '"' {
-          return Ok(self.make_token(TokenKind::StringLiteral));
-        }
-      }
-
-      Err(ScriptError {
-        line: self.line,
-        msg: String::from("unterminated string"),
-      })
-    }
-
-    fn is_digit(c: char) -> bool {
-      c >= '0' && c <= '9'
-    }
-
-    fn is_alpha(c: char) -> bool {
-      (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
-    }
-
-    fn peek_next(chars: &mut Peekable<Skip<std::str::Chars>>, skips: usize) -> Option<char> {
-      chars.clone().skip(skips).next()
-    }
-
-    fn make_ident(&mut self, chars: &mut Peekable<Skip<std::str::Chars>>) -> Token {
-      while let Some(c) = self.advance(chars) {
-        if !Self::is_alpha(c) && !Self::is_digit(c) {
-          break;
-        }
-      }
-
-      self.make_token(self.ident())
-    }
-
-    fn make_number(
-      &mut self,
-      chars: &mut Peekable<Skip<std::str::Chars>>,
-    ) -> Result<Token, ScriptError> {
-      while let Some(c) = self.advance(chars) {
-        if !Scanner::is_digit(c) {
-          break;
-        }
-      }
-
-      if let Some(c) = chars.peek() {
-        if *c == '.' {
-          if let Some(c) = Scanner::peek_next(chars, 1) {
-            self.advance(chars);
-            while let Some(c) = self.advance(chars) {
-              if !Scanner::is_digit(c) {
-                break;
-              }
-            }
-          }
-        }
-      }
-
-      Ok(self.make_token(TokenKind::Number))
-    }
-
-    fn ident(&self) -> TokenKind {
-      let lex = self.current_lexeme();
-      let mut chars = lex.chars();
-      match chars.next().unwrap() {
-        'a' => self.check_keyword(1, "nd", TokenKind::And),
-        'b' => self.check_keyword(1, "ool", TokenKind::Bool),
-        'c' => self.check_keyword(1, "lass", TokenKind::Class),
-        'e' => match chars.next() {
-          Some(c) => match c {
-            'l' => self.check_keyword(2, "se", TokenKind::Else),
-            'r' => self.check_keyword(2, "ror", TokenKind::Error),
-            _ => TokenKind::Identifier,
-          },
-          None => TokenKind::Identifier,
-        },
-        'f' => match chars.next() {
-          Some(c) => match c {
-            'a' => self.check_keyword(2, "lse", TokenKind::False),
-            'n' => self.check_keyword(2, "", TokenKind::Fn),
-            'o' => self.check_keyword(2, "r", TokenKind::For),
-            _ => TokenKind::Identifier,
-          },
-          None => TokenKind::Identifier,
-        },
-        'i' => self.check_keyword(1, "f", TokenKind::If),
-        'l' => match chars.next() {
-          Some(c) => match c {
-            'e' => self.check_keyword(2, "t", TokenKind::Let),
-            'i' => self.check_keyword(2, "st", TokenKind::List),
-            _ => TokenKind::Identifier,
-          },
-          None => TokenKind::Identifier,
-        },
-        'n' => match chars.next() {
-          Some(c) => match c {
-            'i' => self.check_keyword(2, "l", TokenKind::Nil),
-            'u' => self.check_keyword(2, "mber", TokenKind::Number),
-            _ => TokenKind::Identifier,
-          },
-          None => TokenKind::Identifier,
-        },
-        'o' => self.check_keyword(1, "r", TokenKind::Or),
-        'p' => self.check_keyword(1, "rint", TokenKind::Print),
-        'r' => self.check_keyword(1, "eturn", TokenKind::Return),
-        's' => self.check_keyword(1, "tring", TokenKind::String),
-        't' => self.check_keyword(1, "rue", TokenKind::True),
-        'w' => self.check_keyword(1, "hile", TokenKind::While),
-        _ => TokenKind::Identifier,
-      }
-    }
-
-    fn check_keyword(&self, cmp_start: usize, rest: &str, keyword: TokenKind) -> TokenKind {
-      if &self.current_lexeme()[cmp_start..] == rest {
-        keyword
-      } else {
-        TokenKind::Identifier
-      }
-    }
-  }
-}
-
 mod types {
+  use super::util::{New, ValueError};
   use std::cmp::{Ordering, PartialEq, PartialOrd};
   use std::fmt::{self, Debug, Display};
   use std::ops::{
     Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Not, Rem, RemAssign, Sub,
     SubAssign,
   };
-
-  trait New<T> {
-    fn new(item: T) -> Self;
-  }
-
-  trait ValueError<T> {
-    fn new_err(err: T) -> Self;
-  }
-
-  #[derive(Clone)]
-
-  pub struct ValueArray {
-    values: Vec<Value>,
-  }
-
-  impl ValueArray {
-    pub fn new() -> Self {
-      Self { values: Vec::new() }
-    }
-
-    // returns the location of the added constant
-    pub fn write(&mut self, value: Value) -> usize {
-      self.values.push(value);
-      self.values.len() - 1
-    }
-  }
-
-  impl Index<usize> for ValueArray {
-    type Output = Value;
-    fn index(&self, index: usize) -> &Self::Output {
-      &self.values[index]
-    }
-  }
 
   #[derive(Clone)]
   pub enum ErrorValue {
@@ -1651,5 +1154,691 @@ mod types {
         ],
       );
     }
+  }
+}
+
+mod code {
+  use crate::{ScriptError, Value};
+  use std::fmt::{self, Display};
+  use std::ops::Index;
+
+  #[derive(Debug)]
+  pub enum OpCode {
+    Constant { location: usize },
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Negate,
+    Return,
+  }
+
+  #[derive(Debug)]
+  pub enum Error {
+    Compile(ScriptError),
+    Runtime(ScriptError),
+  }
+
+  impl Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      match self {
+        Self::Compile(se) => write!(f, "compile error: {}", se),
+        Self::Runtime(se) => write!(f, "runtime error: {}", se),
+      }
+    }
+  }
+
+  pub struct Chunk {
+    _name: String,
+    pub code: Vec<OpCode>,
+    pub constants: ValueArray,
+    lines: Vec<usize>,
+    last_line: usize,
+    instructions_on_line: usize,
+  }
+
+  impl Chunk {
+    pub fn new(name: String) -> Self {
+      Self {
+        _name: name,
+        code: Vec::new(),
+        lines: Vec::new(),
+        last_line: 0,
+        instructions_on_line: 0,
+        constants: ValueArray::new(),
+      }
+    }
+
+    pub fn write(&mut self, oc: OpCode, line: usize) {
+      self.code.push(oc);
+      self.add_line(line);
+    }
+
+    // returns the location of the added constant
+    pub fn add_constant(&mut self, value: Value) -> usize {
+      self.constants.write(value)
+    }
+
+    // increments the current number of instructions on a line
+    // or publishes the number and resets the count
+    fn add_line(&mut self, line: usize) {
+      if self.last_line == line {
+        // same line number
+        self.instructions_on_line += 1;
+      } else {
+        self.lines.push(self.instructions_on_line);
+        self.last_line = line;
+        self.instructions_on_line = 1; // current instruction
+      }
+    }
+
+    // extracts the line at the given instruction offset
+    pub fn line_at(&self, offset: usize) -> usize {
+      let mut accum = 0;
+      for (line, num_instns) in self.lines.iter().enumerate() {
+        if accum + num_instns > offset {
+          return line;
+        } else {
+          accum += num_instns;
+        }
+      }
+      self.lines.len()
+    }
+
+    pub fn print_instruction(&self, offset: usize, instruction: &OpCode) {
+      print!("{:04} ", offset);
+      if offset > 0 && self.line_at(offset) == self.line_at(offset - 1) {
+        print!("   | ");
+      } else {
+        print!("{:04} ", self.line_at(offset));
+      }
+      match instruction {
+        OpCode::Return => println!("RETURN"),
+        OpCode::Negate => println!("NEGATE"),
+        OpCode::Add => println!("ADD"),
+        OpCode::Subtract => println!("SUBTRACT"),
+        OpCode::Multiply => println!("MULTIPLY"),
+        OpCode::Divide => println!("DIVIDE"),
+        OpCode::Constant { location } => println!(
+          "{:<16} {:04} {}",
+          "CONSTANT", location, self.constants[*location]
+        ),
+      }
+    }
+
+    fn _print_header(&self) {
+      println!("== {} ==", self._name);
+      println!("{:<4} {:<4} {:<16} {:<4}", "off", "line", "opcode", "extra");
+    }
+
+    fn _print(&self) {
+      self._print_header();
+      self.code.iter().enumerate().for_each(|(offset, inst)| {
+        self.print_instruction(offset, inst);
+      });
+    }
+  }
+
+  #[derive(Clone)]
+  pub struct ValueArray {
+    values: Vec<Value>,
+  }
+
+  impl ValueArray {
+    pub fn new() -> Self {
+      Self { values: Vec::new() }
+    }
+
+    // returns the location of the added constant
+    pub fn write(&mut self, value: Value) -> usize {
+      self.values.push(value);
+      self.values.len() - 1
+    }
+  }
+
+  impl Index<usize> for ValueArray {
+    type Output = Value;
+    fn index(&self, index: usize) -> &Self::Output {
+      &self.values[index]
+    }
+  }
+
+  pub mod scanner {
+    use super::ScriptError;
+    use crate::util::New;
+    use std::fmt::{self, Display};
+    use std::iter::{Peekable, Skip};
+
+    #[derive(Debug, PartialEq)]
+    pub enum TokenKind {
+      // Single-character tokens.
+      LeftParen,
+      RightParen,
+      LeftBrace,
+      RightBrace,
+      Comma,
+      Minus,
+      Plus,
+      Slash,
+      Asterisk,
+      Semicolon,
+      BackSlash,
+      Conditional,
+      Colon,
+      Pipe,
+
+      // One or two character tokens.
+      Not,
+      NotEq,
+      Equal,
+      EqEq,
+      GreaterThan,
+      GreaterEq,
+      LessThan,
+      LessEq,
+      Dot,
+      Range,
+
+      Identifier,
+
+      // Literals.
+      StringLiteral,
+      NumberLiteral,
+
+      // Keywords.
+      And,
+      Bool,
+      Class,
+      Else,
+      Error,
+      False,
+      Fn,
+      For,
+      If,
+      Let,
+      List,
+      Nil,
+      Number,
+      Or,
+      Print,
+      Return,
+      String,
+      True,
+      While,
+
+      EOF,
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub struct Token<'lexeme> {
+      pub kind: TokenKind,
+      pub lexeme: &'lexeme str,
+      pub line: usize,
+    }
+
+    impl<'lexeme> Token<'lexeme> {
+      fn new(kind: TokenKind, lexeme: &'lexeme str, line: usize) -> Token {
+        Token { kind, lexeme, line }
+      }
+    }
+
+    impl Display for Token<'_> {
+      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.lexeme)
+      }
+    }
+
+    pub struct Scanner {
+      start: usize,
+      current: usize,
+      line: usize,
+    }
+
+    impl Default for Scanner {
+      fn default() -> Self {
+        Self {
+          start: 0,
+          current: 0,
+          line: 1,
+        }
+      }
+    }
+
+    type SrcIter<'src> = std::iter::Peekable<std::str::Chars<'src>>;
+
+    impl Scanner {
+      pub fn scan<'src>(&'src mut self, src: &'src str) -> Result<Vec<Token<'src>>, ScriptError> {
+        let mut chars = src.chars().peekable();
+        let mut tokens = Vec::new();
+        loop {
+          self.skip_nontokens(&mut chars);
+          self.start = self.current;
+
+          if let Some(c) = self.advance(&mut chars) {
+            tokens.push(match c {
+              '(' => self.make_token(src, TokenKind::LeftParen),
+              ')' => self.make_token(src, TokenKind::RightParen),
+              '{' => self.make_token(src, TokenKind::LeftBrace),
+              '}' => self.make_token(src, TokenKind::RightBrace),
+              ';' => self.make_token(src, TokenKind::Semicolon),
+              ',' => self.make_token(src, TokenKind::Comma),
+              '.' => {
+                if self.advance_if_matches('.', &mut chars) {
+                  self.make_token(src, TokenKind::Range)
+                } else {
+                  self.make_token(src, TokenKind::Dot)
+                }
+              }
+              '+' => self.make_token(src, TokenKind::Plus),
+              '-' => self.make_token(src, TokenKind::Minus),
+              '*' => self.make_token(src, TokenKind::Asterisk),
+              '/' => self.make_token(src, TokenKind::Slash),
+              '!' => {
+                if self.advance_if_matches('=', &mut chars) {
+                  self.make_token(src, TokenKind::NotEq)
+                } else {
+                  self.make_token(src, TokenKind::Not)
+                }
+              }
+              '=' => {
+                if self.advance_if_matches('=', &mut chars) {
+                  self.make_token(src, TokenKind::EqEq)
+                } else {
+                  self.make_token(src, TokenKind::Equal)
+                }
+              }
+              '<' => {
+                if self.advance_if_matches('=', &mut chars) {
+                  self.make_token(src, TokenKind::LessEq)
+                } else {
+                  self.make_token(src, TokenKind::LessThan)
+                }
+              }
+              '>' => {
+                if self.advance_if_matches('=', &mut chars) {
+                  self.make_token(src, TokenKind::GreaterEq)
+                } else {
+                  self.make_token(src, TokenKind::GreaterThan)
+                }
+              }
+              '"' => self.make_string(src, &mut chars)?,
+              _ if Scanner::is_alpha(c) => self.make_ident(src, &mut chars),
+              _ if Scanner::is_digit(c) => self.make_number(src, &mut chars)?,
+              c => {
+                return Err(ScriptError {
+                  line: self.line,
+                  msg: format!("unexpected character: {}", c),
+                })
+              }
+            });
+          } else {
+            tokens.push(Token::new(TokenKind::EOF, "EOF", self.line));
+            break;
+          }
+        }
+
+        Ok(tokens)
+      }
+
+      fn current_lexeme<'src>(&self, src: &'src str) -> &'src str {
+        &src[self.start..self.current]
+      }
+
+      fn make_token<'src>(&self, src: &'src str, kind: TokenKind) -> Token<'src> {
+        Token::new(kind, self.current_lexeme(src), self.line)
+      }
+
+      fn advance(&mut self, chars: &mut SrcIter) -> Option<char> {
+        self.current += 1;
+        chars.next()
+      }
+
+      fn advance_if_matches(&mut self, expected: char, chars: &mut SrcIter) -> bool {
+        match chars.peek() {
+          Some(c) => {
+            if *c == expected {
+              self.advance(chars);
+              true
+            } else {
+              false
+            }
+          }
+          None => false,
+        }
+      }
+
+      fn skip_nontokens(&mut self, chars: &mut SrcIter) {
+        while let Some(c) = chars.peek() {
+          match c {
+            ' ' | '\r' | '\t' => {
+              self.advance(chars);
+            }
+            '\n' => {
+              self.line += 1;
+              self.advance(chars);
+            }
+            '#' => {
+              while let Some(c) = self.advance(chars) {
+                if c == '\n' {
+                  self.line += 1;
+                  break;
+                }
+              }
+            }
+            _ => return,
+          }
+        }
+      }
+
+      fn make_string<'src>(
+        &mut self,
+        src: &'src str,
+        chars: &mut SrcIter,
+      ) -> Result<Token<'src>, ScriptError> {
+        while let Some(c) = self.advance(chars) {
+          if c == '\n' {
+            self.line += 1;
+          } else if c == '"' {
+            return Ok(self.make_token(src, TokenKind::StringLiteral));
+          }
+        }
+
+        Err(ScriptError {
+          line: self.line,
+          msg: String::from("unterminated string"),
+        })
+      }
+
+      fn is_digit(c: char) -> bool {
+        c >= '0' && c <= '9'
+      }
+
+      fn is_alpha(c: char) -> bool {
+        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+      }
+
+      fn peek_next(chars: &mut SrcIter, skips: usize) -> Option<char> {
+        chars.clone().nth(skips)
+      }
+
+      fn make_ident<'src>(&mut self, src: &'src str, chars: &mut SrcIter) -> Token<'src> {
+        while let Some(c) = self.advance(chars) {
+          if !Self::is_alpha(c) && !Self::is_digit(c) {
+            break;
+          }
+        }
+
+        self.make_token(src, self.ident(src))
+      }
+
+      fn make_number<'src>(
+        &mut self,
+        src: &'src str,
+        chars: &mut SrcIter,
+      ) -> Result<Token<'src>, ScriptError> {
+        while let Some(c) = self.advance(chars) {
+          if !Scanner::is_digit(c) {
+            break;
+          }
+        }
+
+        if let Some(c) = chars.peek() {
+          if *c == '.' {
+            if let Some(c) = Scanner::peek_next(chars, 1) {
+              self.advance(chars);
+              while let Some(c) = self.advance(chars) {
+                if !Scanner::is_digit(c) {
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        Ok(self.make_token(src, TokenKind::Number))
+      }
+
+      fn ident(&self, src: &str) -> TokenKind {
+        let lex = self.current_lexeme(src);
+        let mut chars = lex.chars();
+        match chars.next().unwrap() {
+          'a' => self.check_keyword(src, 1, "nd", TokenKind::And),
+          'b' => self.check_keyword(src, 1, "ool", TokenKind::Bool),
+          'c' => self.check_keyword(src, 1, "lass", TokenKind::Class),
+          'e' => match chars.next() {
+            Some(c) => match c {
+              'l' => self.check_keyword(src, 2, "se", TokenKind::Else),
+              'r' => self.check_keyword(src, 2, "ror", TokenKind::Error),
+              _ => TokenKind::Identifier,
+            },
+            None => TokenKind::Identifier,
+          },
+          'f' => match chars.next() {
+            Some(c) => match c {
+              'a' => self.check_keyword(src, 2, "lse", TokenKind::False),
+              'n' => self.check_keyword(src, 2, "", TokenKind::Fn),
+              'o' => self.check_keyword(src, 2, "r", TokenKind::For),
+              _ => TokenKind::Identifier,
+            },
+            None => TokenKind::Identifier,
+          },
+          'i' => self.check_keyword(src, 1, "f", TokenKind::If),
+          'l' => match chars.next() {
+            Some(c) => match c {
+              'e' => self.check_keyword(src, 2, "t", TokenKind::Let),
+              'i' => self.check_keyword(src, 2, "st", TokenKind::List),
+              _ => TokenKind::Identifier,
+            },
+            None => TokenKind::Identifier,
+          },
+          'n' => match chars.next() {
+            Some(c) => match c {
+              'i' => self.check_keyword(src, 2, "l", TokenKind::Nil),
+              'u' => self.check_keyword(src, 2, "mber", TokenKind::Number),
+              _ => TokenKind::Identifier,
+            },
+            None => TokenKind::Identifier,
+          },
+          'o' => self.check_keyword(src, 1, "r", TokenKind::Or),
+          'p' => self.check_keyword(src, 1, "rint", TokenKind::Print),
+          'r' => self.check_keyword(src, 1, "eturn", TokenKind::Return),
+          's' => self.check_keyword(src, 1, "tring", TokenKind::String),
+          't' => self.check_keyword(src, 1, "rue", TokenKind::True),
+          'w' => self.check_keyword(src, 1, "hile", TokenKind::While),
+          _ => TokenKind::Identifier,
+        }
+      }
+
+      fn check_keyword(
+        &self,
+        src: &str,
+        cmp_start: usize,
+        rest: &str,
+        keyword: TokenKind,
+      ) -> TokenKind {
+        if &self.current_lexeme(src)[cmp_start..] == rest {
+          keyword
+        } else {
+          TokenKind::Identifier
+        }
+      }
+    }
+
+    #[cfg(test)]
+    mod tests {
+      use super::*;
+
+      macro_rules! gen_scan_test {
+        ($func:ident, $str:expr, [$($x:expr),+ $(,)?]) => {
+          #[test]
+          fn $func()
+          {
+            let cmp_tokens = |expected: &[Token], actual: &[Token]| {
+              assert_eq!(expected.len(), actual.len());
+
+              for (a, b) in expected.iter().zip(actual.iter()) {
+                assert_eq!(a, b);
+              }
+            };
+            let mut s = Scanner::default();
+            let actual = s.scan($str).unwrap();
+            let expected = vec![$($x),+];
+            cmp_tokens(&expected, &actual);
+          }
+        };
+      }
+
+      gen_scan_test!(
+        parens,
+        "()",
+        [
+          Token::new(TokenKind::LeftParen, "(", 1),
+          Token::new(TokenKind::RightParen, ")", 1),
+          Token::new(TokenKind::EOF, "EOF", 1)
+        ]
+      );
+
+      gen_scan_test!(
+        braces,
+        "{}",
+        [
+          Token::new(TokenKind::LeftBrace, "{", 1),
+          Token::new(TokenKind::RightBrace, "}", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        semicolon,
+        ";",
+        [
+          Token::new(TokenKind::Semicolon, ";", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        comma,
+        ",",
+        [
+          Token::new(TokenKind::Comma, ",", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        dot,
+        ".",
+        [
+          Token::new(TokenKind::Dot, ".", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        range,
+        "..",
+        [
+          Token::new(TokenKind::Range, "..", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        plus,
+        "+",
+        [
+          Token::new(TokenKind::Plus, "+", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        minus,
+        "-",
+        [
+          Token::new(TokenKind::Minus, "-", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        asterisk,
+        "*",
+        [
+          Token::new(TokenKind::Asterisk, "*", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        slash,
+        "/",
+        [
+          Token::new(TokenKind::Slash, "/", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        not,
+        "!",
+        [
+          Token::new(TokenKind::Not, "!", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        not_eq,
+        "!=",
+        [
+          Token::new(TokenKind::NotEq, "!=", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        equal,
+        "=",
+        [
+          Token::new(TokenKind::Equal, "=", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        eqeq,
+        "==",
+        [
+          Token::new(TokenKind::EqEq, "==", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+    }
+  }
+}
+
+mod util {
+  use std::fmt::{self, Display};
+
+  #[derive(Debug)]
+  pub struct ScriptError {
+    pub line: usize,
+    pub msg: String,
+  }
+
+  impl Display for ScriptError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      write!(f, "({}): {}", self.line, self.msg)
+    }
+  }
+
+  pub trait New<T> {
+    fn new(item: T) -> Self;
+  }
+
+  pub trait ValueError<T> {
+    fn new_err(err: T) -> Self;
   }
 }
