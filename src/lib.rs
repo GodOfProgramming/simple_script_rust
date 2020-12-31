@@ -1,7 +1,7 @@
-use crate::types::{Value, ValueArray};
 use scanner::Scanner;
 use std::fmt::{self, Display};
 use std::io::{self, Write};
+use types::{Value, ValueArray};
 
 macro_rules! is_debug {
   () => {
@@ -11,7 +11,6 @@ macro_rules! is_debug {
 
 #[derive(Debug)]
 pub struct ScriptError {
-  pub file: String,
   pub line: usize,
   pub msg: String,
 }
@@ -58,6 +57,23 @@ impl VM {
   }
 
   fn compile(&mut self, _script: &str) -> VMResult {
+    let scanner = Scanner::default();
+    let mut last_line: Option<usize> = None;
+    while let Some(token) = scanner.scan() {
+      if let Some(line) = last_line {
+        if token.line != line {
+          print!("{:04} ", token.line);
+          last_line = Some(token.line);
+        } else {
+          print!("   | ")
+        }
+      } else {
+        print!("{:04} ", token.line);
+        last_line = Some(token.line);
+      }
+
+      println!("{:02} {}", token.kind, token);
+    }
     Ok(())
   }
 
@@ -275,25 +291,270 @@ impl Chunk {
 }
 
 mod scanner {
-  pub struct Scanner {
-    start: usize,
-    current: usize,
+  use super::ScriptError;
+  use std::iter::{Peekable, Skip};
+
+  pub enum TokenKind {
+    // Single-character tokens.
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    Comma,
+    Minus,
+    Plus,
+    Slash,
+    Asterisk,
+    Semicolon,
+    BackSlash,
+    Conditional,
+    Colon,
+    Pipe,
+
+    // One or two character tokens.
+    Exclamation,
+    ExEq,
+    Equal,
+    EqEq,
+    GreaterThan,
+    GreaterEq,
+    LessThan,
+    LessEq,
+    Dot,
+    Range,
+
+    // Literals.
+    Identifier,
+    StringLiteral,
+    NumberLiteral,
+
+    // Keywords.
+    And,
+    Bool,
+    Class,
+    Else,
+    Error,
+    False,
+    Fn,
+    For,
+    If,
+    Is,
+    Let,
+    List,
+    Nil,
+    Number,
+    Or,
+    Print,
+    Return,
+    String,
+    True,
+    While,
+
+    EOF,
+  }
+
+  pub struct Token<'lexeme> {
+    kind: TokenKind,
+    lexeme: &'lexeme str,
     line: usize,
   }
 
-  impl Default for Scanner {
-    fn default() -> Self {
+  impl<'lexeme> Token<'lexeme> {
+    fn new(kind: TokenKind, lexeme: &'lexeme str, line: usize) -> Token {
+      Token { kind, lexeme, line }
+    }
+  }
+
+  pub struct Scanner<'src> {
+    start: usize,
+    current: usize,
+    line: usize,
+
+    src: &'src str,
+  }
+
+  impl<'src> Scanner<'src> {
+    fn new(src: &'src str) -> Self {
       Self {
         start: 0,
         current: 0,
         line: 1,
+        src,
       }
+    }
+
+    fn scan(&mut self) -> Result<Token, ScriptError> {
+      let mut chars = self.src.chars().skip(self.current).peekable();
+      self.skip_nontokens(&mut chars);
+      self.start = self.current;
+      match self.advance(&mut chars) {
+        Some(c) => match c {
+          '(' => Ok(self.make_token(TokenKind::LeftParen)),
+          ')' => Ok(self.make_token(TokenKind::RightParen)),
+          '{' => Ok(self.make_token(TokenKind::LeftBrace)),
+          '}' => Ok(self.make_token(TokenKind::RightBrace)),
+          ';' => Ok(self.make_token(TokenKind::Semicolon)),
+          ',' => Ok(self.make_token(TokenKind::Comma)),
+          '.' => Ok(self.make_token(TokenKind::Dot)),
+          '-' => Ok(self.make_token(TokenKind::Minus)),
+          '+' => Ok(self.make_token(TokenKind::Plus)),
+          '*' => Ok(self.make_token(TokenKind::Asterisk)),
+          '/' => Ok(self.make_token(TokenKind::Slash)),
+          '!' => {
+            if self.advance_if_matches('=', &mut chars) {
+              Ok(self.make_token(TokenKind::ExEq))
+            } else {
+              Ok(self.make_token(TokenKind::Exclamation))
+            }
+          }
+          '=' => {
+            if self.advance_if_matches('=', &mut chars) {
+              Ok(self.make_token(TokenKind::EqEq))
+            } else {
+              Ok(self.make_token(TokenKind::Equal))
+            }
+          }
+          '<' => {
+            if self.advance_if_matches('=', &mut chars) {
+              Ok(self.make_token(TokenKind::LessEq))
+            } else {
+              Ok(self.make_token(TokenKind::LessThan))
+            }
+          }
+          '>' => {
+            if self.advance_if_matches('=', &mut chars) {
+              Ok(self.make_token(TokenKind::GreaterEq))
+            } else {
+              Ok(self.make_token(TokenKind::GreaterThan))
+            }
+          }
+          '"' => self.make_string(&mut chars),
+          _ if Scanner::is_digit(c) => self.make_number(&mut chars),
+          _ => Err(ScriptError {
+            line: self.line,
+            msg: format!("unexpected character"),
+          }),
+        },
+        None => Ok(self.make_token(TokenKind::EOF)),
+      }
+    }
+
+    fn make_token(&self, kind: TokenKind) -> Token {
+      Token::new(kind, &self.src[self.start..self.current], self.line)
+    }
+
+    fn advance(&mut self, chars: &mut Peekable<Skip<std::str::Chars>>) -> Option<char> {
+      self.current += 1;
+      chars.next()
+    }
+
+    fn advance_if_matches(
+      &mut self,
+      expected: char,
+      chars: &mut Peekable<Skip<std::str::Chars>>,
+    ) -> bool {
+      match chars.peek() {
+        Some(c) => {
+          if *c == expected {
+            self.advance(chars);
+            true
+          } else {
+            false
+          }
+        }
+        None => false,
+      }
+    }
+
+    fn skip_nontokens(&mut self, chars: &mut Peekable<Skip<std::str::Chars>>) {
+      while let Some(c) = chars.peek() {
+        match c {
+          ' ' | '\r' | '\t' => {
+            self.advance(chars);
+          }
+          '\n' => {
+            self.line += 1;
+            self.advance(chars);
+          }
+          '#' => {
+            while let Some(c) = self.advance(chars) {
+              if c == '\n' {
+                self.line += 1;
+                break;
+              }
+            }
+          }
+          _ => return,
+        }
+      }
+    }
+
+    fn make_string(
+      &mut self,
+      chars: &mut Peekable<Skip<std::str::Chars>>,
+    ) -> Result<Token, ScriptError> {
+      while let Some(c) = self.advance(chars) {
+        match c {
+          '\n' => self.line += 1,
+          '"' => return Ok(self.make_token(TokenKind::StringLiteral)),
+        }
+      }
+
+      Err(ScriptError {
+        line: self.line,
+        msg: String::from("unterminated string"),
+      })
+    }
+
+    fn is_digit(c: char) -> bool {
+      c >= '0' && c <= '9'
+    }
+
+    fn peek_next(chars: &mut Peekable<Skip<std::str::Chars>>, skips: usize) -> Option<char> {
+      chars.clone().skip(skips).next()
+    }
+
+    fn make_number(
+      &mut self,
+      chars: &mut Peekable<Skip<std::str::Chars>>,
+    ) -> Result<Token, ScriptError> {
+      while let Some(c) = self.advance(chars) {
+        if !Scanner::is_digit(c) {
+          break;
+        }
+      }
+
+      if let Some(c) = chars.peek() {
+        if *c == '.' {
+          if let Some(c) = Scanner::peek_next(chars, 1) {
+            self.advance(chars);
+            while let Some(c) = self.advance(chars) {
+              if !Scanner::is_digit(c) {
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      Ok(self.make_token(TokenKind::Number))
     }
   }
 }
 
 mod types {
   use super::*;
+  pub use call::{Airity, Function, NativeFn};
+  pub use oo::{Class, Instance};
+  pub use value::{Value, ValueArray};
+
+  trait New<T> {
+    fn new(item: T) -> Self;
+  }
+
+  trait ValueError<T> {
+    fn new_err(err: T) -> Self;
+  }
 
   mod value {
     use super::{Class, Function, Instance, New, ValueError};
@@ -1505,9 +1766,9 @@ mod types {
   }
 
   mod call {
-    use super::{VM, Value};
+    use super::scanner::Token;
+    use super::{Value, VM};
     use crate::env::EnvRef;
-    use crate::lex::Token;
     use crate::ScriptError;
     use std::fmt::{self, Display};
     use std::ops::RangeInclusive;
@@ -1943,7 +2204,7 @@ mod types {
 }
 
 mod env {
-  use crate::types::{Airity, Class, Function, NativeFn, Value};
+  use super::types::{Airity, Class, Function, NativeFn, Value};
   use std::cell::RefCell;
   use std::cmp::PartialEq;
   use std::collections::HashMap;
