@@ -1,7 +1,12 @@
-use code::{scanner::Scanner, Chunk, Error, OpCode};
+use code::{
+  scanner::{Scanner, Token, TokenKind},
+  Chunk, Error, OpCode,
+};
 use std::io::{self, Write};
+use std::iter::{Peekable, Skip};
+use std::slice::Iter;
 use types::Value;
-use util::ScriptError;
+use util::{New, ScriptError};
 
 macro_rules! is_debug {
   () => {
@@ -19,35 +24,72 @@ impl Default for VM {
   }
 }
 
+type TokenIter<'src> = Peekable<Iter<'src, Token<'src>>>;
+
 impl VM {
-  pub fn run_script(&mut self, script: &str) -> VMResult {
-    self.compile(script)
+  pub fn run_script(&mut self, name: &str, script: &str) -> VMResult {
+    let chunk = self.compile(name, script)?;
+    self.run(chunk)
   }
 
-  fn compile(&mut self, src: &str) -> VMResult {
-    let mut scanner = Scanner::default();
-    let tokens = scanner.scan(src).map_err(|err| Error::Compile(err))?;
-    let mut last_line: Option<usize> = None;
+  pub fn cli(&mut self) -> bool {
+    let mut input = String::new();
+    let mut exit = false;
+    let mut line_number = 1;
 
-    for token in tokens {
-      if let Some(line) = last_line {
-        if token.line != line {
-          print!("{:04} ", token.line);
-          last_line = Some(token.line);
-        } else {
-          print!("   | ")
-        }
-      } else {
-        print!("{:04} ", token.line);
-        last_line = Some(token.line);
+    while !exit {
+      input.clear();
+      print!("ss(main):{}> ", line_number);
+      if let Err(err) = io::stdout().flush() {
+        println!("{}", err);
+        return false;
       }
 
-      println!("{}", token);
+      if let Err(err) = io::stdin().read_line(&mut input) {
+        println!("{}", err);
+        return false;
+      }
+
+      if input == "exit" {
+        exit = true;
+      }
+
+      if let Err(e) = self.run_script("ss", &input) {
+        println!("{}", e);
+      } else {
+        line_number += 1;
+      }
     }
-    Ok(())
+
+    true
   }
 
-  pub fn run(&mut self, chunk: Chunk) -> VMResult {
+  fn operate_on(
+    &mut self,
+    chunk: &Chunk,
+    offset: usize,
+    operator: &str,
+    stack: &mut Vec<Value>,
+    f: fn(a: Value, b: Value) -> Value,
+  ) -> Result<Value, Error> {
+    if let Some(a) = stack.pop() {
+      if let Some(b) = stack.pop() {
+        Ok(f(a, b))
+      } else {
+        Err(Error::Runtime(ScriptError {
+          line: chunk.line_at(offset),
+          msg: format!("cannot {} with {} and void", operator, a),
+        }))
+      }
+    } else {
+      Err(Error::Runtime(ScriptError {
+        line: chunk.line_at(offset),
+        msg: format!("cannot {} with void", operator),
+      }))
+    }
+  }
+
+  fn run(&mut self, chunk: Chunk) -> VMResult {
     let mut _sp: usize = 0;
     let mut stack: Vec<Value> = Vec::new();
 
@@ -104,60 +146,30 @@ impl VM {
     Ok(())
   }
 
-  pub fn cli(&mut self) -> bool {
-    let mut input = String::new();
-    let mut exit = false;
-    let mut line_number = 1;
+  fn compile(&mut self, name: &str, src: &str) -> Result<Chunk, Error> {
+    let mut scanner = Scanner::default();
+    let tokens = scanner.scan(src).map_err(Error::Compile)?;
+    let chunk = Chunk::new(String::from(name), tokens).map_err(Error::Compile);
 
-    while !exit {
-      input.clear();
-      print!("ss(main):{}> ", line_number);
-      if let Err(err) = io::stdout().flush() {
-        println!("{}", err);
-        return false;
-      }
-
-      if let Err(err) = io::stdin().read_line(&mut input) {
-        println!("{}", err);
-        return false;
-      }
-
-      if input == "exit" {
-        exit = true;
-      }
-
-      if let Err(e) = self.run_script(&input) {
-        println!("{}", e);
-      } else {
-        line_number += 1;
-      }
-    }
-
-    true
+    Ok(chunk)
   }
 
-  fn operate_on(
-    &mut self,
-    chunk: &Chunk,
-    offset: usize,
-    operator: &str,
-    stack: &mut Vec<Value>,
-    f: fn(a: Value, b: Value) -> Value,
-  ) -> Result<Value, Error> {
-    if let Some(a) = stack.pop() {
-      if let Some(b) = stack.pop() {
-        Ok(f(a, b))
+  fn print_tokens(tokens: Vec<Token>) {
+    let mut last_line: Option<usize> = None;
+    for token in tokens {
+      if let Some(line) = last_line {
+        if token.line != line {
+          print!("{:04} ", token.line);
+          last_line = Some(token.line);
+        } else {
+          print!("   | ")
+        }
       } else {
-        Err(Error::Runtime(ScriptError {
-          line: chunk.line_at(offset),
-          msg: format!("cannot {} with {} and void", operator, a),
-        }))
+        print!("{:04} ", token.line);
+        last_line = Some(token.line);
       }
-    } else {
-      Err(Error::Runtime(ScriptError {
-        line: chunk.line_at(offset),
-        msg: format!("cannot {} with void", operator),
-      }))
+
+      println!("{}", token);
     }
   }
 }
@@ -1158,7 +1170,10 @@ mod types {
 }
 
 mod code {
+  use super::TokenIter;
+  use crate::util::New;
   use crate::{ScriptError, Value};
+  use scanner::{Token, TokenKind};
   use std::fmt::{self, Display};
   use std::ops::Index;
 
@@ -1198,15 +1213,21 @@ mod code {
   }
 
   impl Chunk {
-    pub fn new(name: String) -> Self {
-      Self {
+    pub fn new(name: String, tokens: Vec<Token>) -> Result<Self, ScriptError> {
+      let mut token_iter = tokens.iter().peekable();
+
+      let chunk = Self {
         _name: name,
         code: Vec::new(),
         lines: Vec::new(),
         last_line: 0,
         instructions_on_line: 0,
         constants: ValueArray::new(),
-      }
+      };
+
+      chunk.expression(&mut token_iter)?;
+
+      Ok(chunk)
     }
 
     pub fn write(&mut self, oc: OpCode, line: usize) {
@@ -1217,32 +1238,6 @@ mod code {
     // returns the location of the added constant
     pub fn add_constant(&mut self, value: Value) -> usize {
       self.constants.write(value)
-    }
-
-    // increments the current number of instructions on a line
-    // or publishes the number and resets the count
-    fn add_line(&mut self, line: usize) {
-      if self.last_line == line {
-        // same line number
-        self.instructions_on_line += 1;
-      } else {
-        self.lines.push(self.instructions_on_line);
-        self.last_line = line;
-        self.instructions_on_line = 1; // current instruction
-      }
-    }
-
-    // extracts the line at the given instruction offset
-    pub fn line_at(&self, offset: usize) -> usize {
-      let mut accum = 0;
-      for (line, num_instns) in self.lines.iter().enumerate() {
-        if accum + num_instns > offset {
-          return line;
-        } else {
-          accum += num_instns;
-        }
-      }
-      self.lines.len()
     }
 
     pub fn print_instruction(&self, offset: usize, instruction: &OpCode) {
@@ -1276,6 +1271,96 @@ mod code {
       self.code.iter().enumerate().for_each(|(offset, inst)| {
         self.print_instruction(offset, inst);
       });
+    }
+
+    // increments the current number of instructions on a line
+    // or publishes the number and resets the count
+    fn add_line(&mut self, line: usize) {
+      if self.last_line == line {
+        // same line number
+        self.instructions_on_line += 1;
+      } else {
+        self.lines.push(self.instructions_on_line);
+        self.last_line = line;
+        self.instructions_on_line = 1; // current instruction
+      }
+    }
+
+    // extracts the line at the given instruction offset
+    fn line_at(&self, offset: usize) -> usize {
+      let mut accum = 0;
+      for (line, num_instns) in self.lines.iter().enumerate() {
+        if accum + num_instns > offset {
+          return line;
+        } else {
+          accum += num_instns;
+        }
+      }
+      self.lines.len()
+    }
+
+    fn advance(&self, tokens: &mut TokenIter) {
+      tokens.next();
+    }
+
+    fn consume(&self, kind: TokenKind, tokens: &mut TokenIter, msg: &str) -> Result<(), Error> {
+      match tokens.peek() {
+        Some(token) => {
+          if token.kind == kind {
+            self.advance(tokens);
+            Ok(())
+          } else {
+            Err(Error::Compile(ScriptError {
+              line: token.line,
+              msg: format!("unexpected token {:?}: {}", token.kind, msg),
+            }))
+          }
+        }
+        None => {
+          let token = Self::get_last_token(tokens);
+          Err(Error::Compile(ScriptError {
+            line: token.line,
+            msg: format!("end of token stream reached unexpectedly: {}", msg),
+          }))
+        }
+      }
+    }
+
+    fn constant_number(&mut self, token: Token) -> Result<(), Error> {
+      match token.lexeme.parse::<f64>() {
+        Ok(n) => {
+          let indx = self.add_constant(Value::Num(n));
+          self.write(OpCode::Constant { location: indx }, token.line);
+          Ok(())
+        }
+        Err(e) => Err(Error::Compile(ScriptError {
+          line: token.line,
+          msg: format!("unable to parse number: {}", token),
+        })),
+      }
+    }
+
+    fn grouping(&mut self, tokens: &mut TokenIter) -> Result<(), Error> {
+      self.expression(tokens)?;
+      if tokens.peek().is_some() {
+        self.consume(TokenKind::RightParen, tokens, "expected ')'")
+      } else {
+        let token = Self::get_last_token(tokens);
+        Err(Error::Compile(ScriptError {
+          line: token.line,
+          msg: String::from("expected ')'"),
+        }))
+      }
+    }
+
+    fn unary(&mut self, tokens: &mut TokenIter) -> Result<(), Error> {
+
+      Ok(())
+    }
+
+    fn get_last_token<'tok>(tokens: &'tok mut TokenIter) -> &'tok Token<'tok> {
+      tokens.rev().next();
+      tokens.rev().peekable().peek().unwrap()
     }
   }
 
@@ -1662,7 +1747,7 @@ mod code {
       }
 
       fn is_alpha(c: char) -> bool {
-        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '@'
       }
 
       fn peek_next(chars: &mut SrcIter, skips: usize) -> Option<char> {
