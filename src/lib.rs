@@ -1,12 +1,11 @@
 use code::{
-  scanner::{Scanner, Token, TokenKind},
+  parsing::Parser,
+  scanning::{Scanner, Token},
   Chunk, Error, OpCode,
 };
 use std::io::{self, Write};
-use std::iter::{Peekable, Skip};
-use std::slice::Iter;
 use types::Value;
-use util::{New, ScriptError};
+use util::ScriptError;
 
 macro_rules! is_debug {
   () => {
@@ -23,8 +22,6 @@ impl Default for VM {
     Self
   }
 }
-
-type TokenIter<'src> = Peekable<Iter<'src, Token<'src>>>;
 
 impl VM {
   pub fn run_script(&mut self, name: &str, script: &str) -> VMResult {
@@ -149,7 +146,8 @@ impl VM {
   fn compile(&mut self, name: &str, src: &str) -> Result<Chunk, Error> {
     let mut scanner = Scanner::default();
     let tokens = scanner.scan(src).map_err(Error::Compile)?;
-    let chunk = Chunk::new(String::from(name), tokens).map_err(Error::Compile);
+    let mut parser = Parser::new(tokens);
+    let chunk = parser.parse().map_err(Error::Compile)?;
 
     Ok(chunk)
   }
@@ -1173,7 +1171,7 @@ mod code {
   use super::TokenIter;
   use crate::util::New;
   use crate::{ScriptError, Value};
-  use scanner::{Token, TokenKind};
+  use scanning::{Token, TokenKind};
   use std::fmt::{self, Display};
   use std::ops::Index;
 
@@ -1204,7 +1202,7 @@ mod code {
   }
 
   pub struct Chunk {
-    _name: String,
+    pub _name: String,
     pub code: Vec<OpCode>,
     pub constants: ValueArray,
     lines: Vec<usize>,
@@ -1213,21 +1211,15 @@ mod code {
   }
 
   impl Chunk {
-    pub fn new(name: String, tokens: Vec<Token>) -> Result<Self, ScriptError> {
-      let mut token_iter = tokens.iter().peekable();
-
-      let chunk = Self {
+    pub fn new(name: String) -> Self {
+      Self {
         _name: name,
         code: Vec::new(),
         lines: Vec::new(),
         last_line: 0,
         instructions_on_line: 0,
         constants: ValueArray::new(),
-      };
-
-      chunk.expression(&mut token_iter)?;
-
-      Ok(chunk)
+      }
     }
 
     pub fn write(&mut self, oc: OpCode, line: usize) {
@@ -1287,7 +1279,7 @@ mod code {
     }
 
     // extracts the line at the given instruction offset
-    fn line_at(&self, offset: usize) -> usize {
+    pub fn line_at(&self, offset: usize) -> usize {
       let mut accum = 0;
       for (line, num_instns) in self.lines.iter().enumerate() {
         if accum + num_instns > offset {
@@ -1297,70 +1289,6 @@ mod code {
         }
       }
       self.lines.len()
-    }
-
-    fn advance(&self, tokens: &mut TokenIter) {
-      tokens.next();
-    }
-
-    fn consume(&self, kind: TokenKind, tokens: &mut TokenIter, msg: &str) -> Result<(), Error> {
-      match tokens.peek() {
-        Some(token) => {
-          if token.kind == kind {
-            self.advance(tokens);
-            Ok(())
-          } else {
-            Err(Error::Compile(ScriptError {
-              line: token.line,
-              msg: format!("unexpected token {:?}: {}", token.kind, msg),
-            }))
-          }
-        }
-        None => {
-          let token = Self::get_last_token(tokens);
-          Err(Error::Compile(ScriptError {
-            line: token.line,
-            msg: format!("end of token stream reached unexpectedly: {}", msg),
-          }))
-        }
-      }
-    }
-
-    fn constant_number(&mut self, token: Token) -> Result<(), Error> {
-      match token.lexeme.parse::<f64>() {
-        Ok(n) => {
-          let indx = self.add_constant(Value::Num(n));
-          self.write(OpCode::Constant { location: indx }, token.line);
-          Ok(())
-        }
-        Err(e) => Err(Error::Compile(ScriptError {
-          line: token.line,
-          msg: format!("unable to parse number: {}", token),
-        })),
-      }
-    }
-
-    fn grouping(&mut self, tokens: &mut TokenIter) -> Result<(), Error> {
-      self.expression(tokens)?;
-      if tokens.peek().is_some() {
-        self.consume(TokenKind::RightParen, tokens, "expected ')'")
-      } else {
-        let token = Self::get_last_token(tokens);
-        Err(Error::Compile(ScriptError {
-          line: token.line,
-          msg: String::from("expected ')'"),
-        }))
-      }
-    }
-
-    fn unary(&mut self, tokens: &mut TokenIter) -> Result<(), Error> {
-
-      Ok(())
-    }
-
-    fn get_last_token<'tok>(tokens: &'tok mut TokenIter) -> &'tok Token<'tok> {
-      tokens.rev().next();
-      tokens.rev().peekable().peek().unwrap()
     }
   }
 
@@ -1388,11 +1316,156 @@ mod code {
     }
   }
 
-  pub mod scanner {
+  pub mod parsing {
+    use crate::code::{
+      scanning::{Token, TokenKind},
+      Chunk, OpCode,
+    };
+    use crate::types::Value;
+    use crate::ScriptError;
+
+    enum Precedence {
+      None,
+      Assignment, // =
+      Or,         // or
+      And,        // and
+      Equality,   // == !=
+      Comparison, // < > <= >=
+      Term,       // + -
+      Factor,     // / *
+      Unary,      // - !
+      Call,       // . ()
+      Primary,
+    }
+
+    impl From<ParseRule> for Precedence {
+      fn from(rule: ParseRule) -> Self {}
+    }
+
+    pub struct Parser<'tokens> {
+      tokens: Vec<Token<'tokens>>,
+      current: usize,
+    }
+
+    type ParseResult = Result<(), ScriptError>;
+    impl<'tokens> Parser<'tokens> {
+      pub fn new(tokens: Vec<Token<'tokens>>) -> Self {
+        Self { tokens, current: 0 }
+      }
+
+      pub fn parse(&mut self) -> Result<Chunk, ScriptError> {
+        let chunk = Chunk::new(String::from("TODO"));
+
+        while !self.is_at_end() {
+          self.expression(&mut chunk)?;
+        }
+
+        Ok(chunk)
+      }
+
+      fn is_at_end(&self) -> bool {
+        self.current >= self.tokens.len()
+      }
+
+      fn advance(&mut self) {
+        self.current += 1;
+      }
+
+      fn peek(&self) -> &'tokens Token {
+        &self.tokens[self.current]
+      }
+
+      fn last(&self) -> &'tokens Token {
+        &self.tokens[self.current - 1]
+      }
+
+      fn consume(&self, kind: TokenKind, msg: &str) -> ParseResult {
+        if self.peek().kind == kind {
+          self.advance();
+          Ok(())
+        } else {
+          Err(ScriptError {
+            line: self.peek().line,
+            msg: format!("unexpected token {:?}: {}", self.peek().kind, msg),
+          })
+        }
+      }
+
+      fn constant_number(&mut self, chunk: &mut Chunk, token: Token) -> ParseResult {
+        match token.lexeme.parse::<f64>() {
+          Ok(n) => {
+            let indx = chunk.add_constant(Value::Num(n));
+            chunk.write(OpCode::Constant { location: indx }, token.line);
+            Ok(())
+          }
+          // should be unreachable if scanner works correctly
+          Err(e) => Err(ScriptError {
+            line: token.line,
+            msg: format!("unable to parse number: {}", token),
+          }),
+        }
+      }
+
+      fn parse_precedence(&self, prec: Precedence) -> ParseResult {}
+
+      fn expression(&mut self, chunk: &mut Chunk) -> ParseResult {
+        self.parse_precedence(Precedence::Assignment);
+        Ok(())
+      }
+
+      fn grouping(&mut self, chunk: &mut Chunk) -> ParseResult {
+        self.expression(chunk)?;
+        self.consume(TokenKind::RightParen, "expected ')'")
+      }
+
+      fn unary(&mut self, chunk: &mut Chunk) -> ParseResult {
+        // remember the operator
+        let last = self.last();
+
+        // compile the operand
+        self.parse_precedence(Precedence::Unary)?;
+
+        // write the unary instruction
+        match last.kind {
+          TokenKind::Not => Ok(chunk.write(OpCode::Negate, self.last().line)),
+          // unreachable
+          _ => Err(ScriptError {
+            line: last.line,
+            msg: String::from("expected unary operator"),
+          }),
+        }?;
+
+        Ok(())
+      }
+
+      fn binary(&mut self, chunk: &mut Chunk) -> ParseResult {
+        // remember the operator
+        let last = self.last();
+
+        // compile the right operand
+        let rule = self.get_rule(last.kind);
+        self.parse_precedence(Precedence::from(rule))?;
+
+        match last.kind {
+          TokenKind::Plus => Ok(chunk.write(OpCode::Add, last.line)),
+          TokenKind::Minus => Ok(chunk.write(OpCode::Subtract, last.line)),
+          TokenKind::Asterisk => Ok(chunk.write(OpCode::Multiply, last.line)),
+          TokenKind::Slash => Ok(chunk.write(OpCode::Divide, last.line)),
+          // unreachable
+          _ => Err(ScriptError {
+            line: last.line,
+            msg: String::from("expected binary operator"),
+          }),
+        }?;
+
+        Ok(())
+      }
+    }
+  }
+
+  pub mod scanning {
     use super::ScriptError;
-    use crate::util::New;
     use std::fmt::{self, Display};
-    use std::iter::{Peekable, Skip};
 
     #[derive(Debug, PartialEq)]
     pub enum TokenKind {
@@ -1812,6 +1885,42 @@ mod code {
       );
 
       gen_scan_test!(
+        backslash,
+        "\\",
+        [
+          Token::new(TokenKind::BackSlash, "\\", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        conditional,
+        "?",
+        [
+          Token::new(TokenKind::Conditional, "?", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        colon,
+        ":",
+        [
+          Token::new(TokenKind::Colon, ":", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
+        pipe,
+        "|",
+        [
+          Token::new(TokenKind::Pipe, "|", 1),
+          Token::new(TokenKind::EOF, "EOF", 1),
+        ]
+      );
+
+      gen_scan_test!(
         comma,
         ",",
         [
@@ -1948,11 +2057,12 @@ mod code {
 
       gen_scan_test!(
         ident,
-        "abcxyz _abcxyz ABCXYZ",
+        "abcxyz _abcxyz ABCXYZ @static_method",
         [
           Token::new(TokenKind::Identifier, "abcxyz", 1),
           Token::new(TokenKind::Identifier, "_abcxyz", 1),
           Token::new(TokenKind::Identifier, "ABCXYZ", 1),
+          Token::new(TokenKind::Identifier, "@static_method", 1),
           Token::new(TokenKind::EOF, "EOF", 1),
         ]
       );
