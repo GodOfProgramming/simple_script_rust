@@ -7,6 +7,8 @@ use std::io::{self, Write};
 use types::Value;
 use util::ScriptError;
 
+mod config;
+
 macro_rules! is_debug {
   () => {
     cfg!(debug_assertions)
@@ -1168,7 +1170,6 @@ mod types {
 }
 
 mod code {
-  use super::TokenIter;
   use crate::util::New;
   use crate::{ScriptError, Value};
   use scanning::{Token, TokenKind};
@@ -1324,8 +1325,8 @@ mod code {
     use crate::types::Value;
     use crate::ScriptError;
 
-    enum Precedence {
-      None,
+    pub enum Precedence {
+      None = 0,
       Assignment, // =
       Or,         // or
       And,        // and
@@ -1342,12 +1343,21 @@ mod code {
       fn from(rule: ParseRule) -> Self {}
     }
 
+    type ParseFn = fn(&mut Parser, &mut Chunk) -> ParseResult;
+
+    pub struct ParseRule {
+      prefix: Option<ParseFn>,
+      infix: Option<ParseFn>,
+      precedence: Precedence,
+    }
+
     pub struct Parser<'tokens> {
       tokens: Vec<Token<'tokens>>,
       current: usize,
     }
 
     type ParseResult = Result<(), ScriptError>;
+
     impl<'tokens> Parser<'tokens> {
       pub fn new(tokens: Vec<Token<'tokens>>) -> Self {
         Self { tokens, current: 0 }
@@ -1361,6 +1371,12 @@ mod code {
         }
 
         Ok(chunk)
+      }
+
+      fn get_rule(&self, kind: TokenKind) -> &'static ParseRule {
+        use crate::config::PARSE_RULES;
+        let i: usize = kind.into();
+        &PARSE_RULES[i]
       }
 
       fn is_at_end(&self) -> bool {
@@ -1391,7 +1407,7 @@ mod code {
         }
       }
 
-      fn constant_number(&mut self, chunk: &mut Chunk, token: Token) -> ParseResult {
+      pub fn constant_number(&mut self, chunk: &mut Chunk, token: Token) -> ParseResult {
         match token.lexeme.parse::<f64>() {
           Ok(n) => {
             let indx = chunk.add_constant(Value::Num(n));
@@ -1413,12 +1429,12 @@ mod code {
         Ok(())
       }
 
-      fn grouping(&mut self, chunk: &mut Chunk) -> ParseResult {
+      pub fn grouping(&mut self, chunk: &mut Chunk) -> ParseResult {
         self.expression(chunk)?;
         self.consume(TokenKind::RightParen, "expected ')'")
       }
 
-      fn unary(&mut self, chunk: &mut Chunk) -> ParseResult {
+      pub fn unary(&mut self, chunk: &mut Chunk) -> ParseResult {
         // remember the operator
         let last = self.last();
 
@@ -1438,7 +1454,7 @@ mod code {
         Ok(())
       }
 
-      fn binary(&mut self, chunk: &mut Chunk) -> ParseResult {
+      pub fn binary(&mut self, chunk: &mut Chunk) -> ParseResult {
         // remember the operator
         let last = self.last();
 
@@ -1525,6 +1541,12 @@ mod code {
       While,
 
       EOF,
+    }
+
+    impl Into<usize> for TokenKind {
+      fn into(self) -> usize {
+        self as usize
+      }
     }
 
     #[derive(Debug, PartialEq)]
