@@ -1,5 +1,5 @@
 use crate::types::{Env, Value};
-use std::fmt;
+use std::fmt::{self, Debug, Display};
 
 #[derive(Debug, Clone)]
 pub enum OpCode {
@@ -215,6 +215,14 @@ impl fmt::Display for Token {
   }
 }
 
+pub struct CodeMeta;
+
+impl CodeMeta {
+  fn line_at(&self, offset: usize) -> usize {
+    todo!();
+  }
+}
+
 pub struct Context {
   instructions: Instructions,
   ip: usize,
@@ -222,16 +230,19 @@ pub struct Context {
   env: Env,
   stack: Vec<Value>,
   consts: Vec<Value>,
+
+  meta: CodeMeta,
 }
 
 impl Context {
-  pub fn new(instructions: Instructions) -> Self {
+  pub fn new(instructions: Instructions, meta: CodeMeta) -> Self {
     Self {
       instructions,
       ip: 0,
       env: Env::new(),
       stack: Vec::new(),
       consts: Vec::new(),
+      meta,
     }
   }
 
@@ -293,5 +304,45 @@ impl Context {
 
   pub fn loop_back(&mut self, count: usize) {
     self.ip = self.ip.saturating_sub(count);
+  }
+
+  pub fn display_opcodes(&self) {
+    println!("<< MAIN >>");
+    for (i, op) in self.instructions.iter().enumerate() {
+      self.display_instruction(op, i);
+    }
+    println!("<< END >>");
+  }
+
+  pub fn display_instruction(&self, op: &OpCode, offset: usize) {
+    print!("0x{:#04X} ", offset);
+    if offset > 0 && self.meta.line_at(offset) == self.meta.line_at(offset - 1) {
+      print!("   | ");
+    } else {
+      print!("{:#04} ", self.meta.line_at(offset));
+    }
+
+    match op {
+      OpCode::Const(index) => {
+        print!("{:<16?} {:4} ", op, index);
+        let c = self.const_at(*index);
+        match c {
+          Some(v) => println!("'{}'", v),
+          None => println!("INVALID INDEX"),
+        }
+      }
+      OpCode::PopN(count) => println!("{:<16?} {:4}", op, count),
+      OpCode::LookupLocal(index) => println!("{:<16?} {:4}", op, index),
+      OpCode::AssignLocal(index) => println!("{:<16?} {:4}", op, index),
+      OpCode::LookupGlobal(name) => println!("{:<16?} '{}'", op, name),
+      OpCode::DefineGlobal(name) => println!("{:<16?} '{}'", op, name),
+      OpCode::AssignGlobal(name) => println!("{:<16?} '{}'", op, name),
+      OpCode::Jump(count) => println!("{:<16?} {:4}", op, count),
+      OpCode::JumpIfFalse(count) => println!("{:<16?} {:4}", op, count),
+      OpCode::Loop(count) => println!("{:<16?} {:4}", op, count),
+      OpCode::Or(count) => println!("{:<16?} {:4}", op, count),
+      OpCode::And(count) => println!("{:<16?} {:4}", op, count),
+      x => println!("{:?}", op),
+    }
   }
 }

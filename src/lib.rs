@@ -1,12 +1,19 @@
 mod code;
 mod types;
 
+use code::CodeMeta;
 use code::Context;
 use code::OpCode;
 use types::Value;
 
 pub trait New<T> {
   fn new(item: T) -> Self;
+}
+
+pub struct Error {
+  msg: String,
+  file: String,
+  line: usize,
 }
 
 pub trait Vpu {
@@ -171,11 +178,14 @@ impl<T: Vpu> Runner<T> {
     Runner { vpu }
   }
 
-  pub fn load(&self, code: &str) -> Option<String> {
-    None
+  pub fn load(&self, code: &str) -> Result<Context, Error> {
+    let instructions: Vec<OpCode> = Vec::new();
+    let meta = CodeMeta {};
+    let ctx = Context::new(instructions, meta);
+    Ok(ctx)
   }
 
-  pub fn run(&self) -> Option<String> {
-    None
+  pub fn run(&self, ctx: &mut Context) -> Result<Value, Error> {
+    Ok(Value::Nil)
   }
 }
