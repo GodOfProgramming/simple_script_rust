@@ -1,5 +1,8 @@
 use crate::types::{Env, Value};
-use std::fmt::{self, Debug, Display};
+use std::{
+  fmt::{self, Debug, Display},
+  str,
+};
 
 #[derive(Debug, Clone)]
 pub enum OpCode {
@@ -149,6 +152,8 @@ type Instructions = Vec<OpCode>;
 
 #[derive(Debug)]
 pub enum Token {
+  Invalid,
+
   // Single-character tokens.
   LeftParen,
   RightParen,
@@ -201,7 +206,6 @@ pub enum Token {
   Return,
   True,
   While,
-  Eof,
 }
 
 impl fmt::Display for Token {
@@ -342,7 +346,285 @@ impl Context {
       OpCode::Loop(count) => println!("{:<16?} {:4}", op, count),
       OpCode::Or(count) => println!("{:<16?} {:4}", op, count),
       OpCode::And(count) => println!("{:<16?} {:4}", op, count),
-      x => println!("{:?}", op),
+      x => println!("{:?}", x),
     }
+  }
+}
+
+struct Scanner<'src> {
+  source: &'src str,
+  raw_src: &'src [u8],
+  start_pos: usize,
+  pos: usize,
+  line: usize,
+  column: usize,
+}
+
+impl<'src> Scanner<'src> {
+  fn new(source: &'src str) -> Self {
+    Scanner {
+      source,
+      raw_src: source.as_bytes(),
+      start_pos: 0,
+      pos: 0,
+      line: 0,
+      column: 0,
+    }
+  }
+
+  fn scan(&mut self) -> Vec<Token> {
+    let mut tokens = Vec::new();
+
+    loop {
+      self.skip_whitespace();
+      if let Some(c) = self.peek() {
+        self.start_pos = self.pos;
+        let token = match c {
+          '(' => Token::LeftParen,
+          ')' => Token::RightParen,
+          '{' => Token::LeftBrace,
+          '}' => Token::RightBrace,
+          ',' => Token::Comma,
+          '.' => Token::Dot,
+          ';' => Token::Semicolon,
+          '+' => Token::Plus,
+          '-' => Token::Minus,
+          '*' => Token::Asterisk,
+          '/' => Token::Slash,
+          '%' => Token::Modulus,
+          '!' => {
+            if self.advance_if_match('=') {
+              Token::BangEqual
+            } else {
+              Token::Bang
+            }
+          }
+          '=' => {
+            if self.advance_if_match('=') {
+              Token::EqualEqual
+            } else if self.advance_if_match('>') {
+              Token::Arrow
+            } else {
+              Token::Equal
+            }
+          }
+          '<' => {
+            if self.advance_if_match('=') {
+              Token::LessEqual
+            } else {
+              Token::Less
+            }
+          }
+          '>' => {
+            if self.advance_if_match('=') {
+              Token::GreaterEqual
+            } else {
+              Token::Greater
+            }
+          }
+          '"' => self.make_string(),
+          c if Self::is_digit(c) => self.make_number(),
+          c if Self::is_alpha(c) => {
+            todo!("make ident")
+          }
+          _ => {
+            todo!("error out")
+          }
+        };
+
+        tokens.push(token);
+
+        self.advance();
+      } else {
+        break;
+      }
+    }
+
+    tokens
+  }
+
+  fn make_number(&mut self) -> Token {
+    while let Some(c) = self.peek() {
+      if Self::is_digit(c) {
+        self.advance();
+      } else {
+        break;
+      }
+    }
+
+    if let Some(c1) = self.peek() {
+      if c1 == '.' {
+        if let Some(c2) = self.peek_n(1) {
+          if Self::is_digit(c2) {
+            self.advance(); // advance past the '.'
+            self.advance(); // advance past the first digit
+            while let Some(c) = self.peek() {
+              if Self::is_digit(c) {
+                self.advance();
+              } else {
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    let lexeme = String::from_utf8_lossy(&self.raw_src[self.start_pos..self.pos]);
+
+    match lexeme.parse() {
+      Ok(n) => Token::Number(n),
+      Err(e) => unimplemented!("error out: {}", e),
+    }
+  }
+
+  fn make_string(&mut self) -> Token {
+    while let Some(c) = self.peek() {
+      match c {
+        '"' => break,
+        '\n' => unimplemented!("err out, multiline strings unsupported"),
+        _ => self.advance(),
+      }
+    }
+
+    if self.at_end() {
+      unimplemented!("err out, unterminated string");
+    }
+
+    match str::from_utf8(&self.raw_src[self.start_pos + 1..self.pos]) {
+      Ok(string) => Token::String(String::from(string)),
+      Err(e) => unimplemented!("err out, {}", e),
+    }
+  }
+
+  fn make_ident(&mut self) -> Token {
+    while let Some(c) = self.peek() {
+      if Self::is_alphanumeric(c) {
+        self.advance();
+      } else {
+        break;
+      }
+    }
+
+    self.check_keywords()
+  }
+
+  fn create_ident(&self) -> Token {
+    match str::from_utf8(&self.raw_src[self.start_pos + 1..self.pos]) {
+      Ok(string) => Token::Identifier(String::from(string)),
+      Err(e) => unimplemented!("err out, {}", e),
+    }
+  }
+
+  fn check_keywords(&self) -> Token {
+    if let Some(c0) = self.index_n(self.start_pos) {
+      match c0 {
+        'a' => return self.check_keyword(1, 2, "nd", Token::And),
+        'b' => {}
+        'c' => {}
+        'e' => {}
+        'f' => {}
+        'i' => {}
+        'l' => {}
+        'm' => {}
+        'n' => {}
+        'o' => {}
+        'p' => {}
+        'r' => {}
+        't' => {}
+        'w' => {}
+        _ => self.create_ident(),
+      }
+    } else {
+      unimplemented!("err out, eof")
+    }
+  }
+
+  fn check_keyword(&self, start: usize, len: usize, rest: &str, checkee: Token) -> Token {
+    let bytes = rest.as_bytes();
+    let begin = self.start_pos + start;
+    if self.pos - self.start_pos == start + len && &self.raw_src[begin..begin + len] == bytes {
+      checkee
+    } else {
+      self.create_ident()
+    }
+  }
+
+  fn skip_whitespace(&mut self) {
+    while let Some(c) = self.peek() {
+      match c {
+        '#' => {
+          while !self.at_end() {
+            if let Some(c) = self.peek() {
+              if c == '\n' {
+                break;
+              } else {
+                self.advance();
+              }
+            } else {
+              break;
+            }
+          }
+        }
+        '\n' => {
+          self.line += 1;
+          self.column = 0;
+          self.advance();
+        }
+        c if c == ' ' || c == '\r' || c == '\t' => {
+          self.advance();
+        }
+        _ => break,
+      }
+    }
+  }
+
+  fn at_end(&self) -> bool {
+    self.pos >= self.raw_src.len()
+  }
+
+  fn peek(&self) -> Option<char> {
+    self.raw_src.get(self.pos).map(|c| *c as char)
+  }
+
+  fn peek_n(&self, n: usize) -> Option<char> {
+    self
+      .raw_src
+      .get(self.pos.saturating_add(n))
+      .map(|c| *c as char)
+  }
+
+  fn index_n(&self, n: usize) -> Option<char> {
+    self.raw_src.get(n).map(|c| *c as char)
+  }
+
+  fn advance(&mut self) {
+    self.pos += 1;
+  }
+
+  fn advance_if_match(&mut self, expected: char) -> bool {
+    match self.peek() {
+      Some(c) => {
+        if c == expected {
+          self.advance();
+          true
+        } else {
+          false
+        }
+      }
+      None => false,
+    }
+  }
+
+  fn is_digit(c: char) -> bool {
+    c >= '0' && c <= '9'
+  }
+
+  fn is_alpha(c: char) -> bool {
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '@'
+  }
+
+  fn is_alphanumeric(c: char) -> bool {
+    Self::is_alpha(c) || Self::is_digit(c)
   }
 }

@@ -179,7 +179,7 @@ impl<T: Vpu> Runner<T> {
   }
 
   pub fn load(&self, code: &str) -> Result<Context, Error> {
-    let instructions: Vec<OpCode> = Vec::new();
+    let instructions = Vec::new();
     let meta = CodeMeta {};
     let ctx = Context::new(instructions, meta);
     Ok(ctx)
