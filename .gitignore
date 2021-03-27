@@ -10,7 +10,6 @@
 /target
 
 # Vim
-
 *.swp
 
 # Node

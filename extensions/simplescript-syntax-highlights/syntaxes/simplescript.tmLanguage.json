@@ -26,7 +26,7 @@
       "patterns": [
         {
           "name": "keyword.control.simplescript",
-          "match": "\\b(and|else|for|if|or|return|while)\\b"
+          "match": "\\b(and|break|cont|else|end|for|if|loop|match|or|ret|while)\\b"
         },
         {
           "name": "keyword.declaration.simplescript",
@@ -49,7 +49,7 @@
     "callables": {
       "patterns": [
         {
-          "match": "[@A-Za-z_]\\w*\\(|\\)|\\|",
+          "match": "[@A-Za-z_]\\w*",
           "name": "support.function.simplescript"
         }
       ]

@@ -12,7 +12,7 @@ repository:
   keywords:
     patterns:
       - name: "keyword.control.simplescript"
-        match: "\\b(and|else|for|if|or|return|while)\\b"
+        match: "\\b(and|break|cont|else|end|for|if|loop|match|or|ret|while)\\b"
       - name: "keyword.declaration.simplescript"
         match: "\\b(let|error|bool|number|string|list|fn|class)\\b"
       - name: "support.function.builtin.simplescript"
@@ -23,7 +23,8 @@ repository:
         match: "\\b(true|false)\\b"
   callables:
     patterns:
-      - match: "[@A-Za-z_]\\w*\\(|\\)|\\|"
+      # for parens stick this after: \\((.*\\n?)*\\))|(\\|.*\\|)
+      - match: "[@A-Za-z_]\\w*"
         name: "support.function.simplescript"
   strings:
     name: "string.quoted.double.simplescript"
