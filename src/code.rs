@@ -680,7 +680,7 @@ mod tests {
     fn if let load loop match nil or print ret true while ";
 
     const TOKENS_THAT_IGNORE_WHITESPACE: &str =
-      "(){},.;+-*/%!foo!=bar=foo==bar>foo>=bar<foo<=bar=>1!1!=1=1==1>1>=1<1<=1=>";
+      "(){},.;+-*/%!foo!=bar=foo==bar>foo>=bar<foo<=bar=>1!1!=1=1==1>1>=1<1<=1=>\"str\"!\"str\"!=\"str\"=\"str\"==\"str\">\"str\">=\"str\"<\"str\"<=\"str\"=>";
 
     #[test]
     fn scanner_scans() {
@@ -790,6 +790,24 @@ mod tests {
         Token::Number(1.0),
         Token::LessEqual,
         Token::Number(1.0),
+        Token::Arrow,
+        Token::String(String::from("str")),
+        Token::Bang,
+        Token::String(String::from("str")),
+        Token::BangEqual,
+        Token::String(String::from("str")),
+        Token::Equal,
+        Token::String(String::from("str")),
+        Token::EqualEqual,
+        Token::String(String::from("str")),
+        Token::Greater,
+        Token::String(String::from("str")),
+        Token::GreaterEqual,
+        Token::String(String::from("str")),
+        Token::Less,
+        Token::String(String::from("str")),
+        Token::LessEqual,
+        Token::String(String::from("str")),
         Token::Arrow,
       ];
       assert_eq!(
