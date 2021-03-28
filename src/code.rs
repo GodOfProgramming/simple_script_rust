@@ -356,7 +356,6 @@ impl Context {
 
 struct Scanner<'src> {
   file: &'src str,
-  source: &'src str,
   raw_src: &'src [u8],
   start_pos: usize,
   pos: usize,
@@ -369,7 +368,6 @@ impl<'src> Scanner<'src> {
   fn new(file: &'src str, source: &'src str) -> Self {
     Scanner {
       file,
-      source,
       raw_src: source.as_bytes(),
       start_pos: 0,
       pos: 0,
@@ -484,7 +482,7 @@ impl<'src> Scanner<'src> {
         msg,
         file: String::from(self.file),
         line: self.line + 1,
-        column: self.column,
+        column: self.column + 1,
       });
     }
   }
@@ -520,27 +518,45 @@ impl<'src> Scanner<'src> {
 
     match lexeme.parse() {
       Ok(n) => Token::Number(n),
-      Err(e) => unimplemented!("error out: {} ('{}')", e, lexeme),
+      Err(e) => {
+        self.error(format!("{} ('{}')", e, lexeme));
+        Token::Invalid
+      }
     }
   }
 
   fn make_string(&mut self) -> Token {
     self.advance(); // skip the first "
+    let mut error_detected = false;
     while let Some(c) = self.peek() {
       match c {
         '"' => break,
-        '\n' => unimplemented!("err out, multiline strings unsupported"),
+        '\n' => {
+          self.error(String::from("multiline strings are unsupported"));
+          error_detected = true;
+          self.advance();
+          self.line += 1;
+          self.column = 0;
+        }
         _ => self.advance(),
       }
     }
 
+    if error_detected {
+      return Token::Invalid;
+    }
+
     if self.at_end() {
-      unimplemented!("err out, unterminated string");
+      self.error(String::from("unterminated string"));
+      return Token::Invalid;
     }
 
     match str::from_utf8(&self.raw_src[self.start_pos + 1..self.pos]) {
       Ok(string) => Token::String(String::from(string)),
-      Err(e) => unimplemented!("err out, {}", e),
+      Err(e) => {
+        self.error(format!("{}", e));
+        Token::Invalid
+      }
     }
   }
 
@@ -556,63 +572,67 @@ impl<'src> Scanner<'src> {
     self.check_keywords()
   }
 
-  fn create_ident(&self) -> Token {
+  fn create_ident(&mut self) -> Token {
     match str::from_utf8(&self.raw_src[self.start_pos..self.pos]) {
       Ok(string) => Token::Identifier(String::from(string)),
-      Err(e) => unimplemented!("err out, {}", e),
+      Err(e) => {
+        self.error(format!("{}", e));
+        Token::Invalid
+      }
     }
   }
 
-  fn check_keywords(&self) -> Token {
-    let do_at_depth = |depth, f: &dyn Fn(usize, char) -> Token| -> Token {
-      if let Some(c) = self.index_n(self.start_pos + depth) {
-        f(depth + 1, c)
-      } else {
-        self.create_ident()
-      }
-    };
+  fn check_keywords(&mut self) -> Token {
+    let do_at_depth =
+      |this: &mut Self, depth, f: &dyn Fn(&mut Self, usize, char) -> Token| -> Token {
+        if let Some(c) = this.index_n(this.start_pos + depth) {
+          f(this, depth + 1, c)
+        } else {
+          this.create_ident()
+        }
+      };
 
-    do_at_depth(0, &|d, c0| match c0 {
-      'a' => self.check_keyword(d, "nd", Token::And),
-      'b' => self.check_keyword(d, "reak", Token::Break),
-      'c' => do_at_depth(d, &|d, c1| match c1 {
-        'l' => self.check_keyword(d, "ass", Token::Class),
-        'o' => self.check_keyword(d, "nt", Token::Cont),
-        _ => self.create_ident(),
+    do_at_depth(self, 0, &|this, d, c0| match c0 {
+      'a' => this.check_keyword(d, "nd", Token::And),
+      'b' => this.check_keyword(d, "reak", Token::Break),
+      'c' => do_at_depth(this, d, &|this, d, c1| match c1 {
+        'l' => this.check_keyword(d, "ass", Token::Class),
+        'o' => this.check_keyword(d, "nt", Token::Cont),
+        _ => this.create_ident(),
       }),
-      'e' => do_at_depth(d, &|d, c1| match c1 {
-        'l' => self.check_keyword(d, "se", Token::Else),
-        'n' => self.check_keyword(d, "d", Token::End),
-        _ => self.create_ident(),
+      'e' => do_at_depth(this, d, &|this, d, c1| match c1 {
+        'l' => this.check_keyword(d, "se", Token::Else),
+        'n' => this.check_keyword(d, "d", Token::End),
+        _ => this.create_ident(),
       }),
-      'f' => do_at_depth(d, &|d, c1| match c1 {
-        'a' => self.check_keyword(d, "lse", Token::False),
-        'n' => self.check_keyword(d, "", Token::Fn),
-        'o' => self.check_keyword(d, "r", Token::For),
-        _ => self.create_ident(),
+      'f' => do_at_depth(this, d, &|this, d, c1| match c1 {
+        'a' => this.check_keyword(d, "lse", Token::False),
+        'n' => this.check_keyword(d, "", Token::Fn),
+        'o' => this.check_keyword(d, "r", Token::For),
+        _ => this.create_ident(),
       }),
-      'i' => self.check_keyword(d, "f", Token::If),
-      'l' => do_at_depth(d, &|d, c1| match c1 {
-        'e' => self.check_keyword(d, "t", Token::Let),
-        'o' => do_at_depth(d, &|d, c2| match c2 {
-          'a' => self.check_keyword(d, "d", Token::Load),
-          'o' => self.check_keyword(d, "p", Token::Loop),
-          _ => self.create_ident(),
+      'i' => this.check_keyword(d, "f", Token::If),
+      'l' => do_at_depth(this, d, &|this, d, c1| match c1 {
+        'e' => this.check_keyword(d, "t", Token::Let),
+        'o' => do_at_depth(this, d, &|this, d, c2| match c2 {
+          'a' => this.check_keyword(d, "d", Token::Load),
+          'o' => this.check_keyword(d, "p", Token::Loop),
+          _ => this.create_ident(),
         }),
-        _ => self.create_ident(),
+        _ => this.create_ident(),
       }),
-      'm' => self.check_keyword(d, "atch", Token::Match),
-      'n' => self.check_keyword(d, "il", Token::Nil),
-      'o' => self.check_keyword(d, "r", Token::Or),
-      'p' => self.check_keyword(d, "rint", Token::Print),
-      'r' => self.check_keyword(d, "et", Token::Ret),
-      't' => self.check_keyword(d, "rue", Token::True),
-      'w' => self.check_keyword(d, "hile", Token::While),
-      _ => self.create_ident(),
+      'm' => this.check_keyword(d, "atch", Token::Match),
+      'n' => this.check_keyword(d, "il", Token::Nil),
+      'o' => this.check_keyword(d, "r", Token::Or),
+      'p' => this.check_keyword(d, "rint", Token::Print),
+      'r' => this.check_keyword(d, "et", Token::Ret),
+      't' => this.check_keyword(d, "rue", Token::True),
+      'w' => this.check_keyword(d, "hile", Token::While),
+      _ => this.create_ident(),
     })
   }
 
-  fn check_keyword(&self, start: usize, rest: &str, checkee: Token) -> Token {
+  fn check_keyword(&mut self, start: usize, rest: &str, checkee: Token) -> Token {
     let bytes = rest.as_bytes();
     let begin = self.start_pos + start;
     if self.pos - self.start_pos == start + rest.len()
@@ -641,9 +661,9 @@ impl<'src> Scanner<'src> {
           }
         }
         '\n' => {
+          self.advance();
           self.line += 1;
           self.column = 0;
-          self.advance();
         }
         c if c == ' ' || c == '\r' || c == '\t' => {
           self.advance();

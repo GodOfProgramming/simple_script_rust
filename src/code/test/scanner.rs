@@ -8,7 +8,7 @@ const SCANNING_ERRORS: &str = include_str!("scanning_errors.ss");
 
 #[test]
 fn scanner_scans() {
-  let mut scanner = Scanner::new(ALL_TOKENS);
+  let mut scanner = Scanner::new("test", ALL_TOKENS);
   let actual = scanner.scan();
   let expected = vec![
     Token::LeftParen,
@@ -69,7 +69,7 @@ fn scanner_scans() {
 
 #[test]
 fn scanner_ignores_whitespace_when_applicable() {
-  let mut scanner = Scanner::new(TOKENS_THAT_IGNORE_WHITESPACE);
+  let mut scanner = Scanner::new("test", TOKENS_THAT_IGNORE_WHITESPACE);
   let actual = scanner.scan();
   let expected = vec![
     Token::LeftParen,
@@ -158,7 +158,7 @@ fn scanner_ignores_whitespace_when_applicable() {
 
 #[test]
 fn scans_empty_string() {
-  let mut scanner = Scanner::new("\"\"");
+  let mut scanner = Scanner::new("test", "\"\"");
   let actual = scanner.scan();
   let expected = vec![Token::String(String::from(""))];
 
@@ -181,25 +181,25 @@ fn scans_empty_string() {
 
 #[test]
 fn returns_errors_at_right_location_when_detected() {
-  let mut scanner = Scanner::new(SCANNING_ERRORS);
+  let mut scanner = Scanner::new("test", SCANNING_ERRORS);
   let actual = scanner.scan();
 
   let expected = vec![
     Error {
       msg: String::from("invalid character: '^'"),
-      file: String::from("todo"),
+      file: String::from("test"),
       line: 6,
       column: 8,
     },
     Error {
       msg: String::from("invalid character: '?'"),
-      file: String::from("todo"),
+      file: String::from("test"),
       line: 7,
       column: 11,
     },
     Error {
       msg: String::from("invalid character: ':'"),
-      file: String::from("todo"),
+      file: String::from("test"),
       line: 7,
       column: 15,
     },

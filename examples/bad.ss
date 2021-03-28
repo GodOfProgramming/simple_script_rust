@@ -9,3 +9,7 @@ fn a_func(t) {
 }
 
 a_func(1);
+
+print "bad
+strings are
+not allowed"
