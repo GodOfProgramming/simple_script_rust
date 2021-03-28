@@ -150,7 +150,7 @@ pub enum OpCode {
 
 type Instructions = Vec<OpCode>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Token {
   Invalid,
 
@@ -197,13 +197,12 @@ pub enum Token {
   If,
   Let,
   Load,
-  LoadRel,
   Loop,
   Match,
   Nil,
   Or,
   Print,
-  Return,
+  Ret,
   True,
   While,
 }
@@ -424,13 +423,15 @@ impl<'src> Scanner<'src> {
           }
           '"' => self.make_string(),
           c if Self::is_digit(c) => self.make_number(),
-          c if Self::is_alpha(c) => {
-            todo!("make ident")
-          }
+          c if Self::is_alpha(c) => self.make_ident(),
           _ => {
             todo!("error out")
           }
         };
+
+        if cfg!(test) {
+          println!("made token {:?}", token);
+        }
 
         tokens.push(token);
 
@@ -479,6 +480,7 @@ impl<'src> Scanner<'src> {
   }
 
   fn make_string(&mut self) -> Token {
+    self.advance(); // skip the first "
     while let Some(c) = self.peek() {
       match c {
         '"' => break,
@@ -510,40 +512,67 @@ impl<'src> Scanner<'src> {
   }
 
   fn create_ident(&self) -> Token {
-    match str::from_utf8(&self.raw_src[self.start_pos + 1..self.pos]) {
+    match str::from_utf8(&self.raw_src[self.start_pos..self.pos]) {
       Ok(string) => Token::Identifier(String::from(string)),
       Err(e) => unimplemented!("err out, {}", e),
     }
   }
 
   fn check_keywords(&self) -> Token {
-    if let Some(c0) = self.index_n(self.start_pos) {
-      match c0 {
-        'a' => return self.check_keyword(1, 2, "nd", Token::And),
-        'b' => {}
-        'c' => {}
-        'e' => {}
-        'f' => {}
-        'i' => {}
-        'l' => {}
-        'm' => {}
-        'n' => {}
-        'o' => {}
-        'p' => {}
-        'r' => {}
-        't' => {}
-        'w' => {}
-        _ => self.create_ident(),
+    let do_at_depth = |depth, f: &dyn Fn(usize, char) -> Token| -> Token {
+      if let Some(c) = self.index_n(self.start_pos + depth) {
+        f(depth + 1, c)
+      } else {
+        self.create_ident()
       }
-    } else {
-      unimplemented!("err out, eof")
-    }
+    };
+
+    do_at_depth(0, &|d, c0| match c0 {
+      'a' => self.check_keyword(d, "nd", Token::And),
+      'b' => self.check_keyword(d, "reak", Token::Break),
+      'c' => do_at_depth(d, &|d, c1| match c1 {
+        'l' => self.check_keyword(d, "ass", Token::Class),
+        'o' => self.check_keyword(d, "nt", Token::Cont),
+        _ => self.create_ident(),
+      }),
+      'e' => do_at_depth(d, &|d, c1| match c1 {
+        'l' => self.check_keyword(d, "se", Token::Else),
+        'n' => self.check_keyword(d, "d", Token::End),
+        _ => self.create_ident(),
+      }),
+      'f' => do_at_depth(d, &|d, c1| match c1 {
+        'a' => self.check_keyword(d, "lse", Token::False),
+        'n' => self.check_keyword(d, "", Token::Fn),
+        'o' => self.check_keyword(d, "r", Token::For),
+        _ => self.create_ident(),
+      }),
+      'i' => self.check_keyword(d, "f", Token::If),
+      'l' => do_at_depth(d, &|d, c1| match c1 {
+        'e' => self.check_keyword(d, "t", Token::Let),
+        'o' => do_at_depth(d, &|d, c2| match c2 {
+          'a' => self.check_keyword(d, "d", Token::Load),
+          'o' => self.check_keyword(d, "p", Token::Loop),
+          _ => self.create_ident(),
+        }),
+        _ => self.create_ident(),
+      }),
+      'm' => self.check_keyword(d, "atch", Token::Match),
+      'n' => self.check_keyword(d, "il", Token::Nil),
+      'o' => self.check_keyword(d, "r", Token::Or),
+      'p' => self.check_keyword(d, "rint", Token::Print),
+      'r' => self.check_keyword(d, "et", Token::Ret),
+      't' => self.check_keyword(d, "rue", Token::True),
+      'w' => self.check_keyword(d, "hile", Token::While),
+      _ => self.create_ident(),
+    })
   }
 
-  fn check_keyword(&self, start: usize, len: usize, rest: &str, checkee: Token) -> Token {
+  fn check_keyword(&self, start: usize, rest: &str, checkee: Token) -> Token {
     let bytes = rest.as_bytes();
     let begin = self.start_pos + start;
-    if self.pos - self.start_pos == start + len && &self.raw_src[begin..begin + len] == bytes {
+    if self.pos - self.start_pos == start + rest.len()
+      && &self.raw_src[begin..begin + rest.len()] == bytes
+    {
       checkee
     } else {
       self.create_ident()
@@ -603,7 +632,7 @@ impl<'src> Scanner<'src> {
   }
 
   fn advance_if_match(&mut self, expected: char) -> bool {
-    match self.peek() {
+    match self.peek_n(1) {
       Some(c) => {
         if c == expected {
           self.advance();
@@ -626,5 +655,75 @@ impl<'src> Scanner<'src> {
 
   fn is_alphanumeric(c: char) -> bool {
     Self::is_alpha(c) || Self::is_digit(c)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  #[cfg(test)]
+  mod scanner {
+    use super::*;
+
+    const ALL_TOKENS: &str = "( ) { } , . ; + - * / % ! != = == > >= < <= =>
+    foobar \"some string\" 3.14159 and break class cont else end false for
+    fn if let load loop match nil or print ret true while ";
+
+    #[test]
+    fn scanner_scans() {
+      let mut scanner = Scanner::new(ALL_TOKENS);
+      let actual = scanner.scan();
+      let expected = vec![
+        Token::LeftParen,
+        Token::RightParen,
+        Token::LeftBrace,
+        Token::RightBrace,
+        Token::Comma,
+        Token::Dot,
+        Token::Semicolon,
+        Token::Plus,
+        Token::Minus,
+        Token::Asterisk,
+        Token::Slash,
+        Token::Modulus,
+        Token::Bang,
+        Token::BangEqual,
+        Token::Equal,
+        Token::EqualEqual,
+        Token::Greater,
+        Token::GreaterEqual,
+        Token::Less,
+        Token::LessEqual,
+        Token::Arrow,
+        Token::Identifier(String::from("foobar")),
+        Token::String(String::from("some string")),
+        Token::Number(3.14159),
+        Token::And,
+        Token::Break,
+        Token::Class,
+        Token::Cont,
+        Token::Else,
+        Token::End,
+        Token::False,
+        Token::For,
+        Token::Fn,
+        Token::If,
+        Token::Let,
+        Token::Load,
+        Token::Loop,
+        Token::Match,
+        Token::Nil,
+        Token::Or,
+        Token::Print,
+        Token::Ret,
+        Token::True,
+        Token::While,
+      ];
+      assert_eq!(actual.len(), expected.len());
+
+      for (t0, t1) in actual.iter().zip(expected.iter()) {
+        assert_eq!(t0, t1);
+      }
+    }
   }
 }

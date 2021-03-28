@@ -427,22 +427,22 @@ mod tests {
       let x = Value::new(1.0);
       let y = Value::new(2.0);
 
-      assert_eq!(x + y, Value::new(3.0));
+      assert_eq!(x + y, Ok(Value::new(3.0)));
 
       let x = Value::new("x");
       let y = Value::new("y");
 
-      assert_eq!(x + y, Value::new("xy"));
+      assert_eq!(x + y, Ok(Value::new("xy")));
 
       let x = Value::new(1.0);
       let y = Value::new("y");
 
-      assert_eq!(x + y, Value::new("1y"));
+      assert_eq!(x + y, Ok(Value::new("1y")));
 
       let x = Value::new("x");
       let y = Value::new(2.0);
 
-      assert_eq!(x + y, Value::new("x2"));
+      assert_eq!(x + y, Ok(Value::new("x2")));
     }
 
     #[test]
@@ -456,9 +456,9 @@ mod tests {
 
       let assert_err_with_str = |t: Value| {
         let s = Value::new("a");
-        assert!(matches!(s + t.clone(), Ok(_)));
+        assert!(matches!(s + t.clone(), Err(_)));
         let s = Value::new("a");
-        assert!(matches!(t + s, Ok(_)));
+        assert!(matches!(t + s, Err(_)));
       };
 
       run_assertions(
@@ -477,7 +477,7 @@ mod tests {
       let x = Value::new(3.0);
       let y = Value::new(2.0);
 
-      assert_eq!(x - y, Value::new(1.0));
+      assert_eq!(x - y, Ok(Value::new(1.0)));
     }
 
     #[test]
@@ -506,17 +506,17 @@ mod tests {
       let x = Value::new(2.0);
       let y = Value::new(3.0);
 
-      assert_eq!(x * y, Value::new(6.0));
+      assert_eq!(x * y, Ok(Value::new(6.0)));
 
       let x = Value::new(2.0);
       let y = Value::new("a");
 
-      assert_eq!(x * y, Value::new("aa"));
+      assert_eq!(x * y, Ok(Value::new("aa")));
 
       let x = Value::new(2.0);
       let y = Value::new("a");
 
-      assert_eq!(x * y, Value::new("aa"));
+      assert_eq!(x * y, Ok(Value::new("aa")));
     }
 
     #[test]
@@ -556,7 +556,7 @@ mod tests {
       let x = Value::new(3.0);
       let y = Value::new(2.0);
 
-      assert_eq!(x / y, Value::new(1.5));
+      assert_eq!(x / y, Ok(Value::new(1.5)));
     }
 
     #[test]
@@ -585,7 +585,7 @@ mod tests {
       let x = Value::new(3.0);
       let y = Value::new(2.0);
 
-      assert_eq!(x % y, Value::new(1.0));
+      assert_eq!(x % y, Ok(Value::new(1.0)));
     }
 
     #[test]
@@ -637,7 +637,7 @@ mod tests {
     #[test]
     fn can_negate() {
       let x = Value::new(1.0);
-      assert_eq!(-x, Value::new(-1.0));
+      assert_eq!(-x, Ok(Value::new(-1.0)));
     }
 
     #[test]
