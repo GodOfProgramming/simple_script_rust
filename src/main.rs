@@ -7,19 +7,21 @@ fn main() {
   let vpu = Vm {};
   let runner = Runner::new(vpu);
 
-  if args.len() >= 2 && !run_file(runner, args) {
-    exit_code = 1;
+  if let Some(file) = args.into_iter().nth(1) {
+    if !run_file(runner, file) {
+      exit_code = 1;
+    }
   }
 
   process::exit(exit_code);
 }
 
-fn run_file(runner: Runner<Vm>, args: Vec<String>) -> bool {
-  let p = Path::new(&args[1]);
+fn run_file(runner: Runner<Vm>, file: String) -> bool {
+  let p = Path::new(&file);
   if p.exists() {
     match fs::read_to_string(p) {
       Ok(contents) => {
-        if let Err(errs) = runner.load(&contents) {
+        if let Err(errs) = runner.load(file, &contents) {
           println!("Errors detected when compiling!");
           for err in errs {
             println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);

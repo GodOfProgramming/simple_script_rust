@@ -355,6 +355,7 @@ impl Context {
 }
 
 struct Scanner<'src> {
+  file: &'src str,
   source: &'src str,
   raw_src: &'src [u8],
   start_pos: usize,
@@ -365,8 +366,9 @@ struct Scanner<'src> {
 }
 
 impl<'src> Scanner<'src> {
-  fn new(source: &'src str) -> Self {
+  fn new(file: &'src str, source: &'src str) -> Self {
     Scanner {
+      file,
       source,
       raw_src: source.as_bytes(),
       start_pos: 0,
@@ -480,7 +482,7 @@ impl<'src> Scanner<'src> {
     if let Some(errs) = &mut self.errors {
       errs.push(Error {
         msg,
-        file: String::from("todo"),
+        file: String::from(self.file),
         line: self.line + 1,
         column: self.column,
       });
@@ -705,8 +707,8 @@ impl<'src> Scanner<'src> {
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(&self, source: &str) -> Result<Vec<Token>, Vec<Error>> {
-    let mut scanner = Scanner::new(source);
+  pub fn compile(&self, file: &str, source: &str) -> Result<Vec<Token>, Vec<Error>> {
+    let mut scanner = Scanner::new(file, source);
 
     scanner
       .scan()

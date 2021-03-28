@@ -181,10 +181,10 @@ impl<T: Vpu> Runner<T> {
     Runner { vpu }
   }
 
-  pub fn load(&self, code: &str) -> Result<Context, Vec<Error>> {
+  pub fn load(&self, file: String, code: &str) -> Result<Context, Vec<Error>> {
     let compiler = Compiler {};
 
-    compiler.compile(code)?;
+    compiler.compile(&file, code)?;
 
     let instructions = Vec::new();
     let meta = CodeMeta {};
