@@ -1,5 +1,6 @@
 use crate::types::{Env, Value};
 use std::{
+  f64::consts::PI,
   fmt::{self, Debug, Display},
   str,
 };
@@ -666,8 +667,11 @@ mod tests {
     use super::*;
 
     const ALL_TOKENS: &str = "( ) { } , . ; + - * / % ! != = == > >= < <= =>
-    foobar \"some string\" 3.14159 and break class cont else end false for
+    foobar \"some string\" 3.14159265358979323846264338327950288 and break class cont else end false for
     fn if let load loop match nil or print ret true while ";
+
+    const TOKENS_THAT_IGNORE_WHITESPACE: &str =
+      "(){},.;+-*/%!foo!=bar=foo==bar>foo>=bar<foo<=bar=>";
 
     #[test]
     fn scanner_scans() {
@@ -697,7 +701,7 @@ mod tests {
         Token::Arrow,
         Token::Identifier(String::from("foobar")),
         Token::String(String::from("some string")),
-        Token::Number(3.14159),
+        Token::Number(PI),
         Token::And,
         Token::Break,
         Token::Class,
@@ -723,6 +727,72 @@ mod tests {
 
       for (t0, t1) in actual.iter().zip(expected.iter()) {
         assert_eq!(t0, t1);
+      }
+    }
+
+    #[test]
+    fn scanner_ignores_whitespace_when_applicable() {
+      let mut scanner = Scanner::new(TOKENS_THAT_IGNORE_WHITESPACE);
+      let actual = scanner.scan();
+      let expected = vec![
+        Token::LeftParen,
+        Token::RightParen,
+        Token::LeftBrace,
+        Token::RightBrace,
+        Token::Comma,
+        Token::Dot,
+        Token::Semicolon,
+        Token::Plus,
+        Token::Minus,
+        Token::Asterisk,
+        Token::Slash,
+        Token::Modulus,
+        Token::Bang,
+        Token::Identifier(String::from("foo")),
+        Token::BangEqual,
+        Token::Identifier(String::from("bar")),
+        Token::Equal,
+        Token::Identifier(String::from("foo")),
+        Token::EqualEqual,
+        Token::Identifier(String::from("bar")),
+        Token::Greater,
+        Token::Identifier(String::from("foo")),
+        Token::GreaterEqual,
+        Token::Identifier(String::from("bar")),
+        Token::Less,
+        Token::Identifier(String::from("foo")),
+        Token::LessEqual,
+        Token::Identifier(String::from("bar")),
+        Token::Arrow,
+      ];
+      assert_eq!(
+        actual.len(),
+        expected.len(),
+        "actual len = {}, expected len = {}",
+        actual.len(),
+        expected.len(),
+      );
+
+      for (a, e) in actual.iter().zip(expected.iter()) {
+        assert_eq!(a, e, "actual = {:?}, expected = {:?}", a, e);
+      }
+    }
+
+    #[test]
+    fn scans_empty_string() {
+      let mut scanner = Scanner::new("\"\"");
+      let actual = scanner.scan();
+      let expected = vec![Token::String(String::from(""))];
+      assert_eq!(
+        actual.len(),
+        expected.len(),
+        "actual len = {}, expected len = {}",
+        actual.len(),
+        expected.len(),
+      );
+
+      for (a, e) in actual.iter().zip(expected.iter()) {
+        assert_eq!(a, e, "actual = {:?}, expected = {:?}", a, e);
       }
     }
   }
