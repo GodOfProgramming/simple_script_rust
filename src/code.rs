@@ -1,6 +1,6 @@
 use crate::{
   types::{Env, Value},
-  Error,
+  Error, New,
 };
 use std::{
   f64::consts::PI,
@@ -152,9 +152,7 @@ pub enum OpCode {
   Return,
 }
 
-type Instructions = Vec<OpCode>;
-
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
   Invalid,
 
@@ -222,16 +220,34 @@ impl fmt::Display for Token {
   }
 }
 
-pub struct CodeMeta;
+pub struct TokenMeta<'file> {
+  pub file: &'file str,
+  pub line: usize,
+  pub column: usize,
+}
+
+pub struct CodeMeta {
+  opcode_info: Vec<(usize, usize)>,
+}
 
 impl CodeMeta {
-  fn line_at(&self, offset: usize) -> usize {
-    todo!();
+  fn new() -> Self {
+    Self {
+      opcode_info: Vec::new(),
+    }
+  }
+
+  fn add(&mut self, line: usize, column: usize) {
+    self.opcode_info.push((line, column));
+  }
+
+  fn get(&self, offset: usize) -> Option<(usize, usize)> {
+    self.opcode_info.get(offset).cloned()
   }
 }
 
 pub struct Context {
-  instructions: Instructions,
+  instructions: Vec<OpCode>,
   ip: usize,
 
   env: Env,
@@ -242,14 +258,14 @@ pub struct Context {
 }
 
 impl Context {
-  pub fn new(instructions: Instructions, meta: CodeMeta) -> Self {
+  pub fn new() -> Self {
     Self {
-      instructions,
+      instructions: Vec::new(),
       ip: 0,
       env: Env::new(),
       stack: Vec::new(),
       consts: Vec::new(),
-      meta,
+      meta: CodeMeta::new(),
     }
   }
 
@@ -313,6 +329,16 @@ impl Context {
     self.ip = self.ip.saturating_sub(count);
   }
 
+  fn write(&mut self, op: OpCode, line: usize, column: usize) {
+    self.instructions.push(op);
+    self.meta.add(line, column);
+  }
+
+  fn write_const(&mut self, c: Value, line: usize, column: usize) {
+    self.write(OpCode::Const(self.consts.len()), line, column);
+    self.consts.push(c);
+  }
+
   pub fn display_opcodes(&self) {
     println!("<< MAIN >>");
     for (i, op) in self.instructions.iter().enumerate() {
@@ -323,10 +349,20 @@ impl Context {
 
   pub fn display_instruction(&self, op: &OpCode, offset: usize) {
     print!("0x{:#04X} ", offset);
-    if offset > 0 && self.meta.line_at(offset) == self.meta.line_at(offset - 1) {
-      print!("   | ");
+    if let Some(curr) = self.meta.get(offset) {
+      if offset > 0 {
+        if let Some(prev) = self.meta.get(offset - 1) {
+          if curr.0 == prev.0 {
+            print!("   | ");
+          }
+        } else {
+          print!("?????");
+        }
+      } else {
+        print!("{:#04} ", curr.0);
+      }
     } else {
-      print!("{:#04} ", self.meta.line_at(offset));
+      print!("?????");
     }
 
     match op {
@@ -377,8 +413,9 @@ impl<'src> Scanner<'src> {
     }
   }
 
-  fn scan(&mut self) -> Result<Vec<Token>, Vec<Error>> {
+  fn scan(&mut self) -> Result<(Vec<Token>, Vec<TokenMeta>), Vec<Error>> {
     let mut tokens = Vec::new();
+    let mut meta = Vec::new();
 
     loop {
       self.skip_whitespace();
@@ -457,6 +494,12 @@ impl<'src> Scanner<'src> {
 
         tokens.push(token);
 
+        meta.push(TokenMeta {
+          file: self.file,
+          line: self.line,
+          column: self.column,
+        });
+
         if should_advance {
           self.advance();
         }
@@ -468,7 +511,7 @@ impl<'src> Scanner<'src> {
     if let Some(errs) = self.errors.take() {
       Err(errs)
     } else {
-      Ok(tokens)
+      Ok((tokens, meta))
     }
   }
 
@@ -724,15 +767,554 @@ impl<'src> Scanner<'src> {
   }
 }
 
+#[derive(PartialEq, PartialOrd, Clone, Copy)]
+enum Precedence {
+  None,
+  Assignment, // =
+  Or,         // or
+  And,        // and
+  Equality,   // == !=
+  Comparison, // < > <= >=
+  Term,       // + -
+  Factor,     // / *
+  Unary,      // - !
+  Call,       // . ()
+  Primary,
+}
+
+type ParseFn<'file> = fn(&mut Parser<'file>, bool) -> bool;
+
+struct ParseRule<'file> {
+  prefix: Option<ParseFn<'file>>,
+  infix: Option<ParseFn<'file>>,
+  precedence: Precedence,
+}
+
+impl<'file> ParseRule<'file> {
+  fn new(
+    prefix: Option<ParseFn<'file>>,
+    infix: Option<ParseFn<'file>>,
+    precedence: Precedence,
+  ) -> Self {
+    Self {
+      prefix,
+      infix,
+      precedence,
+    }
+  }
+}
+
+struct Local {
+  name: String,
+  depth: usize,
+  initialized: bool,
+}
+
+#[derive(PartialEq)]
+enum LookupKind {
+  Local,
+  Global,
+}
+
+struct Lookup {
+  kind: LookupKind,
+  index: usize,
+}
+
+pub struct Parser<'file> {
+  tokens: Vec<Token>,
+  meta: Vec<TokenMeta<'file>>,
+  pos: usize,
+
+  ctx: Option<Context>,
+  errors: Option<Vec<Error>>,
+
+  locals: Vec<Local>,
+}
+
+impl<'file> Parser<'file> {
+  pub fn new(tokens: Vec<Token>, meta: Vec<TokenMeta<'file>>) -> Self {
+    Self {
+      tokens,
+      meta,
+      pos: 0,
+      ctx: Some(Context::new()),
+      errors: None,
+      locals: Vec::new(),
+    }
+  }
+
+  fn parse(&mut self) -> Result<Context, Vec<Error>> {
+    while let Some(current) = self.current() {
+      self.declaration(current);
+    }
+
+    if let Some(errors) = self.errors.take() {
+      Err(errors)
+    } else if let Some(ctx) = self.ctx.take() {
+      Ok(ctx)
+    } else {
+      // should never happen
+      Err(Vec::new())
+    }
+  }
+
+  fn error(&mut self, pos: usize, msg: String) {
+    if self.errors.is_none() {
+      self.errors = Some(Vec::new());
+    }
+
+    let meta = self.meta.get(pos);
+
+    if let Some(errs) = &mut self.errors {
+      if let Some(meta) = meta {
+        errs.push(Error {
+          msg,
+          file: String::from(meta.file),
+          line: meta.line + 1,
+          column: meta.column + 1,
+        });
+      }
+    }
+
+    self.sync();
+  }
+
+  fn current(&self) -> Option<Token> {
+    self.tokens.get(self.pos).cloned()
+  }
+
+  fn previous(&self) -> Option<Token> {
+    self.tokens.get(self.pos - 1).cloned()
+  }
+
+  fn advance(&mut self) {
+    self.pos += 1;
+  }
+
+  fn advance_if_matches(&mut self, token: Token) -> bool {
+    if let Some(curr) = self.current() {
+      if curr == token {
+        self.advance();
+        return true;
+      }
+    }
+    false
+  }
+
+  fn consume(&mut self, expected: Token, err: String) -> bool {
+    if let Some(curr) = self.current() {
+      if curr == expected {
+        self.advance();
+        true
+      } else {
+        self.error(self.pos, err);
+        false
+      }
+    } else {
+      self.error(
+        self.pos - 1,
+        format!("tried to lookup a token in an invalid index: {}", err),
+      );
+      false
+    }
+  }
+
+  fn emit(&mut self, pos: usize, op: OpCode) {
+    if let Some(meta) = self.meta.get(pos) {
+      if let Some(ctx) = &mut self.ctx {
+        ctx.write(op, meta.line, meta.column);
+      } else {
+        panic!("should never happen");
+      }
+    } else {
+      panic!("tried to acquire metainfo about a token that does not exist");
+    }
+  }
+
+  fn emit_const(&mut self, pos: usize, c: Value) {
+    if let Some(meta) = self.meta.get(pos) {
+      if let Some(ctx) = &mut self.ctx {
+        ctx.write_const(c, meta.line, meta.column);
+      } else {
+        panic!("should never happen");
+      }
+    } else {
+      panic!("tried to acquire metainfo about a token that does not exist");
+    }
+  }
+
+  fn declaration(&mut self, token: Token) {
+    match token {
+      // Token::Break => {
+      //   self.advance();
+      //   self.break_stmt();
+      // }
+      // Token::Cont => {
+      //   self.advance();
+      //   self.cont_stmt();
+      // }
+      // Token::End => {
+      //   self.advance();
+      //   self.end_stmt();
+      // }
+      // Token::Fn => {
+      //   self.advance();
+      //   self.fn_stmt();
+      // }
+      // Token::For => {
+      //   self.advance();
+      //   self.For_stmt();
+      // }
+      // Token::If => {
+      //   self.advance();
+      //   self.if_stmt();
+      // }
+      // Token::LeftBrace => {
+      //   self.advance();
+      //   self.block_stmt();
+      // }
+      // Token::Let => {
+      //   self.advance();
+      //   self.let_stmt();
+      // }
+      // Token::Load => {
+      //   self.advance();
+      //   self.load_stmt();
+      // }
+      // Token::Loop => {
+      //   self.advance();
+      //   self.loop_stmt();
+      // }
+      // Token::Match => {
+      //   self.advance();
+      //   self.match_stmt();
+      // }
+      Token::Print => {
+        self.advance();
+        self.print_stmt();
+      }
+      // Token::Ret => {
+      //   self.advance();
+      //   self.ret_stmt();
+      // }
+      // Token::While => {
+      //   self.advance();
+      //   self.while_stmt();
+      // }
+      _ => (), // self.expression_stmt(),
+    }
+  }
+
+  fn print_stmt(&mut self) {
+    let curr = self.pos - 1;
+    if !self.expression() {
+      return;
+    }
+    if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+      return;
+    }
+    self.emit(curr, OpCode::Print);
+  }
+
+  fn expression(&mut self) -> bool {
+    self.parse_precedence(Precedence::Assignment)
+  }
+
+  fn rule_for(token: Token) -> ParseRule<'file> {
+    match token {
+      Token::Invalid => ParseRule::new(None, None, Precedence::None),
+      Token::LeftParen => ParseRule::new(
+        Some(Parser::grouping_expr),
+        Some(Parser::call_expr),
+        Precedence::Call,
+      ),
+      Token::RightParen => ParseRule::new(None, None, Precedence::None),
+      Token::LeftBrace => ParseRule::new(None, None, Precedence::None),
+      Token::RightBrace => ParseRule::new(None, None, Precedence::None),
+      Token::Comma => ParseRule::new(None, None, Precedence::None),
+      Token::Dot => ParseRule::new(None, None, Precedence::None),
+      Token::Semicolon => ParseRule::new(None, None, Precedence::None),
+      Token::Plus => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Term),
+      Token::Minus => ParseRule::new(
+        Some(Parser::unary_expr),
+        Some(Parser::binary_expr),
+        Precedence::Term,
+      ),
+      Token::Asterisk => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Factor),
+      Token::Slash => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Factor),
+      Token::Modulus => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Factor),
+      Token::Bang => ParseRule::new(Some(Parser::unary_expr), None, Precedence::None),
+      Token::BangEqual => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Equality),
+      Token::Equal => ParseRule::new(None, None, Precedence::None),
+      Token::EqualEqual => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Equality),
+      Token::Greater => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Comparison),
+      Token::GreaterEqual => {
+        ParseRule::new(None, Some(Parser::binary_expr), Precedence::Comparison)
+      }
+      Token::Less => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Comparison),
+      Token::LessEqual => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Comparison),
+      Token::Arrow => ParseRule::new(None, None, Precedence::None),
+      Token::Identifier(_) => ParseRule::new(Some(Parser::make_variable), None, Precedence::None),
+      Token::String(_) => ParseRule::new(Some(Parser::make_string), None, Precedence::None),
+      Token::Number(_) => ParseRule::new(Some(Parser::make_number), None, Precedence::None),
+      Token::And => ParseRule::new(None, Some(Parser::and_expr), Precedence::And),
+      Token::Break => ParseRule::new(None, None, Precedence::None),
+      Token::Class => ParseRule::new(None, None, Precedence::None),
+      Token::Cont => ParseRule::new(None, None, Precedence::None),
+      Token::Else => ParseRule::new(None, None, Precedence::None),
+      Token::False => ParseRule::new(Some(Parser::literal_expr), None, Precedence::None),
+      Token::For => ParseRule::new(None, None, Precedence::None),
+      Token::Fn => ParseRule::new(None, None, Precedence::None),
+      Token::If => ParseRule::new(None, None, Precedence::None),
+      Token::Load => ParseRule::new(None, None, Precedence::None),
+      Token::Loop => ParseRule::new(None, None, Precedence::None),
+      Token::Match => ParseRule::new(None, None, Precedence::None),
+      Token::Nil => ParseRule::new(Some(Parser::literal_expr), None, Precedence::None),
+      Token::Or => ParseRule::new(None, Some(Parser::or_expr), Precedence::Or),
+      Token::Print => ParseRule::new(None, None, Precedence::None),
+      Token::Ret => ParseRule::new(None, None, Precedence::None),
+      Token::True => ParseRule::new(Some(Parser::literal_expr), None, Precedence::None),
+      Token::Let => ParseRule::new(None, None, Precedence::None),
+      Token::While => ParseRule::new(None, None, Precedence::None),
+      Token::End => ParseRule::new(None, None, Precedence::None),
+    }
+  }
+
+  fn parse_precedence(&mut self, precedence: Precedence) -> bool {
+    if let Some(prev) = self.current() {
+      self.advance();
+
+      let rule = Parser::rule_for(prev);
+
+      let can_assign = precedence <= Precedence::Assignment;
+
+      if let Some(prefix) = rule.prefix {
+        if !prefix(self, can_assign) {
+          return false;
+        }
+      } else {
+        self.error(self.pos, String::from("expected an expression"));
+        return false;
+      }
+
+      while let Some(curr) = self.current() {
+        if precedence <= Parser::rule_for(curr).precedence {
+          self.advance();
+          if let Some(prev) = self.previous() {
+            if let Some(infix) = Parser::rule_for(prev).infix {
+              if !infix(self, can_assign) {
+                return false;
+              }
+            } else {
+              todo!("error condition here")
+            }
+          } else {
+            todo!("should never error but just for sanity sake")
+          }
+        } else {
+          break;
+        }
+      }
+
+      if can_assign && self.advance_if_matches(Token::Equal) {
+        self.error(self.pos, String::from("invalid assignment target"));
+        false
+      } else {
+        true
+      }
+    } else {
+      todo!("error condition here");
+    }
+  }
+
+  fn make_number(&mut self, _: bool) -> bool {
+    if let Some(prev) = self.previous() {
+      let pos = self.pos - 1;
+      if let Token::Number(n) = prev {
+        self.emit_const(pos, Value::new(n));
+        true
+      } else {
+        self.error(pos, format!("expected number, found {}", prev));
+        false
+      }
+    } else {
+      todo!("error here");
+    }
+  }
+
+  fn make_string(&mut self, _: bool) -> bool {
+    if let Some(prev) = self.previous() {
+      let pos = self.pos - 1;
+      if let Token::String(s) = prev {
+        self.emit_const(pos, Value::new(s));
+        true
+      } else {
+        self.error(pos, format!("expected string, found {}", prev));
+        false
+      }
+    } else {
+      todo!("error here");
+    }
+  }
+
+  fn make_variable(&mut self, can_assign: bool) -> bool {
+    if let Some(prev) = self.previous() {
+      self.named_variable(prev, self.pos - 1, can_assign)
+    } else {
+      todo!("error here");
+    }
+  }
+
+  fn grouping_expr(&mut self, _: bool) -> bool {
+    if !self.expression() {
+      return false;
+    }
+    self.consume(Token::RightParen, String::from(""))
+  }
+
+  fn call_expr(&mut self, _: bool) -> bool {
+    false
+  }
+
+  fn literal_expr(&mut self, _: bool) -> bool {
+    if let Some(prev) = self.previous() {
+      match prev {
+        Token::Nil => {
+          self.emit(self.pos - 1, OpCode::Nil);
+          true
+        }
+        Token::True => {
+          self.emit(self.pos - 1, OpCode::True);
+          true
+        }
+        Token::False => {
+          self.emit(self.pos - 1, OpCode::False);
+          true
+        }
+        _ => {
+          self.error(
+            self.pos - 1,
+            String::from("reaching this means something is very screwed up"),
+          );
+          false
+        }
+      }
+    } else {
+      todo!("error here");
+    }
+  }
+
+  fn unary_expr(&mut self, _: bool) -> bool {
+    false
+  }
+
+  fn binary_expr(&mut self, _: bool) -> bool {
+    false
+  }
+
+  fn and_expr(&mut self, _: bool) -> bool {
+    false
+  }
+
+  fn or_expr(&mut self, _: bool) -> bool {
+    false
+  }
+
+  fn named_variable(&mut self, token: Token, pos: usize, can_assign: bool) -> bool {
+    if let Some(lookup) = self.resolve_local(&token, pos) {
+      let get: OpCode;
+      let set: OpCode;
+      if lookup.kind == LookupKind::Local {
+        get = OpCode::LookupLocal(lookup.index);
+        set = OpCode::AssignLocal(lookup.index);
+      } else if let Token::Identifier(name) = token {
+        get = OpCode::LookupGlobal(name.clone());
+        set = OpCode::AssignGlobal(name);
+      } else {
+        self.error(pos, format!("unable to parse lookup of var '{}'", token));
+        return false;
+      }
+      if can_assign && self.advance_if_matches(Token::Equal) {
+        self.expression();
+        self.emit(pos, set);
+      } else {
+        self.emit(pos, get);
+      }
+      true
+    } else {
+      false
+    }
+  }
+
+  fn resolve_local(&mut self, token: &Token, pos: usize) -> Option<Lookup> {
+    let mut index = self.locals.len() - 1;
+
+    for local in self.locals.iter().rev() {
+      if let Token::Identifier(name) = token {
+        if *name == local.name {
+          if !local.initialized {
+            self.error(
+              pos,
+              String::from("can't read variable in it's own initializer"),
+            );
+            return None;
+          } else {
+            return Some(Lookup {
+              index,
+              kind: LookupKind::Local,
+            });
+          }
+        }
+      } else {
+        todo!("error here");
+      }
+      index -= 1;
+    }
+
+    Some(Lookup {
+      index: 0,
+      kind: LookupKind::Global,
+    })
+  }
+
+  fn sync(&mut self) {
+    while let Some(curr) = self.current() {
+      if matches!(
+        curr,
+        Token::Semicolon
+          | Token::Class
+          | Token::Fn
+          | Token::Let
+          | Token::For
+          | Token::If
+          | Token::While
+          | Token::Print
+          | Token::Ret
+          | Token::Match
+          | Token::Loop
+      ) {
+        return;
+      }
+
+      self.advance();
+    }
+  }
+}
+
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(&self, file: &str, source: &str) -> Result<Vec<Token>, Vec<Error>> {
+  pub fn compile(&self, file: &str, source: &str) -> Result<Context, Vec<Error>> {
     let mut scanner = Scanner::new(file, source);
 
-    scanner
+    let (tokens, meta) = scanner
       .scan()
-      .map_err(|errs| self.reformat_errors(source, errs))
+      .map_err(|errs| self.reformat_errors(source, errs))?;
+
+    let mut parser = Parser::new(tokens, meta);
+
+    parser.parse()
   }
 
   fn reformat_errors(&self, source: &str, errs: Vec<Error>) -> Vec<Error> {

@@ -56,7 +56,7 @@ fn scanner_scans() {
     Token::True,
     Token::While,
   ];
-  if let Ok(actual) = actual {
+  if let Ok((actual, _)) = actual {
     assert_eq!(actual.len(), expected.len());
 
     for (t0, t1) in actual.iter().zip(expected.iter()) {
@@ -139,7 +139,7 @@ fn scanner_ignores_whitespace_when_applicable() {
     Token::Arrow,
   ];
 
-  if let Ok(actual) = actual {
+  if let Ok((actual, _)) = actual {
     assert_eq!(
       actual.len(),
       expected.len(),
@@ -162,7 +162,7 @@ fn scans_empty_string() {
   let actual = scanner.scan();
   let expected = vec![Token::String(String::from(""))];
 
-  if let Ok(actual) = actual {
+  if let Ok((actual, _)) = actual {
     assert_eq!(
       actual.len(),
       expected.len(),

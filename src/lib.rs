@@ -183,13 +183,7 @@ impl<T: Vpu> Runner<T> {
 
   pub fn load(&self, file: String, code: &str) -> Result<Context, Vec<Error>> {
     let compiler = Compiler {};
-
-    compiler.compile(&file, code)?;
-
-    let instructions = Vec::new();
-    let meta = CodeMeta {};
-    let ctx = Context::new(instructions, meta);
-    Ok(ctx)
+    compiler.compile(&file, code)
   }
 
   pub fn run(&self, ctx: &mut Context) -> Result<Value, Error> {
