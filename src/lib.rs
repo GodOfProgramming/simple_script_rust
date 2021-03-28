@@ -2,6 +2,7 @@ mod code;
 mod types;
 
 use code::CodeMeta;
+use code::Compiler;
 use code::Context;
 use code::OpCode;
 use types::Value;
@@ -10,10 +11,12 @@ pub trait New<T> {
   fn new(item: T) -> Self;
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Error {
-  msg: String,
-  file: String,
-  line: usize,
+  pub msg: String,
+  pub file: String,
+  pub line: usize,
+  pub column: usize,
 }
 
 pub trait Vpu {
@@ -169,7 +172,7 @@ impl Vpu for Vm {
   }
 }
 
-struct Runner<T: Vpu> {
+pub struct Runner<T: Vpu> {
   vpu: T,
 }
 
@@ -178,7 +181,11 @@ impl<T: Vpu> Runner<T> {
     Runner { vpu }
   }
 
-  pub fn load(&self, code: &str) -> Result<Context, Error> {
+  pub fn load(&self, code: &str) -> Result<Context, Vec<Error>> {
+    let compiler = Compiler {};
+
+    compiler.compile(code)?;
+
     let instructions = Vec::new();
     let meta = CodeMeta {};
     let ctx = Context::new(instructions, meta);
@@ -186,6 +193,6 @@ impl<T: Vpu> Runner<T> {
   }
 
   pub fn run(&self, ctx: &mut Context) -> Result<Value, Error> {
-    Ok(Value::Nil)
+    unimplemented!("vpu process here");
   }
 }

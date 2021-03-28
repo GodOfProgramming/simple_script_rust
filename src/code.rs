@@ -1,4 +1,7 @@
-use crate::types::{Env, Value};
+use crate::{
+  types::{Env, Value},
+  Error,
+};
 use std::{
   f64::consts::PI,
   fmt::{self, Debug, Display},
@@ -358,6 +361,7 @@ struct Scanner<'src> {
   pos: usize,
   line: usize,
   column: usize,
+  errors: Option<Vec<Error>>,
 }
 
 impl<'src> Scanner<'src> {
@@ -369,10 +373,11 @@ impl<'src> Scanner<'src> {
       pos: 0,
       line: 0,
       column: 0,
+      errors: None,
     }
   }
 
-  fn scan(&mut self) -> Vec<Token> {
+  fn scan(&mut self) -> Result<Vec<Token>, Vec<Error>> {
     let mut tokens = Vec::new();
 
     loop {
@@ -380,6 +385,14 @@ impl<'src> Scanner<'src> {
       let mut should_advance = true;
       if let Some(c) = self.peek() {
         self.start_pos = self.pos;
+
+        if cfg!(test) {
+          println!(
+            "pos = {}, line = {}, col = {}",
+            self.pos, self.line, self.column,
+          );
+        }
+
         let token = match c {
           '(' => Token::LeftParen,
           ')' => Token::RightParen,
@@ -432,8 +445,9 @@ impl<'src> Scanner<'src> {
             should_advance = false;
             self.make_ident()
           }
-          _ => {
-            todo!("error out")
+          c => {
+            self.error(format!("invalid character: '{}'", c));
+            Token::Invalid
           }
         };
 
@@ -451,7 +465,26 @@ impl<'src> Scanner<'src> {
       }
     }
 
-    tokens
+    if let Some(errs) = self.errors.take() {
+      Err(errs)
+    } else {
+      Ok(tokens)
+    }
+  }
+
+  fn error(&mut self, msg: String) {
+    if self.errors.is_none() {
+      self.errors = Some(Vec::new());
+    }
+
+    if let Some(errs) = &mut self.errors {
+      errs.push(Error {
+        msg,
+        file: String::from("todo"),
+        line: self.line + 1,
+        column: self.column,
+      });
+    }
   }
 
   fn make_number(&mut self) -> Token {
@@ -639,6 +672,7 @@ impl<'src> Scanner<'src> {
 
   fn advance(&mut self) {
     self.pos += 1;
+    self.column += 1;
   }
 
   fn advance_if_match(&mut self, expected: char) -> bool {
@@ -668,177 +702,31 @@ impl<'src> Scanner<'src> {
   }
 }
 
-#[cfg(test)]
-mod tests {
-  use super::*;
-  #[cfg(test)]
-  mod scanner {
-    use super::*;
+pub struct Compiler;
 
-    const ALL_TOKENS: &str = "( ) { } , . ; + - * / % ! != = == > >= < <= =>
-    foobar \"some string\" 3.14159265358979323846264338327950288 and break class cont else end false for
-    fn if let load loop match nil or print ret true while ";
+impl Compiler {
+  pub fn compile(&self, source: &str) -> Result<Vec<Token>, Vec<Error>> {
+    let mut scanner = Scanner::new(source);
 
-    const TOKENS_THAT_IGNORE_WHITESPACE: &str =
-      "(){},.;+-*/%!foo!=bar=foo==bar>foo>=bar<foo<=bar=>1!1!=1=1==1>1>=1<1<=1=>\"str\"!\"str\"!=\"str\"=\"str\"==\"str\">\"str\">=\"str\"<\"str\"<=\"str\"=>";
+    scanner
+      .scan()
+      .map_err(|errs| self.reformat_errors(source, errs))
+  }
 
-    #[test]
-    fn scanner_scans() {
-      let mut scanner = Scanner::new(ALL_TOKENS);
-      let actual = scanner.scan();
-      let expected = vec![
-        Token::LeftParen,
-        Token::RightParen,
-        Token::LeftBrace,
-        Token::RightBrace,
-        Token::Comma,
-        Token::Dot,
-        Token::Semicolon,
-        Token::Plus,
-        Token::Minus,
-        Token::Asterisk,
-        Token::Slash,
-        Token::Modulus,
-        Token::Bang,
-        Token::BangEqual,
-        Token::Equal,
-        Token::EqualEqual,
-        Token::Greater,
-        Token::GreaterEqual,
-        Token::Less,
-        Token::LessEqual,
-        Token::Arrow,
-        Token::Identifier(String::from("foobar")),
-        Token::String(String::from("some string")),
-        Token::Number(PI),
-        Token::And,
-        Token::Break,
-        Token::Class,
-        Token::Cont,
-        Token::Else,
-        Token::End,
-        Token::False,
-        Token::For,
-        Token::Fn,
-        Token::If,
-        Token::Let,
-        Token::Load,
-        Token::Loop,
-        Token::Match,
-        Token::Nil,
-        Token::Or,
-        Token::Print,
-        Token::Ret,
-        Token::True,
-        Token::While,
-      ];
-      assert_eq!(actual.len(), expected.len());
-
-      for (t0, t1) in actual.iter().zip(expected.iter()) {
-        assert_eq!(t0, t1);
-      }
-    }
-
-    #[test]
-    fn scanner_ignores_whitespace_when_applicable() {
-      let mut scanner = Scanner::new(TOKENS_THAT_IGNORE_WHITESPACE);
-      let actual = scanner.scan();
-      let expected = vec![
-        Token::LeftParen,
-        Token::RightParen,
-        Token::LeftBrace,
-        Token::RightBrace,
-        Token::Comma,
-        Token::Dot,
-        Token::Semicolon,
-        Token::Plus,
-        Token::Minus,
-        Token::Asterisk,
-        Token::Slash,
-        Token::Modulus,
-        Token::Bang,
-        Token::Identifier(String::from("foo")),
-        Token::BangEqual,
-        Token::Identifier(String::from("bar")),
-        Token::Equal,
-        Token::Identifier(String::from("foo")),
-        Token::EqualEqual,
-        Token::Identifier(String::from("bar")),
-        Token::Greater,
-        Token::Identifier(String::from("foo")),
-        Token::GreaterEqual,
-        Token::Identifier(String::from("bar")),
-        Token::Less,
-        Token::Identifier(String::from("foo")),
-        Token::LessEqual,
-        Token::Identifier(String::from("bar")),
-        Token::Arrow,
-        Token::Number(1.0),
-        Token::Bang,
-        Token::Number(1.0),
-        Token::BangEqual,
-        Token::Number(1.0),
-        Token::Equal,
-        Token::Number(1.0),
-        Token::EqualEqual,
-        Token::Number(1.0),
-        Token::Greater,
-        Token::Number(1.0),
-        Token::GreaterEqual,
-        Token::Number(1.0),
-        Token::Less,
-        Token::Number(1.0),
-        Token::LessEqual,
-        Token::Number(1.0),
-        Token::Arrow,
-        Token::String(String::from("str")),
-        Token::Bang,
-        Token::String(String::from("str")),
-        Token::BangEqual,
-        Token::String(String::from("str")),
-        Token::Equal,
-        Token::String(String::from("str")),
-        Token::EqualEqual,
-        Token::String(String::from("str")),
-        Token::Greater,
-        Token::String(String::from("str")),
-        Token::GreaterEqual,
-        Token::String(String::from("str")),
-        Token::Less,
-        Token::String(String::from("str")),
-        Token::LessEqual,
-        Token::String(String::from("str")),
-        Token::Arrow,
-      ];
-      assert_eq!(
-        actual.len(),
-        expected.len(),
-        "actual len = {}, expected len = {}",
-        actual.len(),
-        expected.len(),
-      );
-
-      for (a, e) in actual.iter().zip(expected.iter()) {
-        assert_eq!(a, e, "actual = {:?}, expected = {:?}", a, e);
-      }
-    }
-
-    #[test]
-    fn scans_empty_string() {
-      let mut scanner = Scanner::new("\"\"");
-      let actual = scanner.scan();
-      let expected = vec![Token::String(String::from(""))];
-      assert_eq!(
-        actual.len(),
-        expected.len(),
-        "actual len = {}, expected len = {}",
-        actual.len(),
-        expected.len(),
-      );
-
-      for (a, e) in actual.iter().zip(expected.iter()) {
-        assert_eq!(a, e, "actual = {:?}, expected = {:?}", a, e);
-      }
-    }
+  fn reformat_errors(&self, source: &str, errs: Vec<Error>) -> Vec<Error> {
+    errs
+      .into_iter()
+      .map(|mut e| {
+        let mut line = source.lines().skip(e.line - 1);
+        if let Some(line) = line.next() {
+          let bottom = format!("{}^", " ".repeat(e.column - 1));
+          e.msg = format!("{}\n{}\n{}", e.msg, line, bottom);
+        }
+        e
+      })
+      .collect()
   }
 }
+
+#[cfg(test)]
+mod test;
