@@ -377,6 +377,7 @@ impl<'src> Scanner<'src> {
 
     loop {
       self.skip_whitespace();
+      let mut should_advance = true;
       if let Some(c) = self.peek() {
         self.start_pos = self.pos;
         let token = match c {
@@ -423,8 +424,14 @@ impl<'src> Scanner<'src> {
             }
           }
           '"' => self.make_string(),
-          c if Self::is_digit(c) => self.make_number(),
-          c if Self::is_alpha(c) => self.make_ident(),
+          c if Self::is_digit(c) => {
+            should_advance = false;
+            self.make_number()
+          }
+          c if Self::is_alpha(c) => {
+            should_advance = false;
+            self.make_ident()
+          }
           _ => {
             todo!("error out")
           }
@@ -436,7 +443,9 @@ impl<'src> Scanner<'src> {
 
         tokens.push(token);
 
-        self.advance();
+        if should_advance {
+          self.advance();
+        }
       } else {
         break;
       }
@@ -476,7 +485,7 @@ impl<'src> Scanner<'src> {
 
     match lexeme.parse() {
       Ok(n) => Token::Number(n),
-      Err(e) => unimplemented!("error out: {}", e),
+      Err(e) => unimplemented!("error out: {} ('{}')", e, lexeme),
     }
   }
 
@@ -671,7 +680,7 @@ mod tests {
     fn if let load loop match nil or print ret true while ";
 
     const TOKENS_THAT_IGNORE_WHITESPACE: &str =
-      "(){},.;+-*/%!foo!=bar=foo==bar>foo>=bar<foo<=bar=>";
+      "(){},.;+-*/%!foo!=bar=foo==bar>foo>=bar<foo<=bar=>1!1!=1=1==1>1>=1<1<=1=>";
 
     #[test]
     fn scanner_scans() {
@@ -763,6 +772,24 @@ mod tests {
         Token::Identifier(String::from("foo")),
         Token::LessEqual,
         Token::Identifier(String::from("bar")),
+        Token::Arrow,
+        Token::Number(1.0),
+        Token::Bang,
+        Token::Number(1.0),
+        Token::BangEqual,
+        Token::Number(1.0),
+        Token::Equal,
+        Token::Number(1.0),
+        Token::EqualEqual,
+        Token::Number(1.0),
+        Token::Greater,
+        Token::Number(1.0),
+        Token::GreaterEqual,
+        Token::Number(1.0),
+        Token::Less,
+        Token::Number(1.0),
+        Token::LessEqual,
+        Token::Number(1.0),
         Token::Arrow,
       ];
       assert_eq!(
