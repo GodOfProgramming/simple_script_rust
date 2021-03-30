@@ -6,6 +6,8 @@ const TOKENS_THAT_IGNORE_WHITESPACE: &str = include_str!("tokens_that_ignore_whi
 
 const SCANNING_ERRORS: &str = include_str!("scanning_errors.ss");
 
+const TOKEN_META_TEST: &str = include_str!("token_meta_test.ss");
+
 #[test]
 fn scanner_scans() {
   let mut scanner = Scanner::new("test", ALL_TOKENS);
@@ -59,8 +61,8 @@ fn scanner_scans() {
   if let Ok((actual, _)) = actual {
     assert_eq!(actual.len(), expected.len());
 
-    for (t0, t1) in actual.iter().zip(expected.iter()) {
-      assert_eq!(t0, t1);
+    for (a, e) in actual.iter().zip(expected.iter()) {
+      assert_eq!(a, e);
     }
   } else {
     panic!("failed to scan");
@@ -163,16 +165,10 @@ fn scans_empty_string() {
   let expected = vec![Token::String(String::from(""))];
 
   if let Ok((actual, _)) = actual {
-    assert_eq!(
-      actual.len(),
-      expected.len(),
-      "actual len = {}, expected len = {}",
-      actual.len(),
-      expected.len(),
-    );
+    assert_eq!(actual.len(), expected.len());
 
     for (a, e) in actual.iter().zip(expected.iter()) {
-      assert_eq!(a, e, "actual = {:?}, expected = {:?}", a, e);
+      assert_eq!(a, e);
     }
   } else {
     panic!("failed to scan");
@@ -219,5 +215,62 @@ fn returns_errors_at_right_location_when_detected() {
     }
   } else {
     panic!("scanner should not have succeeded");
+  }
+}
+
+#[test]
+fn produces_the_correct_meta_information() {
+  let mk_meta = |line, column| TokenMeta {
+    file: "test",
+    line,
+    column,
+  };
+
+  let mut scanner = Scanner::new("test", TOKEN_META_TEST);
+  let actual = scanner.scan();
+  let expected_tokens = vec![
+    Token::Fn,
+    Token::Identifier(String::from("foo")),
+    Token::LeftParen,
+    Token::RightParen,
+    Token::LeftBrace,
+    Token::Print,
+    Token::Number(1.0),
+    Token::Semicolon,
+    Token::RightBrace,
+    Token::Identifier(String::from("foo")),
+    Token::LeftParen,
+    Token::RightParen,
+    Token::Semicolon,
+  ];
+  let expected_meta = vec![
+    mk_meta(1, 1),
+    mk_meta(1, 4),
+    mk_meta(1, 7),
+    mk_meta(1, 8),
+    mk_meta(1, 10),
+    mk_meta(2, 3),
+    mk_meta(2, 9),
+    mk_meta(2, 10),
+    mk_meta(3, 1),
+    mk_meta(5, 1),
+    mk_meta(5, 4),
+    mk_meta(5, 5),
+    mk_meta(5, 6),
+  ];
+
+  if let Ok((actual_tokens, actual_meta)) = actual {
+    assert_eq!(actual_tokens.len(), expected_tokens.len());
+    assert_eq!(actual_meta.len(), expected_meta.len());
+
+    for (a, e) in actual_tokens.iter().zip(expected_tokens.iter()) {
+      assert_eq!(a, e);
+    }
+
+    for (i, (a, e)) in actual_meta.iter().zip(expected_meta.iter()).enumerate() {
+      assert_eq!(a, e, "Token::{}", expected_tokens[i]);
+    }
+  } else {
+    panic!("failed to scan");
   }
 }

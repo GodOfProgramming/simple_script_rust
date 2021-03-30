@@ -220,6 +220,7 @@ impl fmt::Display for Token {
   }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct TokenMeta<'file> {
   pub file: &'file str,
   pub line: usize,
@@ -464,6 +465,9 @@ impl<'src> Scanner<'src> {
       if let Some(c) = self.peek() {
         self.start_pos = self.pos;
 
+        let line = self.line;
+        let column = self.column;
+
         if cfg!(test) {
           println!(
             "pos = {}, line = {}, col = {}",
@@ -534,11 +538,10 @@ impl<'src> Scanner<'src> {
         }
 
         tokens.push(token);
-
         meta.push(TokenMeta {
           file: self.file,
-          line: self.line,
-          column: self.column,
+          line: line + 1,
+          column: column + 1,
         });
 
         if should_advance {
