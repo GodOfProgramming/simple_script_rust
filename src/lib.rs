@@ -19,13 +19,13 @@ pub struct Error {
   pub column: usize,
 }
 
-pub trait Vpu {
-  fn process(&self, ctx: &mut Context);
+pub trait Interpreter {
+  fn process(&self, ctx: &mut Context) -> Result<Value, Error>;
 }
 
-pub struct Vm;
+pub struct Vpu;
 
-impl Vm {
+impl Vpu {
   fn unary_op<F: FnOnce(&mut Context, Value)>(ctx: &mut Context, f: F) {
     match ctx.stack_pop() {
       Some(v) => f(ctx, v),
@@ -44,8 +44,8 @@ impl Vm {
   }
 }
 
-impl Vpu for Vm {
-  fn process(&self, ctx: &mut Context) {
+impl Interpreter for Vpu {
+  fn process(&self, ctx: &mut Context) -> Result<Value, Error> {
     while !ctx.done() {
       match ctx.next() {
         OpCode::NoOp => break,
@@ -88,12 +88,12 @@ impl Vpu for Vm {
           }
           None => todo!(),
         },
-        OpCode::Equal => Vm::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a == b))),
-        OpCode::NotEqual => Vm::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a != b))),
-        OpCode::Greater => Vm::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a > b))),
-        OpCode::GreaterEqual => Vm::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a >= b))),
-        OpCode::Less => Vm::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a < b))),
-        OpCode::LessEqual => Vm::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a <= b))),
+        OpCode::Equal => Vpu::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a == b))),
+        OpCode::NotEqual => Vpu::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a != b))),
+        OpCode::Greater => Vpu::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a > b))),
+        OpCode::GreaterEqual => Vpu::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a >= b))),
+        OpCode::Less => Vpu::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a < b))),
+        OpCode::LessEqual => Vpu::binary_op(ctx, |ctx, a, b| ctx.stack_push(Value::new(a <= b))),
         OpCode::Check => match ctx.stack_pop() {
           Some(a) => match ctx.stack_peek() {
             Some(b) => ctx.stack_push(Value::new(a == b)),
@@ -101,33 +101,33 @@ impl Vpu for Vm {
           },
           None => todo!(),
         },
-        OpCode::Add => Vm::binary_op(ctx, |ctx, a, b| match a + b {
+        OpCode::Add => Vpu::binary_op(ctx, |ctx, a, b| match a + b {
           Ok(v) => ctx.stack_push(v),
           Err(e) => todo!("TODO: {}", e),
         }),
-        OpCode::Sub => Vm::binary_op(ctx, |ctx, a, b| match a - b {
+        OpCode::Sub => Vpu::binary_op(ctx, |ctx, a, b| match a - b {
           Ok(v) => ctx.stack_push(v),
           Err(e) => todo!("TODO: {}", e),
         }),
-        OpCode::Mul => Vm::binary_op(ctx, |ctx, a, b| match a * b {
+        OpCode::Mul => Vpu::binary_op(ctx, |ctx, a, b| match a * b {
           Ok(v) => ctx.stack_push(v),
           Err(e) => todo!("TODO: {}", e),
         }),
-        OpCode::Div => Vm::binary_op(ctx, |ctx, a, b| match a / b {
+        OpCode::Div => Vpu::binary_op(ctx, |ctx, a, b| match a / b {
           Ok(v) => ctx.stack_push(v),
           Err(e) => todo!("TODO: {}", e),
         }),
-        OpCode::Mod => Vm::binary_op(ctx, |ctx, a, b| match a % b {
+        OpCode::Mod => Vpu::binary_op(ctx, |ctx, a, b| match a % b {
           Ok(v) => ctx.stack_push(v),
           Err(e) => todo!("TODO: {}", e),
         }),
-        OpCode::Not => Vm::unary_op(ctx, |ctx, v| ctx.stack_push(!v)),
-        OpCode::Negate => Vm::unary_op(ctx, |ctx, v| match -v {
+        OpCode::Not => Vpu::unary_op(ctx, |ctx, v| ctx.stack_push(!v)),
+        OpCode::Negate => Vpu::unary_op(ctx, |ctx, v| match -v {
           Ok(n) => ctx.stack_push(n),
           Err(e) => todo!("TODO: {}", e),
         }),
-        OpCode::Print => Vm::unary_op(ctx, |_, v| println!("{}", v)),
-        OpCode::Swap => Vm::binary_op(ctx, |ctx, a, b| {
+        OpCode::Print => Vpu::unary_op(ctx, |_, v| println!("{}", v)),
+        OpCode::Swap => Vpu::binary_op(ctx, |ctx, a, b| {
           ctx.stack_push(a);
           ctx.stack_push(b);
         }),
@@ -146,7 +146,7 @@ impl Vpu for Vm {
           continue; // ip is at correct place
         }
         OpCode::Or(count) => match ctx.stack_peek() {
-          // TODO check if this should really be peek
+          // TODO check if this should really be peek, think so because a pop happens after(?)
           Some(v) => {
             if v.truthy() {
               ctx.jump(count);
@@ -156,7 +156,7 @@ impl Vpu for Vm {
           None => todo!(),
         },
         OpCode::And(count) => match ctx.stack_peek() {
-          // TODO check if this should really be peek
+          // TODO check if this should really be peek, think so because a pop happens after(?)
           Some(v) => {
             if !v.truthy() {
               ctx.jump(count);
@@ -169,14 +169,16 @@ impl Vpu for Vm {
       }
       ctx.advance();
     }
+
+    Ok(Value::Nil)
   }
 }
 
-pub struct Runner<T: Vpu> {
+pub struct Runner<T: Interpreter> {
   vpu: T,
 }
 
-impl<T: Vpu> Runner<T> {
+impl<T: Interpreter> Runner<T> {
   pub fn new(vpu: T) -> Self {
     Runner { vpu }
   }
@@ -187,6 +189,6 @@ impl<T: Vpu> Runner<T> {
   }
 
   pub fn run(&self, ctx: &mut Context) -> Result<Value, Error> {
-    unimplemented!("vpu process here");
+    self.vpu.process(ctx)
   }
 }

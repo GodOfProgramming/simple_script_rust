@@ -339,6 +339,19 @@ impl Context {
     self.consts.push(c);
   }
 
+  fn num_instructions(&self) -> usize {
+    self.instructions.len()
+  }
+
+  fn replace_instruction(&mut self, index: usize, op: OpCode) -> bool {
+    if let Some(inst) = self.instructions.get_mut(index) {
+      *inst = op;
+      true
+    } else {
+      false
+    }
+  }
+
   pub fn display_opcodes(&self) {
     println!("<< MAIN >>");
     for (i, op) in self.instructions.iter().enumerate() {
@@ -755,11 +768,11 @@ impl<'src> Scanner<'src> {
   }
 
   fn is_digit(c: char) -> bool {
-    c >= '0' && c <= '9'
+    ('0'..='9').contains(&c)
   }
 
   fn is_alpha(c: char) -> bool {
-    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '@'
+    ('a'..='z').contains(&c) || ('A'..='Z').contains(&c) || c == '_' || c == '@'
   }
 
   fn is_alphanumeric(c: char) -> bool {
@@ -944,6 +957,29 @@ impl<'file> Parser<'file> {
     }
   }
 
+  fn emit_jump(&mut self, pos: usize, op: OpCode) -> usize {
+    if let Some(ctx) = &self.ctx {
+      let offset = ctx.num_instructions();
+      self.emit(pos, op);
+      offset
+    } else {
+      panic!("this should not be possible");
+    }
+  }
+
+  fn patch_jump<F: FnOnce(&mut Context, usize, usize) -> bool>(
+    &mut self,
+    jmp_instr: usize,
+    f: F,
+  ) -> bool {
+    if let Some(ctx) = &mut self.ctx {
+      let offset = ctx.num_instructions() - jmp_instr;
+      f(ctx, jmp_instr, offset)
+    } else {
+      panic!("this should not be possible");
+    }
+  }
+
   fn declaration(&mut self, token: Token) {
     match token {
       // Token::Break => {
@@ -1007,21 +1043,21 @@ impl<'file> Parser<'file> {
   }
 
   fn print_stmt(&mut self) {
-    let curr = self.pos - 1;
+    let pos = self.pos - 1;
     if !self.expression() {
       return;
     }
     if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
       return;
     }
-    self.emit(curr, OpCode::Print);
+    self.emit(pos, OpCode::Print);
   }
 
   fn expression(&mut self) -> bool {
     self.parse_precedence(Precedence::Assignment)
   }
 
-  fn rule_for(token: Token) -> ParseRule<'file> {
+  fn rule_for(token: &Token) -> ParseRule<'file> {
     match token {
       Token::Invalid => ParseRule::new(None, None, Precedence::None),
       Token::LeftParen => ParseRule::new(
@@ -1085,7 +1121,7 @@ impl<'file> Parser<'file> {
     if let Some(prev) = self.current() {
       self.advance();
 
-      let rule = Parser::rule_for(prev);
+      let rule = Parser::rule_for(&prev);
 
       let can_assign = precedence <= Precedence::Assignment;
 
@@ -1099,10 +1135,10 @@ impl<'file> Parser<'file> {
       }
 
       while let Some(curr) = self.current() {
-        if precedence <= Parser::rule_for(curr).precedence {
+        if precedence <= Parser::rule_for(&curr).precedence {
           self.advance();
           if let Some(prev) = self.previous() {
-            if let Some(infix) = Parser::rule_for(prev).infix {
+            if let Some(infix) = Parser::rule_for(&prev).infix {
               if !infix(self, can_assign) {
                 return false;
               }
@@ -1174,7 +1210,7 @@ impl<'file> Parser<'file> {
   }
 
   fn call_expr(&mut self, _: bool) -> bool {
-    false
+    unimplemented!();
   }
 
   fn literal_expr(&mut self, _: bool) -> bool {
@@ -1206,19 +1242,77 @@ impl<'file> Parser<'file> {
   }
 
   fn unary_expr(&mut self, _: bool) -> bool {
-    false
+    if let Some(prev) = self.previous() {
+      let pos = self.pos - 1;
+      if !self.parse_precedence(Precedence::Unary) {
+        return false;
+      }
+
+      match prev {
+        Token::Bang => self.emit(pos, OpCode::Not),
+        Token::Minus => self.emit(pos, OpCode::Negate),
+        _ => {
+          self.error(pos, String::from("invalid unary operator"));
+          return false;
+        }
+      }
+
+      true
+    } else {
+      todo!("error here");
+    }
   }
 
   fn binary_expr(&mut self, _: bool) -> bool {
-    false
+    if let Some(prev) = self.previous() {
+      let pos = self.pos - 1;
+      let rule = Self::rule_for(&prev);
+      if !self.parse_precedence(rule.precedence) {
+        return false;
+      }
+
+      match prev {
+        Token::EqualEqual => self.emit(pos, OpCode::Equal),
+        Token::BangEqual => self.emit(pos, OpCode::NotEqual),
+        Token::Greater => self.emit(pos, OpCode::Greater),
+        Token::GreaterEqual => self.emit(pos, OpCode::GreaterEqual),
+        Token::Less => self.emit(pos, OpCode::Less),
+        Token::LessEqual => self.emit(pos, OpCode::LessEqual),
+        Token::Plus => self.emit(pos, OpCode::Add),
+        Token::Minus => self.emit(pos, OpCode::Sub),
+        Token::Asterisk => self.emit(pos, OpCode::Mul),
+        Token::Slash => self.emit(pos, OpCode::Div),
+        Token::Modulus => self.emit(pos, OpCode::Mod),
+        _ => {
+          self.error(pos, String::from("invalid binary operator"));
+          return false;
+        }
+      }
+
+      true
+    } else {
+      todo!("error here");
+    }
   }
 
   fn and_expr(&mut self, _: bool) -> bool {
-    false
+    let jmp_pos = self.emit_jump(self.pos, OpCode::NoOp);
+    if !self.parse_precedence(Precedence::And) {
+      return false;
+    }
+    self.patch_jump(jmp_pos, |ctx, jmp_instr, offset| {
+      ctx.replace_instruction(jmp_instr, OpCode::And(offset))
+    })
   }
 
   fn or_expr(&mut self, _: bool) -> bool {
-    false
+    let jmp_pos = self.emit_jump(self.pos, OpCode::NoOp);
+    if !self.parse_precedence(Precedence::Or) {
+      return false;
+    }
+    self.patch_jump(jmp_pos, |ctx, jmp_instr, offset| {
+      ctx.replace_instruction(jmp_instr, OpCode::Or(offset))
+    })
   }
 
   fn named_variable(&mut self, token: Token, pos: usize, can_assign: bool) -> bool {
@@ -1280,10 +1374,15 @@ impl<'file> Parser<'file> {
 
   fn sync(&mut self) {
     while let Some(curr) = self.current() {
+      if let Some(prev) = self.previous() {
+        if prev == Token::Semicolon {
+          return;
+        }
+      }
+
       if matches!(
         curr,
-        Token::Semicolon
-          | Token::Class
+        Token::Class
           | Token::Fn
           | Token::Let
           | Token::For
@@ -1293,6 +1392,7 @@ impl<'file> Parser<'file> {
           | Token::Ret
           | Token::Match
           | Token::Loop
+          | Token::LeftBrace
       ) {
         return;
       }
