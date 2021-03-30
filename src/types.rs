@@ -345,19 +345,13 @@ impl Display for Values {
   }
 }
 
+#[derive(Default)]
 pub struct Env {
   parent: Option<Box<Env>>,
   vars: BTreeMap<String, Value>,
 }
 
 impl Env {
-  pub fn new() -> Self {
-    Self {
-      parent: None,
-      vars: BTreeMap::new(),
-    }
-  }
-
   pub fn new_with_parent(parent: Box<Env>) -> Self {
     Self {
       parent: Some(parent),
@@ -373,7 +367,7 @@ impl Env {
     self.vars.insert(name, value).is_some()
   }
 
-  pub fn lookup(&self, name: &String) -> Option<Value> {
+  pub fn lookup(&self, name: &str) -> Option<Value> {
     self.vars.get(name).cloned()
   }
 }

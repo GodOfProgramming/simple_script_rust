@@ -227,13 +227,17 @@ pub struct TokenMeta<'file> {
 }
 
 pub struct CodeMeta {
+  file: String,
+  source: String,
   opcode_info: Vec<(usize, usize)>,
 }
 
 impl CodeMeta {
-  fn new() -> Self {
+  fn new(file: String, source: String) -> Self {
     Self {
-      opcode_info: Vec::new(),
+      file,
+      source,
+      opcode_info: Vec::default(),
     }
   }
 
@@ -241,8 +245,16 @@ impl CodeMeta {
     self.opcode_info.push((line, column));
   }
 
-  fn get(&self, offset: usize) -> Option<(usize, usize)> {
-    self.opcode_info.get(offset).cloned()
+  fn get(&self, offset: usize) -> Option<(String, String, usize, usize)> {
+    if let Some((line, column)) = self.opcode_info.get(offset).cloned() {
+      if let Some(src) = self.source.lines().nth(line) {
+        Some((String::from(src), self.file.clone(), line, column))
+      } else {
+        None
+      }
+    } else {
+      None
+    }
   }
 }
 
@@ -258,14 +270,14 @@ pub struct Context {
 }
 
 impl Context {
-  pub fn new() -> Self {
+  fn new(meta: CodeMeta) -> Self {
     Self {
-      instructions: Vec::new(),
+      instructions: Vec::default(),
       ip: 0,
-      env: Env::new(),
-      stack: Vec::new(),
-      consts: Vec::new(),
-      meta: CodeMeta::new(),
+      env: Env::default(),
+      stack: Vec::default(),
+      consts: Vec::default(),
+      meta,
     }
   }
 
@@ -309,7 +321,7 @@ impl Context {
     self.consts.get(index).cloned()
   }
 
-  pub fn lookup_global(&self, name: &String) -> Option<Value> {
+  pub fn lookup_global(&self, name: &str) -> Option<Value> {
     self.env.lookup(name)
   }
 
@@ -349,6 +361,22 @@ impl Context {
       true
     } else {
       false
+    }
+  }
+
+  pub fn reflect_instruction<F: FnOnce(String, String, usize, usize) -> Error>(
+    &self,
+    f: F,
+  ) -> Error {
+    if let Some((src, file, line, column)) = self.meta.get(self.ip) {
+      f(src, file, line, column)
+    } else {
+      Error {
+        msg: format!("could not fetch info for instruction {:04X}", self.ip),
+        file: self.meta.file.clone(),
+        line: 0,
+        column: 0,
+      }
     }
   }
 
@@ -846,12 +874,19 @@ pub struct Parser<'file> {
 }
 
 impl<'file> Parser<'file> {
-  pub fn new(tokens: Vec<Token>, meta: Vec<TokenMeta<'file>>) -> Self {
+  pub fn new(
+    tokens: Vec<Token>,
+    meta: Vec<TokenMeta<'file>>,
+    file: String,
+    source: String,
+  ) -> Self {
+    let code_meta = CodeMeta::new(file, source);
+    let ctx = Context::new(code_meta);
     Self {
       tokens,
       meta,
       pos: 0,
-      ctx: Some(Context::new()),
+      ctx: Some(ctx),
       errors: None,
       locals: Vec::new(),
     }
@@ -867,8 +902,7 @@ impl<'file> Parser<'file> {
     } else if let Some(ctx) = self.ctx.take() {
       Ok(ctx)
     } else {
-      // should never happen
-      Err(Vec::new())
+      panic!("this should not ever happen");
     }
   }
 
@@ -1412,7 +1446,7 @@ impl Compiler {
       .scan()
       .map_err(|errs| self.reformat_errors(source, errs))?;
 
-    let mut parser = Parser::new(tokens, meta);
+    let mut parser = Parser::new(tokens, meta, String::from(file), String::from(source));
 
     parser.parse()
   }
@@ -1421,10 +1455,8 @@ impl Compiler {
     errs
       .into_iter()
       .map(|mut e| {
-        let mut line = source.lines().skip(e.line - 1);
-        if let Some(line) = line.next() {
-          let bottom = format!("{}^", " ".repeat(e.column - 1));
-          e.msg = format!("{}\n{}\n{}", e.msg, line, bottom);
+        if let Some(src) = source.lines().nth(e.line - 1) {
+          e.format_with_src_line(String::from(src));
         }
         e
       })

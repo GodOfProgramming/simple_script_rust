@@ -1,1 +1,1 @@
-print "did it work?";
+print 1 - 3 - 4;
