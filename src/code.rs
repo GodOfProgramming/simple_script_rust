@@ -868,7 +868,7 @@ struct Lookup {
 pub struct Parser<'file> {
   tokens: Vec<Token>,
   meta: Vec<TokenMeta<'file>>,
-  pos: usize,
+  index: usize,
 
   ctx: Option<Context>,
   errors: Option<Vec<Error>>,
@@ -888,7 +888,7 @@ impl<'file> Parser<'file> {
     Self {
       tokens,
       meta,
-      pos: 0,
+      index: 0,
       ctx: Some(ctx),
       errors: None,
       locals: Vec::new(),
@@ -931,15 +931,15 @@ impl<'file> Parser<'file> {
   }
 
   fn current(&self) -> Option<Token> {
-    self.tokens.get(self.pos).cloned()
+    self.tokens.get(self.index).cloned()
   }
 
   fn previous(&self) -> Option<Token> {
-    self.tokens.get(self.pos - 1).cloned()
+    self.tokens.get(self.index - 1).cloned()
   }
 
   fn advance(&mut self) {
-    self.pos += 1;
+    self.index += 1;
   }
 
   fn advance_if_matches(&mut self, token: Token) -> bool {
@@ -958,12 +958,12 @@ impl<'file> Parser<'file> {
         self.advance();
         true
       } else {
-        self.error(self.pos, err);
+        self.error(self.index, err);
         false
       }
     } else {
       self.error(
-        self.pos - 1,
+        self.index - 1,
         format!("tried to lookup a token in an invalid index: {}", err),
       );
       false
@@ -1080,7 +1080,7 @@ impl<'file> Parser<'file> {
   }
 
   fn print_stmt(&mut self) {
-    let pos = self.pos - 1;
+    let pos = self.index - 1;
     if !self.expression() {
       return;
     }
@@ -1167,7 +1167,7 @@ impl<'file> Parser<'file> {
           return false;
         }
       } else {
-        self.error(self.pos, String::from("expected an expression"));
+        self.error(self.index, String::from("expected an expression"));
         return false;
       }
 
@@ -1191,7 +1191,7 @@ impl<'file> Parser<'file> {
       }
 
       if can_assign && self.advance_if_matches(Token::Equal) {
-        self.error(self.pos, String::from("invalid assignment target"));
+        self.error(self.index, String::from("invalid assignment target"));
         false
       } else {
         true
@@ -1203,7 +1203,7 @@ impl<'file> Parser<'file> {
 
   fn make_number(&mut self, _: bool) -> bool {
     if let Some(prev) = self.previous() {
-      let pos = self.pos - 1;
+      let pos = self.index - 1;
       if let Token::Number(n) = prev {
         self.emit_const(pos, Value::new(n));
         true
@@ -1218,7 +1218,7 @@ impl<'file> Parser<'file> {
 
   fn make_string(&mut self, _: bool) -> bool {
     if let Some(prev) = self.previous() {
-      let pos = self.pos - 1;
+      let pos = self.index - 1;
       if let Token::String(s) = prev {
         self.emit_const(pos, Value::new(s));
         true
@@ -1233,7 +1233,7 @@ impl<'file> Parser<'file> {
 
   fn make_variable(&mut self, can_assign: bool) -> bool {
     if let Some(prev) = self.previous() {
-      self.named_variable(prev, self.pos - 1, can_assign)
+      self.named_variable(prev, self.index - 1, can_assign)
     } else {
       todo!("error here");
     }
@@ -1254,20 +1254,20 @@ impl<'file> Parser<'file> {
     if let Some(prev) = self.previous() {
       match prev {
         Token::Nil => {
-          self.emit(self.pos - 1, OpCode::Nil);
+          self.emit(self.index - 1, OpCode::Nil);
           true
         }
         Token::True => {
-          self.emit(self.pos - 1, OpCode::True);
+          self.emit(self.index - 1, OpCode::True);
           true
         }
         Token::False => {
-          self.emit(self.pos - 1, OpCode::False);
+          self.emit(self.index - 1, OpCode::False);
           true
         }
         _ => {
           self.error(
-            self.pos - 1,
+            self.index - 1,
             String::from("reaching this means something is very screwed up"),
           );
           false
@@ -1280,7 +1280,7 @@ impl<'file> Parser<'file> {
 
   fn unary_expr(&mut self, _: bool) -> bool {
     if let Some(prev) = self.previous() {
-      let pos = self.pos - 1;
+      let pos = self.index - 1;
       if !self.parse_precedence(Precedence::Unary) {
         return false;
       }
@@ -1302,7 +1302,7 @@ impl<'file> Parser<'file> {
 
   fn binary_expr(&mut self, _: bool) -> bool {
     if let Some(prev) = self.previous() {
-      let pos = self.pos - 1;
+      let pos = self.index - 1;
       let rule = Self::rule_for(&prev);
       if !self.parse_precedence(rule.precedence) {
         return false;
@@ -1333,7 +1333,7 @@ impl<'file> Parser<'file> {
   }
 
   fn and_expr(&mut self, _: bool) -> bool {
-    let jmp_pos = self.emit_jump(self.pos, OpCode::NoOp);
+    let jmp_pos = self.emit_jump(self.index, OpCode::NoOp);
     if !self.parse_precedence(Precedence::And) {
       return false;
     }
@@ -1343,7 +1343,7 @@ impl<'file> Parser<'file> {
   }
 
   fn or_expr(&mut self, _: bool) -> bool {
-    let jmp_pos = self.emit_jump(self.pos, OpCode::NoOp);
+    let jmp_pos = self.emit_jump(self.index, OpCode::NoOp);
     if !self.parse_precedence(Precedence::Or) {
       return false;
     }
