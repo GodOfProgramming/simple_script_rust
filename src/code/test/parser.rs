@@ -110,7 +110,12 @@ fn emit_creates_expected_opcode() {
       assert_eq!(ctx.instructions[0], OpCode::Add);
       assert_eq!(
         ctx.meta.get(0).unwrap(),
-        (String::from("1 + 1"), String::from("test"), 1, 3)
+        OpCodeReflection {
+          file: String::from("test"),
+          source_line: String::from("1 + 1"),
+          line: 1,
+          column: 3,
+        }
       );
     });
   });
