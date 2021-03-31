@@ -206,6 +206,7 @@ pub enum Token {
   Print,
   Ret,
   True,
+  Undef,
   While,
 }
 
@@ -714,6 +715,7 @@ impl<'src> Scanner<'src> {
       'p' => this.check_keyword(d, "rint", Token::Print),
       'r' => this.check_keyword(d, "et", Token::Ret),
       't' => this.check_keyword(d, "rue", Token::True),
+      'u' => this.check_keyword(d, "ndef", Token::Undef),
       'w' => this.check_keyword(d, "hile", Token::While),
       _ => this.create_ident(),
     })
@@ -921,8 +923,8 @@ impl<'file> Parser<'file> {
         errs.push(Error {
           msg,
           file: String::from(meta.file),
-          line: meta.line + 1,
-          column: meta.column + 1,
+          line: meta.line,
+          column: meta.column,
         });
       }
     }
@@ -935,7 +937,11 @@ impl<'file> Parser<'file> {
   }
 
   fn previous(&self) -> Option<Token> {
-    self.tokens.get(self.index - 1).cloned()
+    if self.index > 0 {
+      self.tokens.get(self.index - 1).cloned()
+    } else {
+      None
+    }
   }
 
   fn advance(&mut self) {
@@ -1140,6 +1146,7 @@ impl<'file> Parser<'file> {
       Token::For => ParseRule::new(None, None, Precedence::None),
       Token::Fn => ParseRule::new(None, None, Precedence::None),
       Token::If => ParseRule::new(None, None, Precedence::None),
+      Token::Let => ParseRule::new(None, None, Precedence::None),
       Token::Load => ParseRule::new(None, None, Precedence::None),
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
@@ -1148,7 +1155,7 @@ impl<'file> Parser<'file> {
       Token::Print => ParseRule::new(None, None, Precedence::None),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::True => ParseRule::new(Some(Parser::literal_expr), None, Precedence::None),
-      Token::Let => ParseRule::new(None, None, Precedence::None),
+      Token::Undef => ParseRule::new(Some(Parser::literal_expr), None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
       Token::End => ParseRule::new(None, None, Precedence::None),
     }
@@ -1429,7 +1436,7 @@ impl<'file> Parser<'file> {
           | Token::Ret
           | Token::Match
           | Token::Loop
-          | Token::LeftBrace
+          | Token::End
       ) {
         return;
       }

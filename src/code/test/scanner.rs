@@ -56,6 +56,7 @@ fn scanner_scans() {
     Token::Print,
     Token::Ret,
     Token::True,
+    Token::Undef,
     Token::While,
   ];
   if let Ok((actual, _)) = actual {

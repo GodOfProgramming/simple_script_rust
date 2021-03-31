@@ -38,7 +38,7 @@
         },
         {
           "name": "constant.language.null.simplescript",
-          "match": "\\b(nil)\\b"
+          "match": "\\b(nil|undef)\\b"
         },
         {
           "name": "constant.language.boolean.simplescript",
