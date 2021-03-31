@@ -122,6 +122,26 @@ fn emit_creates_expected_opcode() {
 }
 
 #[test]
+fn emit_const_creates_expected_opcode() {
+  do_with_parser("foo + 1", |mut parser| {
+    parser.emit_const(2, Value::Num(1.0));
+    do_with_ctx(parser, |ctx| {
+      assert_eq!(ctx.instructions[0], OpCode::Const(0));
+      assert_eq!(ctx.consts[0], Value::Num(1.0));
+      assert_eq!(
+        ctx.meta.get(0).unwrap(),
+        OpCodeReflection {
+          file: String::from("test"),
+          source_line: String::from("foo + 1"),
+          line: 1,
+          column: 7,
+        }
+      );
+    });
+  });
+}
+
+#[test]
 fn sync_advances_to_expected_index() {
   do_with_parser(SYNC_TEST_SCRIPT, |mut parser| {
     let check_current = |parser: &mut Parser, e: &mut f64| {
@@ -139,8 +159,6 @@ fn sync_advances_to_expected_index() {
     assert_eq!(parser.index, 3);
     check_current(&mut parser, &mut check);
     parser.advance();
-
-    let expected_indx = 6;
 
     for n in 0..11 {
       parser.sync();
