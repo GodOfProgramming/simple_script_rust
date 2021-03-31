@@ -14,6 +14,15 @@ fn do_with_parser<F: FnOnce(Parser)>(script: &str, f: F) {
   f(parser);
 }
 
+#[cfg(test)]
+fn do_with_ctx<F: FnOnce(Context)>(mut parser: Parser, f: F) {
+  if let Some(ctx) = parser.ctx.take() {
+    f(ctx);
+  } else {
+    panic!("this should never happen");
+  }
+}
+
 #[test]
 fn current_returns_the_current_token() {
   do_with_parser(EXAMPLE_SCRIPT, |mut parser| {
@@ -90,6 +99,20 @@ fn consume_advances_only_if_expected_is_accurate() {
         column: 1,
       }
     )
+  });
+}
+
+#[test]
+fn emit_creates_expected_opcode() {
+  do_with_parser("1 + 1", |mut parser| {
+    parser.emit(1, OpCode::Add);
+    do_with_ctx(parser, |ctx| {
+      assert_eq!(ctx.instructions[0], OpCode::Add);
+      assert_eq!(
+        ctx.meta.get(0).unwrap(),
+        (String::from("1 + 1"), String::from("test"), 1, 3)
+      );
+    });
   });
 }
 

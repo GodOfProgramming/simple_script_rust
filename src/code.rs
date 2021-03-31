@@ -8,7 +8,7 @@ use std::{
   str,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum OpCode {
   /**
    * No operation instruction
@@ -249,7 +249,7 @@ impl CodeMeta {
 
   fn get(&self, offset: usize) -> Option<(String, String, usize, usize)> {
     if let Some((line, column)) = self.opcode_info.get(offset).cloned() {
-      if let Some(src) = self.source.lines().nth(line) {
+      if let Some(src) = self.source.lines().nth(line - 1) {
         Some((String::from(src), self.file.clone(), line, column))
       } else {
         None
