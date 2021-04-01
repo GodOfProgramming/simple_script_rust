@@ -865,18 +865,18 @@ impl Precedence {
   }
 }
 
-type ParseFn<'file> = fn(&mut Parser<'file>, bool) -> bool;
+type ParseFn<'ctx, 'file> = fn(&mut Parser<'ctx, 'file>, bool) -> bool;
 
-struct ParseRule<'file> {
-  prefix: Option<ParseFn<'file>>,
-  infix: Option<ParseFn<'file>>,
+struct ParseRule<'ctx, 'file> {
+  prefix: Option<ParseFn<'ctx, 'file>>,
+  infix: Option<ParseFn<'ctx, 'file>>,
   precedence: Precedence,
 }
 
-impl<'file> ParseRule<'file> {
+impl<'ctx, 'file> ParseRule<'ctx, 'file> {
   fn new(
-    prefix: Option<ParseFn<'file>>,
-    infix: Option<ParseFn<'file>>,
+    prefix: Option<ParseFn<'ctx, 'file>>,
+    infix: Option<ParseFn<'ctx, 'file>>,
     precedence: Precedence,
   ) -> Self {
     Self {
@@ -904,48 +904,36 @@ struct Lookup {
   index: usize,
 }
 
-pub struct Parser<'file> {
+pub struct Parser<'ctx, 'file> {
   tokens: Vec<Token>,
   meta: Vec<TokenMeta<'file>>,
+  ctx: &'ctx mut Context,
+
   index: usize,
 
-  ctx: Option<Context>,
   errors: Option<Vec<Error>>,
 
   locals: Vec<Local>,
 }
 
-impl<'file> Parser<'file> {
-  pub fn new(
-    tokens: Vec<Token>,
-    meta: Vec<TokenMeta<'file>>,
-    file: String,
-    source: String,
-  ) -> Self {
-    let code_meta = Reflection::new(file, source);
-    let ctx = Context::new(code_meta);
+impl<'ctx, 'file> Parser<'ctx, 'file> {
+  pub fn new(tokens: Vec<Token>, meta: Vec<TokenMeta<'file>>, ctx: &'ctx mut Context) -> Self {
     Self {
       tokens,
       meta,
+      ctx,
       index: 0,
-      ctx: Some(ctx),
       errors: None,
       locals: Vec::new(),
     }
   }
 
-  fn parse(&mut self) -> Result<Context, Vec<Error>> {
+  fn parse(&mut self) -> Option<Vec<Error>> {
     while let Some(current) = self.current() {
       self.declaration(current);
     }
 
-    if let Some(errors) = self.errors.take() {
-      Err(errors)
-    } else if let Some(ctx) = self.ctx.take() {
-      Ok(ctx)
-    } else {
-      panic!("this should not ever happen");
-    }
+    self.errors.take()
   }
 
   fn error(&mut self, pos: usize, msg: String) {
@@ -1014,20 +1002,17 @@ impl<'file> Parser<'file> {
   }
 
   fn emit(&mut self, pos: usize, op: OpCode) {
-    let ctx = self.ctx.as_mut().unwrap();
     let meta = self.meta.get(pos).unwrap();
-    ctx.write(op, meta.line, meta.column);
+    self.ctx.write(op, meta.line, meta.column);
   }
 
   fn emit_const(&mut self, pos: usize, c: Value) {
-    let ctx = self.ctx.as_mut().unwrap();
     let meta = self.meta.get(pos).unwrap();
-    ctx.write_const(c, meta.line, meta.column);
+    self.ctx.write_const(c, meta.line, meta.column);
   }
 
   fn emit_jump(&mut self, pos: usize, op: OpCode) -> usize {
-    let ctx = self.ctx.as_mut().unwrap();
-    let offset = ctx.num_instructions();
+    let offset = self.ctx.num_instructions();
     self.emit(pos, op);
     offset
   }
@@ -1037,9 +1022,8 @@ impl<'file> Parser<'file> {
     jmp_instr: usize,
     f: F,
   ) -> bool {
-    let ctx = self.ctx.as_mut().unwrap();
-    let offset = ctx.num_instructions() - jmp_instr;
-    f(ctx, jmp_instr, offset)
+    let offset = self.ctx.num_instructions() - jmp_instr;
+    f(self.ctx, jmp_instr, offset)
   }
 
   fn declaration(&mut self, token: Token) {
@@ -1171,7 +1155,7 @@ impl<'file> Parser<'file> {
     self.parse_precedence(Precedence::Assignment)
   }
 
-  fn rule_for(token: &Token) -> ParseRule<'file> {
+  fn rule_for(token: &Token) -> ParseRule<'ctx, 'file> {
     match token {
       Token::Invalid => panic!("invalid token read"),
       Token::LeftParen => ParseRule::new(
@@ -1556,9 +1540,16 @@ impl Compiler {
       .scan()
       .map_err(|errs| self.reformat_errors(source, errs))?;
 
-    let mut parser = Parser::new(tokens, meta, String::from(file), String::from(source));
+    let code_meta = Reflection::new(String::from(file), String::from(source));
+    let mut ctx = Context::new(code_meta);
 
-    parser.parse()
+    let mut parser = Parser::new(tokens, meta, &mut ctx);
+
+    if let Some(errors) = parser.parse() {
+      Err(errors)
+    } else {
+      Ok(ctx)
+    }
   }
 
   fn reformat_errors(&self, source: &str, errs: Vec<Error>) -> Vec<Error> {

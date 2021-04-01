@@ -9,18 +9,12 @@ fn do_with_parser<F: FnOnce(Parser)>(script: &str, f: F) {
 
   let (tokens, meta) = scanner.scan().unwrap();
 
-  let parser = Parser::new(tokens, meta, String::from("test"), String::from(script));
+  let code_meta = Reflection::new(String::from("test"), String::from(script));
+  let mut ctx = Context::new(code_meta);
+
+  let parser = Parser::new(tokens, meta, &mut ctx);
 
   f(parser);
-}
-
-#[cfg(test)]
-fn do_with_ctx<F: FnOnce(Context)>(mut parser: Parser, f: F) {
-  if let Some(ctx) = parser.ctx.take() {
-    f(ctx);
-  } else {
-    panic!("this should never happen");
-  }
 }
 
 #[test]
@@ -106,18 +100,17 @@ fn consume_advances_only_if_expected_is_accurate() {
 fn emit_creates_expected_opcode() {
   do_with_parser("1 + 1", |mut parser| {
     parser.emit(1, OpCode::Add);
-    do_with_ctx(parser, |ctx| {
-      assert_eq!(ctx.instructions[0], OpCode::Add);
-      assert_eq!(
-        OpCodeReflection {
-          file: String::from("test"),
-          source_line: String::from("1 + 1"),
-          line: 1,
-          column: 3,
-        },
-        ctx.meta.get(0).unwrap(),
-      );
-    });
+
+    assert_eq!(parser.ctx.instructions[0], OpCode::Add);
+    assert_eq!(
+      OpCodeReflection {
+        file: String::from("test"),
+        source_line: String::from("1 + 1"),
+        line: 1,
+        column: 3,
+      },
+      parser.ctx.meta.get(0).unwrap(),
+    );
   });
 }
 
@@ -125,19 +118,17 @@ fn emit_creates_expected_opcode() {
 fn emit_const_creates_expected_opcode() {
   do_with_parser("foo + 1", |mut parser| {
     parser.emit_const(2, Value::Num(1.0));
-    do_with_ctx(parser, |ctx| {
-      assert_eq!(ctx.instructions[0], OpCode::Const(0));
-      assert_eq!(ctx.consts[0], Value::Num(1.0));
-      assert_eq!(
-        OpCodeReflection {
-          file: String::from("test"),
-          source_line: String::from("foo + 1"),
-          line: 1,
-          column: 7,
-        },
-        ctx.meta.get(0).unwrap(),
-      );
-    });
+    assert_eq!(parser.ctx.instructions[0], OpCode::Const(0));
+    assert_eq!(parser.ctx.consts[0], Value::Num(1.0));
+    assert_eq!(
+      OpCodeReflection {
+        file: String::from("test"),
+        source_line: String::from("foo + 1"),
+        line: 1,
+        column: 7,
+      },
+      parser.ctx.meta.get(0).unwrap(),
+    );
   });
 }
 
@@ -146,13 +137,11 @@ fn print_stmt_emits_a_valid_print_opcode() {
   do_with_parser("print 1;", |mut parser| {
     parser.index = 1;
     parser.print_stmt();
-    do_with_ctx(parser, |ctx| {
-      let expected = vec![OpCode::Const(0), OpCode::Print];
-      assert_eq!(expected.len(), ctx.instructions.len());
-      for (e, a) in expected.iter().zip(ctx.instructions.iter()) {
-        assert_eq!(e, a);
-      }
-    });
+    let expected = vec![OpCode::Const(0), OpCode::Print];
+    assert_eq!(expected.len(), parser.ctx.instructions.len());
+    for (e, a) in expected.iter().zip(parser.ctx.instructions.iter()) {
+      assert_eq!(e, a);
+    }
   });
 }
 
@@ -161,42 +150,43 @@ fn basic_pemdas_rules_are_enforced() {
   do_with_parser("1 + 2 * 3 - 4 / 5 + 6 % 7", |mut parser| {
     parser.expression();
     assert!(parser.errors.is_none(), "errors: {:?}", parser.errors);
-    do_with_ctx(parser, |ctx| {
-      let expected_instructions = vec![
-        OpCode::Const(0),
-        OpCode::Const(1),
-        OpCode::Const(2),
-        OpCode::Mul,
-        OpCode::Add,
-        OpCode::Const(3),
-        OpCode::Const(4),
-        OpCode::Div,
-        OpCode::Sub,
-        OpCode::Const(5),
-        OpCode::Const(6),
-        OpCode::Mod,
-        OpCode::Add,
-      ];
-      assert_eq!(expected_instructions.len(), ctx.instructions.len());
-      for (e, a) in expected_instructions.iter().zip(ctx.instructions.iter()) {
-        assert_eq!(e, a);
-      }
+    let expected_instructions = vec![
+      OpCode::Const(0),
+      OpCode::Const(1),
+      OpCode::Const(2),
+      OpCode::Mul,
+      OpCode::Add,
+      OpCode::Const(3),
+      OpCode::Const(4),
+      OpCode::Div,
+      OpCode::Sub,
+      OpCode::Const(5),
+      OpCode::Const(6),
+      OpCode::Mod,
+      OpCode::Add,
+    ];
+    assert_eq!(expected_instructions.len(), parser.ctx.instructions.len());
+    for (e, a) in expected_instructions
+      .iter()
+      .zip(parser.ctx.instructions.iter())
+    {
+      assert_eq!(e, a);
+    }
 
-      let expected_constants = vec![
-        Value::new(1),
-        Value::new(2),
-        Value::new(3),
-        Value::new(4),
-        Value::new(5),
-        Value::new(6),
-        Value::new(7),
-      ];
+    let expected_constants = vec![
+      Value::new(1),
+      Value::new(2),
+      Value::new(3),
+      Value::new(4),
+      Value::new(5),
+      Value::new(6),
+      Value::new(7),
+    ];
 
-      assert_eq!(expected_constants.len(), ctx.consts.len());
-      for (e, a) in expected_constants.iter().zip(ctx.consts.iter()) {
-        assert_eq!(e, a);
-      }
-    });
+    assert_eq!(expected_constants.len(), parser.ctx.consts.len());
+    for (e, a) in expected_constants.iter().zip(parser.ctx.consts.iter()) {
+      assert_eq!(e, a);
+    }
   });
 }
 
