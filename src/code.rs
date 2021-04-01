@@ -363,6 +363,9 @@ impl Context {
   }
 
   fn write(&mut self, op: OpCode, line: usize, column: usize) {
+    if cfg!(test) {
+      println!("emitting {:?}", op);
+    }
     self.instructions.push(op);
     self.meta.add(line, column);
   }
@@ -844,6 +847,24 @@ enum Precedence {
   Primary,
 }
 
+impl Precedence {
+  fn next(&self) -> Option<Self> {
+    match self {
+      Precedence::None => Some(Precedence::Assignment),
+      Precedence::Assignment => Some(Precedence::Or),
+      Precedence::Or => Some(Precedence::And),
+      Precedence::And => Some(Precedence::Equality),
+      Precedence::Equality => Some(Precedence::Comparison),
+      Precedence::Comparison => Some(Precedence::Term),
+      Precedence::Term => Some(Precedence::Factor),
+      Precedence::Factor => Some(Precedence::Unary),
+      Precedence::Unary => Some(Precedence::Call),
+      Precedence::Call => Some(Precedence::Primary),
+      Precedence::Primary => None,
+    }
+  }
+}
+
 type ParseFn<'file> = fn(&mut Parser<'file>, bool) -> bool;
 
 struct ParseRule<'file> {
@@ -993,37 +1014,22 @@ impl<'file> Parser<'file> {
   }
 
   fn emit(&mut self, pos: usize, op: OpCode) {
-    if let Some(meta) = self.meta.get(pos) {
-      if let Some(ctx) = &mut self.ctx {
-        ctx.write(op, meta.line, meta.column);
-      } else {
-        panic!("should never happen");
-      }
-    } else {
-      panic!("tried to acquire metainfo about a token that does not exist");
-    }
+    let ctx = self.ctx.as_mut().unwrap();
+    let meta = self.meta.get(pos).unwrap();
+    ctx.write(op, meta.line, meta.column);
   }
 
   fn emit_const(&mut self, pos: usize, c: Value) {
-    if let Some(meta) = self.meta.get(pos) {
-      if let Some(ctx) = &mut self.ctx {
-        ctx.write_const(c, meta.line, meta.column);
-      } else {
-        panic!("should never happen");
-      }
-    } else {
-      panic!("tried to acquire metainfo about a token that does not exist");
-    }
+    let ctx = self.ctx.as_mut().unwrap();
+    let meta = self.meta.get(pos).unwrap();
+    ctx.write_const(c, meta.line, meta.column);
   }
 
   fn emit_jump(&mut self, pos: usize, op: OpCode) -> usize {
-    if let Some(ctx) = &self.ctx {
-      let offset = ctx.num_instructions();
-      self.emit(pos, op);
-      offset
-    } else {
-      panic!("this should not be possible");
-    }
+    let ctx = self.ctx.as_mut().unwrap();
+    let offset = ctx.num_instructions();
+    self.emit(pos, op);
+    offset
   }
 
   fn patch_jump<F: FnOnce(&mut Context, usize, usize) -> bool>(
@@ -1031,74 +1037,115 @@ impl<'file> Parser<'file> {
     jmp_instr: usize,
     f: F,
   ) -> bool {
-    if let Some(ctx) = &mut self.ctx {
-      let offset = ctx.num_instructions() - jmp_instr;
-      f(ctx, jmp_instr, offset)
-    } else {
-      panic!("this should not be possible");
-    }
+    let ctx = self.ctx.as_mut().unwrap();
+    let offset = ctx.num_instructions() - jmp_instr;
+    f(ctx, jmp_instr, offset)
   }
 
   fn declaration(&mut self, token: Token) {
     match token {
-      // Token::Break => {
-      //   self.advance();
-      //   self.break_stmt();
-      // }
-      // Token::Cont => {
-      //   self.advance();
-      //   self.cont_stmt();
-      // }
-      // Token::End => {
-      //   self.advance();
-      //   self.end_stmt();
-      // }
-      // Token::Fn => {
-      //   self.advance();
-      //   self.fn_stmt();
-      // }
-      // Token::For => {
-      //   self.advance();
-      //   self.For_stmt();
-      // }
-      // Token::If => {
-      //   self.advance();
-      //   self.if_stmt();
-      // }
-      // Token::LeftBrace => {
-      //   self.advance();
-      //   self.block_stmt();
-      // }
-      // Token::Let => {
-      //   self.advance();
-      //   self.let_stmt();
-      // }
-      // Token::Load => {
-      //   self.advance();
-      //   self.load_stmt();
-      // }
-      // Token::Loop => {
-      //   self.advance();
-      //   self.loop_stmt();
-      // }
-      // Token::Match => {
-      //   self.advance();
-      //   self.match_stmt();
-      // }
+      Token::Break => {
+        self.advance();
+        self.break_stmt();
+      }
+      Token::Cont => {
+        self.advance();
+        self.cont_stmt();
+      }
+      Token::End => {
+        self.advance();
+        self.end_stmt();
+      }
+      Token::Fn => {
+        self.advance();
+        self.fn_stmt();
+      }
+      Token::For => {
+        self.advance();
+        self.for_stmt();
+      }
+      Token::If => {
+        self.advance();
+        self.if_stmt();
+      }
+      Token::LeftBrace => {
+        self.advance();
+        self.block_stmt();
+      }
+      Token::Let => {
+        self.advance();
+        self.let_stmt();
+      }
+      Token::Load => {
+        self.advance();
+        self.load_stmt();
+      }
+      Token::Loop => {
+        self.advance();
+        self.loop_stmt();
+      }
+      Token::Match => {
+        self.advance();
+        self.match_stmt();
+      }
       Token::Print => {
         self.advance();
         self.print_stmt();
       }
-      // Token::Ret => {
-      //   self.advance();
-      //   self.ret_stmt();
-      // }
-      // Token::While => {
-      //   self.advance();
-      //   self.while_stmt();
-      // }
+      Token::Ret => {
+        self.advance();
+        self.ret_stmt();
+      }
+      Token::While => {
+        self.advance();
+        self.while_stmt();
+      }
       _ => (), // self.expression_stmt(),
     }
+  }
+
+  fn break_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn cont_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn end_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn fn_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn for_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn if_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn block_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn let_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn load_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn loop_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn match_stmt(&mut self) {
+    unimplemented!();
   }
 
   fn print_stmt(&mut self) {
@@ -1112,13 +1159,21 @@ impl<'file> Parser<'file> {
     self.emit(pos, OpCode::Print);
   }
 
+  fn ret_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn while_stmt(&mut self) {
+    unimplemented!();
+  }
+
   fn expression(&mut self) -> bool {
     self.parse_precedence(Precedence::Assignment)
   }
 
   fn rule_for(token: &Token) -> ParseRule<'file> {
     match token {
-      Token::Invalid => ParseRule::new(None, None, Precedence::None),
+      Token::Invalid => panic!("invalid token read"),
       Token::LeftParen => ParseRule::new(
         Some(Parser::grouping_expr),
         Some(Parser::call_expr),
@@ -1178,11 +1233,9 @@ impl<'file> Parser<'file> {
   }
 
   fn parse_precedence(&mut self, precedence: Precedence) -> bool {
-    if let Some(prev) = self.current() {
-      self.advance();
-
+    self.advance();
+    if let Some(prev) = self.previous() {
       let rule = Parser::rule_for(&prev);
-
       let can_assign = precedence <= Precedence::Assignment;
 
       if let Some(prefix) = rule.prefix {
@@ -1195,7 +1248,8 @@ impl<'file> Parser<'file> {
       }
 
       while let Some(curr) = self.current() {
-        if precedence <= Parser::rule_for(&curr).precedence {
+        let rule = Parser::rule_for(&curr);
+        if precedence <= rule.precedence {
           self.advance();
           if let Some(prev) = self.previous() {
             if let Some(infix) = Parser::rule_for(&prev).infix {
@@ -1203,10 +1257,15 @@ impl<'file> Parser<'file> {
                 return false;
               }
             } else {
-              todo!("error condition here")
+              self.error(self.index, format!("no rule for {:?}", prev));
+              return false;
             }
           } else {
-            todo!("should never error but just for sanity sake")
+            self.error(
+              self.index - 2,
+              String::from("unexpected end of token stream (parse_precedence 1)"),
+            );
+            return false;
           }
         } else {
           break;
@@ -1214,13 +1273,17 @@ impl<'file> Parser<'file> {
       }
 
       if can_assign && self.advance_if_matches(Token::Equal) {
-        self.error(self.index, String::from("invalid assignment target"));
+        self.error(self.index - 1, String::from("invalid assignment target"));
         false
       } else {
         true
       }
     } else {
-      todo!("error condition here");
+      self.error(
+        self.index - 2,
+        String::from("unexpected end of token stream (parse_precedence 3)"),
+      );
+      false
     }
   }
 
@@ -1235,7 +1298,11 @@ impl<'file> Parser<'file> {
         false
       }
     } else {
-      todo!("error here");
+      self.error(
+        self.index - 2,
+        String::from("unexpected end of token stream (make_number)"),
+      );
+      false
     }
   }
 
@@ -1250,7 +1317,11 @@ impl<'file> Parser<'file> {
         false
       }
     } else {
-      todo!("error here");
+      self.error(
+        self.index - 2,
+        String::from("unexpected end of token stream (make_string)"),
+      );
+      false
     }
   }
 
@@ -1258,7 +1329,11 @@ impl<'file> Parser<'file> {
     if let Some(prev) = self.previous() {
       self.named_variable(prev, self.index - 1, can_assign)
     } else {
-      todo!("error here");
+      self.error(
+        self.index - 2,
+        String::from("unexpected end of token stream (make_variable)"),
+      );
+      false
     }
   }
 
@@ -1327,7 +1402,12 @@ impl<'file> Parser<'file> {
     if let Some(prev) = self.previous() {
       let pos = self.index - 1;
       let rule = Self::rule_for(&prev);
-      if !self.parse_precedence(rule.precedence) {
+      if let Some(precedence) = rule.precedence.next() {
+        if !self.parse_precedence(precedence) {
+          return false;
+        }
+      } else {
+        self.error(pos, String::from("could not determine precedence order"));
         return false;
       }
 
@@ -1351,7 +1431,11 @@ impl<'file> Parser<'file> {
 
       true
     } else {
-      todo!("error here");
+      self.error(
+        self.index - 2,
+        String::from("unexpected end of token stream (binary_expr)"),
+      );
+      false
     }
   }
 

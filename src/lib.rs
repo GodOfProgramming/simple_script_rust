@@ -4,7 +4,6 @@ mod types;
 use code::Compiler;
 use code::Context;
 use code::OpCode;
-use code::Reflection;
 use types::Value;
 
 pub trait New<T> {

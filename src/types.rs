@@ -73,6 +73,24 @@ impl New<f64> for Value {
   }
 }
 
+impl New<usize> for Value {
+  fn new(item: usize) -> Self {
+    Self::new(item as f64)
+  }
+}
+
+impl New<i64> for Value {
+  fn new(item: i64) -> Self {
+    Self::new(item as f64)
+  }
+}
+
+impl New<i32> for Value {
+  fn new(item: i32) -> Self {
+    Self::new(item as f64)
+  }
+}
+
 impl New<String> for Value {
   fn new(item: String) -> Self {
     Self::Str(item)
