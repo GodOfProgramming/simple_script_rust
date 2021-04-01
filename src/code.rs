@@ -3,7 +3,6 @@ use crate::{
   Error, New,
 };
 use std::{
-  f64::consts::PI,
   fmt::{self, Debug, Display},
   str,
 };
@@ -429,24 +428,24 @@ impl Context {
 
     match op {
       OpCode::Const(index) => {
-        print!("{:<16?} {:4} ", op, index);
+        print!("{:<16} {:4} ", "Const", index);
         let c = self.const_at(*index);
         match c {
           Some(v) => println!("'{}'", v),
           None => println!("INVALID INDEX"),
         }
       }
-      OpCode::PopN(count) => println!("{:<16?} {:4}", op, count),
-      OpCode::LookupLocal(index) => println!("{:<16?} {:4}", op, index),
-      OpCode::AssignLocal(index) => println!("{:<16?} {:4}", op, index),
-      OpCode::LookupGlobal(name) => println!("{:<16?} '{}'", op, name),
-      OpCode::DefineGlobal(name) => println!("{:<16?} '{}'", op, name),
-      OpCode::AssignGlobal(name) => println!("{:<16?} '{}'", op, name),
-      OpCode::Jump(count) => println!("{:<16?} {:4}", op, count),
-      OpCode::JumpIfFalse(count) => println!("{:<16?} {:4}", op, count),
-      OpCode::Loop(count) => println!("{:<16?} {:4}", op, count),
-      OpCode::Or(count) => println!("{:<16?} {:4}", op, count),
-      OpCode::And(count) => println!("{:<16?} {:4}", op, count),
+      OpCode::PopN(count) => println!("{:<16} {:4}", "PopN", count),
+      OpCode::LookupLocal(index) => println!("{:<16} {:4}", "LookupLocal", index),
+      OpCode::AssignLocal(index) => println!("{:<16} {:4}", "AssignLocal", index),
+      OpCode::LookupGlobal(name) => println!("{:<16} '{}'", "LookupGlobal", name),
+      OpCode::DefineGlobal(name) => println!("{:<16} '{}'", "DefineGlobal", name),
+      OpCode::AssignGlobal(name) => println!("{:<16} '{}'", "AssignGlobal", name),
+      OpCode::Jump(count) => println!("{:<16} {:4}", "Jump", count),
+      OpCode::JumpIfFalse(count) => println!("{:<16} {:4}", "JumpIfFalse", count),
+      OpCode::Loop(count) => println!("{:<16} {:4}", "Loop", count),
+      OpCode::Or(count) => println!("{:<16} {:4}", "Or", count),
+      OpCode::And(count) => println!("{:<16} {:4}", "And", count),
       x => println!("{:?}", x),
     }
   }

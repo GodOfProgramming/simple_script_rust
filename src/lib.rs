@@ -60,8 +60,8 @@ impl Vpu {
     f: F,
   ) -> Option<Error> {
     match ctx.stack_pop() {
-      Some(av) => match ctx.stack_pop() {
-        Some(bv) => f(ctx, av, bv),
+      Some(bv) => match ctx.stack_pop() {
+        Some(av) => f(ctx, av, bv),
         None => Some(ctx.reflect_instruction(|opcode_ref| {
           let mut e = Error {
             msg: String::from("cannot operate on empty stack"),
@@ -89,6 +89,9 @@ impl Vpu {
 
 impl Interpreter for Vpu {
   fn process(&self, ctx: &mut Context) -> Result<Value, Error> {
+    if cfg!(debug_assertions) {
+      ctx.display_opcodes();
+    }
     while !ctx.done() {
       match ctx.next() {
         OpCode::NoOp => break,
