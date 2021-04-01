@@ -1,9 +1,7 @@
 mod code;
 mod types;
 
-use code::Compiler;
-use code::Context;
-use code::OpCode;
+use code::{Compiler, Context, OpCode, OpCodeReflection};
 use types::Value;
 
 pub trait New<T> {
@@ -19,6 +17,17 @@ pub struct Error {
 }
 
 impl Error {
+  pub fn from_ref(msg: String, opcode_ref: OpCodeReflection) -> Self {
+    let mut e = Self {
+      msg,
+      file: opcode_ref.file,
+      line: opcode_ref.line,
+      column: opcode_ref.column,
+    };
+    e.format_with_src_line(opcode_ref.source_line);
+    e
+  }
+
   pub fn format_with_src_line(&mut self, src: String) {
     self.msg = format!(
       "{}\n{}\n{}",
@@ -43,14 +52,7 @@ impl Vpu {
     match ctx.stack_pop() {
       Some(v) => f(ctx, v),
       None => Some(ctx.reflect_instruction(|opcode_ref| {
-        let mut e = Error {
-          msg: String::from("cannot operate on empty stack"),
-          file: opcode_ref.file,
-          line: opcode_ref.line,
-          column: opcode_ref.column,
-        };
-        e.format_with_src_line(opcode_ref.source_line);
-        e
+        Error::from_ref(String::from("cannot operate on empty stack"), opcode_ref)
       })),
     }
   }
@@ -63,25 +65,11 @@ impl Vpu {
       Some(bv) => match ctx.stack_pop() {
         Some(av) => f(ctx, av, bv),
         None => Some(ctx.reflect_instruction(|opcode_ref| {
-          let mut e = Error {
-            msg: String::from("cannot operate on empty stack"),
-            file: opcode_ref.file,
-            line: opcode_ref.line,
-            column: opcode_ref.column,
-          };
-          e.format_with_src_line(opcode_ref.source_line);
-          e
+          Error::from_ref(String::from("cannot operate on empty stack"), opcode_ref)
         })),
       },
       None => Some(ctx.reflect_instruction(|opcode_ref| {
-        let mut e = Error {
-          msg: String::from("cannot operate on empty stack"),
-          file: opcode_ref.file,
-          line: opcode_ref.line,
-          column: opcode_ref.column,
-        };
-        e.format_with_src_line(opcode_ref.source_line);
-        e
+        Error::from_ref(String::from("cannot operate on empty stack"), opcode_ref)
       })),
     }
   }
@@ -195,16 +183,7 @@ impl Interpreter for Vpu {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| {
-              let mut e = Error {
-                msg: e,
-                file: opcode_ref.file,
-                line: opcode_ref.line,
-                column: opcode_ref.column,
-              };
-              e.format_with_src_line(opcode_ref.source_line);
-              e
-            })),
+            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
           }) {
             return Err(e);
           }
@@ -215,7 +194,7 @@ impl Interpreter for Vpu {
               ctx.stack_push(v);
               None
             }
-            Err(e) => todo!("TODO: {}", e),
+            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
           }) {
             return Err(e);
           }
@@ -226,7 +205,7 @@ impl Interpreter for Vpu {
               ctx.stack_push(v);
               None
             }
-            Err(e) => todo!("TODO: {}", e),
+            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
           }) {
             return Err(e);
           }
@@ -237,7 +216,7 @@ impl Interpreter for Vpu {
               ctx.stack_push(v);
               None
             }
-            Err(e) => todo!("TODO: {}", e),
+            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
           }) {
             return Err(e);
           }
@@ -248,7 +227,7 @@ impl Interpreter for Vpu {
               ctx.stack_push(v);
               None
             }
-            Err(e) => todo!("TODO: {}", e),
+            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
           }) {
             return Err(e);
           }
@@ -267,16 +246,7 @@ impl Interpreter for Vpu {
               ctx.stack_push(n);
               None
             }
-            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| {
-              let mut e = Error {
-                msg: e,
-                file: opcode_ref.file,
-                line: opcode_ref.line,
-                column: opcode_ref.column,
-              };
-              e.format_with_src_line(opcode_ref.source_line);
-              e
-            })),
+            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
           }) {
             return Err(e);
           }
