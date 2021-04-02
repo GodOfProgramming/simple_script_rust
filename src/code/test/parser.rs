@@ -133,7 +133,15 @@ fn emit_const_creates_expected_opcode() {
 }
 
 #[test]
-fn print_stmt_emits_a_valid_print_opcode() {
+fn let_stmt() {
+  do_with_parser("let foo = true;", |mut parser| {
+    parser.index = 1;
+    parser.let_stmt();
+  })
+}
+
+#[test]
+fn print_stmt() {
   do_with_parser("print 1;", |mut parser| {
     parser.index = 1;
     parser.print_stmt();

@@ -49,11 +49,12 @@ impl Vpu {
     ctx: &mut Context,
     f: F,
   ) -> Option<Error> {
-    match ctx.stack_pop() {
-      Some(v) => f(ctx, v),
-      None => Some(ctx.reflect_instruction(|opcode_ref| {
+    if let Some(v) = ctx.stack_pop() {
+      f(ctx, v)
+    } else {
+      Some(ctx.reflect_instruction(|opcode_ref| {
         Error::from_ref(String::from("cannot operate on empty stack"), opcode_ref)
-      })),
+      }))
     }
   }
 
@@ -61,16 +62,44 @@ impl Vpu {
     ctx: &mut Context,
     f: F,
   ) -> Option<Error> {
-    match ctx.stack_pop() {
-      Some(bv) => match ctx.stack_pop() {
-        Some(av) => f(ctx, av, bv),
-        None => Some(ctx.reflect_instruction(|opcode_ref| {
+    if let Some(bv) = ctx.stack_pop() {
+      if let Some(av) = ctx.stack_pop() {
+        f(ctx, av, bv)
+      } else {
+        Some(ctx.reflect_instruction(|opcode_ref| {
           Error::from_ref(String::from("cannot operate on empty stack"), opcode_ref)
-        })),
-      },
-      None => Some(ctx.reflect_instruction(|opcode_ref| {
+        }))
+      }
+    } else {
+      Some(ctx.reflect_instruction(|opcode_ref| {
         Error::from_ref(String::from("cannot operate on empty stack"), opcode_ref)
-      })),
+      }))
+    }
+  }
+
+  fn global_op<F: FnOnce(&mut Context, String) -> Option<Error>>(
+    ctx: &mut Context,
+    index: usize,
+    f: F,
+  ) -> Option<Error> {
+    if let Some(name) = ctx.const_at(index) {
+      if let Value::Str(name) = name {
+        f(ctx, name)
+      } else {
+        Some(ctx.reflect_instruction(|opcode_ref| {
+          Error::from_ref(
+            format!("global variable name is not an identifier: {}", name),
+            opcode_ref,
+          )
+        }))
+      }
+    } else {
+      Some(ctx.reflect_instruction(|opcode_ref| {
+        Error::from_ref(
+          String::from("could not find global variable name, this is most likely a parse error"),
+          opcode_ref,
+        )
+      }))
     }
   }
 }
@@ -83,10 +112,13 @@ impl Interpreter for Vpu {
     while !ctx.done() {
       match ctx.next() {
         OpCode::NoOp => break,
-        OpCode::Const(index) => match ctx.const_at(index) {
-          Some(c) => ctx.stack_push(c),
-          None => todo!(),
-        },
+        OpCode::Const(index) => {
+          if let Some(c) = ctx.const_at(index) {
+            ctx.stack_push(c);
+          } else {
+            todo!();
+          }
+        }
         OpCode::Nil => ctx.stack_push(Value::Nil),
         OpCode::True => ctx.stack_push(Value::new(true)),
         OpCode::False => ctx.stack_push(Value::new(false)),
@@ -102,26 +134,52 @@ impl Interpreter for Vpu {
           Some(v) => ctx.stack_assign(index, v),
           None => todo!(),
         },
-        OpCode::LookupGlobal(name) => match ctx.lookup_global(&name) {
-          Some(g) => ctx.stack_push(g),
-          None => todo!(),
-        },
-        OpCode::DefineGlobal(name) => match ctx.stack_pop() {
-          Some(v) => {
-            if !ctx.define_global(name, v) {
+        OpCode::LookupGlobal(index) => {
+          if let Some(e) = Vpu::global_op(ctx, index, |ctx, name| match ctx.lookup_global(&name) {
+            Some(g) => {
+              ctx.stack_push(g);
+              None
+            }
+            None => Some(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                String::from(
+                  "could not find global variable name, this is most likely a parse error",
+                ),
+                opcode_ref,
+              )
+            })),
+          }) {
+            return Err(e);
+          }
+        }
+        OpCode::DefineGlobal(index) => {
+          if let Some(e) = Vpu::global_op(ctx, index, |ctx, name| {
+            if let Some(v) = ctx.stack_pop() {
+              if !ctx.define_global(name, v) {
+                todo!();
+              }
+              None
+            } else {
               todo!();
             }
+          }) {
+            return Err(e);
           }
-          None => todo!(),
-        },
-        OpCode::AssignGlobal(name) => match ctx.stack_pop() {
-          Some(v) => {
-            if !ctx.assign_global(name, v) {
+        }
+        OpCode::AssignGlobal(index) => {
+          if let Some(e) = Vpu::global_op(ctx, index, |ctx, name| {
+            if let Some(v) = ctx.stack_pop() {
+              if !ctx.assign_global(name, v) {
+                todo!();
+              }
+              None
+            } else {
               todo!();
             }
+          }) {
+            return Err(e);
           }
-          None => todo!(),
-        },
+        }
         OpCode::Equal => {
           if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| {
             ctx.stack_push(Value::new(a == b));

@@ -3,6 +3,7 @@ use crate::{
   Error, New,
 };
 use std::{
+  collections::BTreeMap,
   fmt::{self, Debug, Display},
   str,
 };
@@ -48,15 +49,15 @@ pub enum OpCode {
   /**
    * Looks up a global variable. The name is stored in the enum
    */
-  LookupGlobal(String),
+  LookupGlobal(usize),
   /**
    * Defines a new global variable. The name is stored in the enum. The value comes off the top of the stack
    */
-  DefineGlobal(String),
+  DefineGlobal(usize),
   /**
    * Assigns a value to the global variable. The Name is stored in the enum. The value comes off the top of the stack
    */
-  AssignGlobal(String),
+  AssignGlobal(usize),
   /**
    * Pops two values off the stack, compares, then pushes the result back on
    */
@@ -285,6 +286,7 @@ pub struct Context {
   env: Env,
   stack: Vec<Value>,
   consts: Vec<Value>,
+  identifiers: BTreeMap<String, usize>,
 
   meta: Reflection,
 }
@@ -297,6 +299,7 @@ impl Context {
       env: Env::default(),
       stack: Vec::default(),
       consts: Vec::default(),
+      identifiers: BTreeMap::new(),
       meta,
     }
   }
@@ -353,6 +356,16 @@ impl Context {
     self.env.assign(name, value)
   }
 
+  pub fn lookup_ident(&self, name: &String) -> Option<usize> {
+    self.identifiers.get(name).cloned()
+  }
+
+  pub fn add_ident(&mut self, name: String) -> usize {
+    let index = self.add_const(Value::new(name.clone()));
+    self.identifiers.insert(name, index);
+    index
+  }
+
   pub fn jump(&mut self, count: usize) {
     self.ip = self.ip.saturating_add(count);
   }
@@ -372,6 +385,11 @@ impl Context {
   fn write_const(&mut self, c: Value, line: usize, column: usize) {
     self.write(OpCode::Const(self.consts.len()), line, column);
     self.consts.push(c);
+  }
+
+  fn add_const(&mut self, c: Value) -> usize {
+    self.consts.push(c);
+    self.consts.len() - 1
   }
 
   fn num_instructions(&self) -> usize {
@@ -1003,6 +1021,24 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
   }
 
+  fn consume_identifier(&mut self, err: String) -> bool {
+    if let Some(curr) = self.current() {
+      if matches!(curr, Token::Identifier(_)) {
+        self.advance();
+        true
+      } else {
+        self.error(self.index, err);
+        false
+      }
+    } else {
+      self.error(
+        self.index - 1,
+        format!("tried to lookup a token at an invalid index: {}", err),
+      );
+      false
+    }
+  }
+
   fn emit(&mut self, pos: usize, op: OpCode) {
     let meta = self.meta.get(pos).unwrap();
     self.ctx.write(op, meta.line, meta.column);
@@ -1026,6 +1062,14 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   ) -> bool {
     let offset = self.ctx.num_instructions() - jmp_instr;
     f(self.ctx, jmp_instr, offset)
+  }
+
+  fn add_ident(&mut self, name: String) -> usize {
+    if let Some(index) = self.ctx.lookup_ident(&name) {
+      index
+    } else {
+      self.ctx.add_ident(name)
+    }
   }
 
   fn declaration(&mut self, token: Token) {
@@ -1119,7 +1163,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn let_stmt(&mut self) {
-    if let Some(global) = self.parse_variable() {
+    if let Some(global) = self.parse_variable(String::from("expect variable name")) {
       if self.advance_if_matches(Token::Equal) {
         if !self.expression() {
           return;
@@ -1468,8 +1512,9 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         get = OpCode::LookupLocal(lookup.index);
         set = OpCode::AssignLocal(lookup.index);
       } else if let Token::Identifier(name) = token {
-        get = OpCode::LookupGlobal(name.clone());
-        set = OpCode::AssignGlobal(name);
+        let index = self.add_ident(name);
+        get = OpCode::LookupGlobal(index);
+        set = OpCode::AssignGlobal(index);
       } else {
         self.error(pos, format!("unable to parse lookup of var '{}'", token));
         return false;
@@ -1486,32 +1531,22 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
   }
 
-  fn parse_variable(&mut self) -> Option<usize> {
-    if let Some(curr) = self.current() {
-      if matches!(curr, Token::Identifier(_)) {
-        self.advance();
-        if !self.declare_variable() {
-          return None;
-        }
+  fn parse_variable(&mut self, err: String) -> Option<usize> {
+    if !self.consume_identifier(err) {
+      return None;
+    }
 
-        if self.scope_depth > 0 {
-          Some(0)
-        } else if let Some(name) = self.previous() {
-          if let Token::Identifier(name) = name {
-            Some(self.identifer_constant(name))
-          } else {
-            self.error(self.index - 1, String::from("expected identifier"));
-            None
-          }
-        } else {
-          self.error(
-            self.index - 1,
-            String::from("tried to lookup a token at an invalid index"),
-          );
-          None
-        }
+    if !self.declare_variable() {
+      return None;
+    }
+
+    if self.scope_depth > 0 {
+      Some(0)
+    } else if let Some(name) = self.previous() {
+      if let Token::Identifier(name) = name {
+        Some(self.add_ident(name))
       } else {
-        self.error(self.index, String::from("expected identifier"));
+        self.error(self.index - 1, String::from("expected identifier"));
         None
       }
     } else {
@@ -1558,6 +1593,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
 
   fn define_variable(&mut self, global: usize) -> bool {
     if self.scope_depth == 0 {
+      self.emit(self.index - 1, OpCode::DefineGlobal(global));
       true
     } else if let Some(local) = self.locals.last_mut() {
       local.initialized = true;
