@@ -913,6 +913,8 @@ pub struct Parser<'ctx, 'file> {
   errors: Option<Vec<Error>>,
 
   locals: Vec<Local>,
+
+  scope_depth: usize,
 }
 
 impl<'ctx, 'file> Parser<'ctx, 'file> {
@@ -924,6 +926,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       index: 0,
       errors: None,
       locals: Vec::new(),
+      scope_depth: 0,
     }
   }
 
@@ -994,7 +997,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     } else {
       self.error(
         self.index - 1,
-        format!("tried to lookup a token in an invalid index: {}", err),
+        format!("tried to lookup a token at an invalid index: {}", err),
       );
       false
     }
@@ -1116,7 +1119,22 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn let_stmt(&mut self) {
-    unimplemented!();
+    if let Some(global) = self.parse_variable() {
+      if self.advance_if_matches(Token::Equal) {
+        if !self.expression() {
+          return;
+        }
+      } else {
+        self.emit(self.index, OpCode::Nil);
+      }
+
+      if self.consume(
+        Token::Semicolon,
+        String::from("expect ';' after variable declaration"),
+      ) {
+        self.define_variable(global);
+      }
+    }
   }
 
   fn load_stmt(&mut self) {
@@ -1468,6 +1486,88 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
   }
 
+  fn parse_variable(&mut self) -> Option<usize> {
+    if let Some(curr) = self.current() {
+      if matches!(curr, Token::Identifier(_)) {
+        self.advance();
+        if !self.declare_variable() {
+          return None;
+        }
+
+        if self.scope_depth > 0 {
+          Some(0)
+        } else if let Some(name) = self.previous() {
+          if let Token::Identifier(name) = name {
+            Some(self.identifer_constant(name))
+          } else {
+            self.error(self.index - 1, String::from("expected identifier"));
+            None
+          }
+        } else {
+          self.error(
+            self.index - 1,
+            String::from("tried to lookup a token at an invalid index"),
+          );
+          None
+        }
+      } else {
+        self.error(self.index, String::from("expected identifier"));
+        None
+      }
+    } else {
+      self.error(
+        self.index - 1,
+        String::from("tried to lookup a token at an invalid index"),
+      );
+      None
+    }
+  }
+
+  fn declare_variable(&mut self) -> bool {
+    if self.scope_depth > 0 {
+      if let Some(prev) = self.previous() {
+        if let Token::Identifier(name) = prev {
+          for local in self.locals.iter().rev() {
+            if local.initialized && local.depth < self.scope_depth {
+              break;
+            }
+
+            if name == local.name {
+              self.error(
+                self.index - 1,
+                String::from("variable with same name already declared"),
+              );
+              return false;
+            }
+          }
+          self.add_local(name);
+        } else {
+          self.error(self.index - 1, String::from("expected identifier"));
+          return false;
+        }
+      } else {
+        self.error(
+          self.index - 1,
+          String::from("tried to lookup a token at an invalid index"),
+        );
+        return false;
+      }
+    }
+    true
+  }
+
+  fn define_variable(&mut self, global: usize) -> bool {
+    if self.scope_depth == 0 {
+      true
+    } else if let Some(local) = self.locals.last_mut() {
+      local.initialized = true;
+      true
+    } else {
+      self.error(self.index, String::from("could not define variable"));
+      false
+    }
+  }
+
   fn resolve_local(&mut self, token: &Token, pos: usize) -> Option<Lookup> {
     let mut index = self.locals.len() - 1;
 
@@ -1497,6 +1597,14 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       index: 0,
       kind: LookupKind::Global,
     })
+  }
+
+  fn add_local(&mut self, name: String) {
+    self.locals.push(Local {
+      name,
+      depth: self.scope_depth,
+      initialized: false,
+    });
   }
 
   fn sync(&mut self) {
