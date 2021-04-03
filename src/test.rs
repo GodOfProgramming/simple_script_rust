@@ -1,12 +1,12 @@
 use super::*;
 
 #[cfg(test)]
-fn run<F: FnOnce(Context)>(script: &str, f: F) {
+fn run<F: FnOnce(Context, Value)>(script: &str, f: F) {
   let vpu = Vpu::default();
   let runner = Runner::new(vpu);
   match runner.load(String::from("test"), script) {
     Ok(mut ctx) => match runner.run(&mut ctx) {
-      Ok(_) => f(ctx),
+      Ok(v) => f(ctx, v),
       Err(err) => panic!("{}", err),
     },
     Err(errs) => {
@@ -23,7 +23,7 @@ fn run<F: FnOnce(Context)>(script: &str, f: F) {
  */
 #[test]
 fn let_0() {
-  run("let foo;", |ctx| {
+  run("let foo;", |ctx, _| {
     let val = ctx.lookup_global("foo").unwrap();
     assert_eq!(val, Value::Nil);
   });
@@ -34,7 +34,7 @@ fn let_0() {
  */
 #[test]
 fn let_1() {
-  run("let foo = true;", |ctx| {
+  run("let foo = true;", |ctx, _| {
     let val = ctx.lookup_global("foo").unwrap();
     assert_eq!(val, Value::new(true));
   });
@@ -45,7 +45,7 @@ fn let_1() {
  */
 #[test]
 fn let_2() {
-  run("let foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;", |ctx| {
+  run("let foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;", |ctx, _| {
     let val = ctx.lookup_global("foo").unwrap();
     assert_eq!(val, Value::new(7.2));
   });
@@ -56,7 +56,7 @@ fn let_2() {
  */
 #[test]
 fn let_3() {
-  run("let foo; foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;", |ctx| {
+  run("let foo; foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;", |ctx, _| {
     let val = ctx.lookup_global("foo").unwrap();
     assert_eq!(val, Value::new(7.2));
   });
@@ -64,7 +64,7 @@ fn let_3() {
 
 #[test]
 fn block_0() {
-  run("let foo; { foo = 1; }", |ctx| {
+  run("let foo; { foo = 1; }", |ctx, _| {
     let val = ctx.lookup_global("foo").unwrap();
     assert_eq!(val, Value::new(1));
   });
@@ -72,7 +72,7 @@ fn block_0() {
 
 #[test]
 fn block_1() {
-  run("let foo; { foo = 1; let bar; bar = 0; }", |ctx| {
+  run("let foo; { foo = 1; let bar; bar = 0; }", |ctx, _| {
     let val = ctx.lookup_global("foo").unwrap();
     assert_eq!(val, Value::new(1));
     assert!(ctx.lookup_global("bar").is_none());
@@ -80,9 +80,22 @@ fn block_1() {
 }
 
 #[test]
+fn end_0() {
+  run(
+    "let foo; { foo = 1; let bar; bar = 0; { end bar; } }",
+    |ctx, v| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::new(1));
+      assert!(ctx.lookup_global("bar").is_none());
+      assert_eq!(v, Value::new(0));
+    },
+  );
+}
+
+#[test]
 fn if_0() {
   const SCRIPT: &str = "let foo = true; if foo { foo = 1; }";
-  run(SCRIPT, |ctx| {
+  run(SCRIPT, |ctx, _| {
     let val = ctx.lookup_global("foo").unwrap();
     assert_eq!(val, Value::new(1));
   });
@@ -95,7 +108,7 @@ fn if_0() {
 fn if_1() {
   run(
     "let foo = true; if foo { foo = 1; } else { foo = 2; }",
-    |ctx| {
+    |ctx, _| {
       let val = ctx.lookup_global("foo").unwrap();
       assert_eq!(val, Value::new(1));
     },
@@ -106,7 +119,7 @@ fn if_1() {
 fn if_2() {
   run(
     "let foo = false; if foo { foo = 1; } else { foo = 2; }",
-    |ctx| {
+    |ctx, _| {
       let val = ctx.lookup_global("foo").unwrap();
       assert_eq!(val, Value::new(2));
     },
