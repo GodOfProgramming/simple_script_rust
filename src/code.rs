@@ -107,6 +107,14 @@ pub enum OpCode {
    */
   Mod,
   /**
+   * Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple
+   */
+  Or(usize),
+  /**
+   * Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple
+   */
+  And(usize),
+  /**
    * Pops a value off the stack, inverts its truthy value, then pushes that back on
    */
   Not,
@@ -134,14 +142,6 @@ pub enum OpCode {
    * Jumps the instruction pointer backwards N instructions. N specified by the tuple
    */
   Loop(usize),
-  /**
-   * Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple
-   */
-  Or(usize),
-  /**
-   * Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple
-   */
-  And(usize),
   /**
    * Pushes the stack pointer onto the stack
    */
@@ -446,24 +446,24 @@ impl Context {
 
     match op {
       OpCode::Const(index) => {
-        print!("{:<16} {:4} ", "Const", index);
+        print!("{:<16} {:4} ", "CONST", index);
         let c = self.const_at(*index);
         match c {
           Some(v) => println!("'{}'", v),
           None => println!("INVALID INDEX"),
         }
       }
-      OpCode::PopN(count) => println!("{:<16} {:4}", "PopN", count),
-      OpCode::LookupLocal(index) => println!("{:<16} {:4}", "LookupLocal", index),
-      OpCode::AssignLocal(index) => println!("{:<16} {:4}", "AssignLocal", index),
-      OpCode::LookupGlobal(name) => println!("{:<16} '{}'", "LookupGlobal", name),
-      OpCode::DefineGlobal(name) => println!("{:<16} '{}'", "DefineGlobal", name),
-      OpCode::AssignGlobal(name) => println!("{:<16} '{}'", "AssignGlobal", name),
-      OpCode::Jump(count) => println!("{:<16} {:4}", "Jump", count),
-      OpCode::JumpIfFalse(count) => println!("{:<16} {:4}", "JumpIfFalse", count),
-      OpCode::Loop(count) => println!("{:<16} {:4}", "Loop", count),
-      OpCode::Or(count) => println!("{:<16} {:4}", "Or", count),
-      OpCode::And(count) => println!("{:<16} {:4}", "And", count),
+      OpCode::PopN(count) => println!("{:<16} {:4}", "POP_N", count),
+      OpCode::LookupLocal(index) => println!("{:<16} {:4}", "LOOKUP_LOCAL", index),
+      OpCode::AssignLocal(index) => println!("{:<16} {:4}", "ASSIGN_LOCAL", index),
+      OpCode::LookupGlobal(name) => println!("{:<16} '{}'", "LOOKUP_GLOBAL", name),
+      OpCode::DefineGlobal(name) => println!("{:<16} '{}'", "DEFINE_GLOBAL", name),
+      OpCode::AssignGlobal(name) => println!("{:<16} '{}'", "ASSIGN_GLOBAL", name),
+      OpCode::Jump(count) => println!("{:<16} {:4}", "JUMP", count),
+      OpCode::JumpIfFalse(count) => println!("{:<16} {:4}", "JUMP_IF_FALSE", count),
+      OpCode::Loop(count) => println!("{:<16} {:4}", "LOOP", count),
+      OpCode::Or(count) => println!("{:<16} {:4}", "OR", count),
+      OpCode::And(count) => println!("{:<16} {:4}", "AND", count),
       x => println!("{:?}", x),
     }
   }

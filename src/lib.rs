@@ -1,14 +1,18 @@
 mod code;
 mod types;
 
+#[cfg(test)]
+mod test;
+
 use code::{Compiler, Context, OpCode, OpCodeReflection};
+use std::fmt::{Debug, Display};
 use types::Value;
 
 pub trait New<T> {
   fn new(item: T) -> Self;
 }
 
-#[derive(Default, Debug, PartialEq)]
+#[derive(Default, PartialEq)]
 pub struct Error {
   pub msg: String,
   pub file: String,
@@ -38,10 +42,31 @@ impl Error {
   }
 }
 
-pub trait Interpreter {
-  fn process(&self, ctx: &mut Context) -> Result<Value, Error>;
+impl Debug for Error {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    writeln!(
+      f,
+      "{} ({}, {}): {}",
+      self.file, self.line, self.column, self.msg
+    )
+  }
 }
 
+impl Display for Error {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    writeln!(
+      f,
+      "{} ({}, {}): {}",
+      self.file, self.line, self.column, self.msg
+    )
+  }
+}
+
+pub trait Interpreter {
+  fn interpret(&self, ctx: &mut Context) -> Result<Value, Error>;
+}
+
+#[derive(Default)]
 pub struct Vpu;
 
 impl Vpu {
@@ -105,7 +130,7 @@ impl Vpu {
 }
 
 impl Interpreter for Vpu {
-  fn process(&self, ctx: &mut Context) -> Result<Value, Error> {
+  fn interpret(&self, ctx: &mut Context) -> Result<Value, Error> {
     if cfg!(debug_assertions) {
       ctx.display_opcodes();
     }
@@ -290,6 +315,26 @@ impl Interpreter for Vpu {
             return Err(e);
           }
         }
+        OpCode::Or(count) => match ctx.stack_peek() {
+          // TODO check if this should really be peek, think so because a pop happens after(?)
+          Some(v) => {
+            if v.truthy() {
+              ctx.jump(count);
+              continue;
+            }
+          }
+          None => todo!(),
+        },
+        OpCode::And(count) => match ctx.stack_peek() {
+          // TODO check if this should really be peek, think so because a pop happens after(?)
+          Some(v) => {
+            if !v.truthy() {
+              ctx.jump(count);
+              continue;
+            }
+          }
+          None => todo!(),
+        },
         OpCode::Not => {
           if let Some(e) = Vpu::unary_op(ctx, |ctx, v| {
             ctx.stack_push(!v);
@@ -340,26 +385,6 @@ impl Interpreter for Vpu {
           ctx.loop_back(count);
           continue; // ip is at correct place
         }
-        OpCode::Or(count) => match ctx.stack_peek() {
-          // TODO check if this should really be peek, think so because a pop happens after(?)
-          Some(v) => {
-            if v.truthy() {
-              ctx.jump(count);
-              continue;
-            }
-          }
-          None => todo!(),
-        },
-        OpCode::And(count) => match ctx.stack_peek() {
-          // TODO check if this should really be peek, think so because a pop happens after(?)
-          Some(v) => {
-            if !v.truthy() {
-              ctx.jump(count);
-              continue;
-            }
-          }
-          None => todo!(),
-        },
         x => unimplemented!("Unimplemented: {:?}", x),
       }
       ctx.advance();
@@ -384,6 +409,6 @@ impl<T: Interpreter> Runner<T> {
   }
 
   pub fn run(&self, ctx: &mut Context) -> Result<Value, Error> {
-    self.vpu.process(ctx)
+    self.vpu.interpret(ctx)
   }
 }

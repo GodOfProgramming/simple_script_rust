@@ -137,6 +137,15 @@ fn let_stmt() {
   do_with_parser("let foo = true;", |mut parser| {
     parser.index = 1;
     parser.let_stmt();
+
+    let expected_consts = vec![Value::new(String::from("foo"))];
+    assert_eq!(expected_consts, parser.ctx.consts);
+
+    let ident_loc = parser.ctx.identifiers.get("foo").cloned().unwrap();
+    assert_eq!(ident_loc, 0usize);
+
+    let expected_opcodes = vec![OpCode::True, OpCode::DefineGlobal(0)];
+    assert_eq!(expected_opcodes, parser.ctx.instructions);
   })
 }
 
