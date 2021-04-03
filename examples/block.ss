@@ -7,4 +7,5 @@ let g = "global";
   print l2;
   print l1;
   print g;
+  print 1 - nil;
 }

@@ -21,7 +21,7 @@ pub struct Error {
 }
 
 impl Error {
-  pub fn from_ref(msg: String, opcode_ref: OpCodeReflection) -> Self {
+  pub fn from_ref(msg: String, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
     let mut e = Self {
       msg,
       file: opcode_ref.file,
@@ -29,6 +29,7 @@ impl Error {
       column: opcode_ref.column,
     };
     e.format_with_src_line(opcode_ref.source_line);
+    e.msg = format!("{}\nOffending OpCode: {:?}", e.msg, opcode);
     e
   }
 
@@ -72,19 +73,25 @@ pub struct Vpu;
 impl Vpu {
   fn unary_op<F: FnOnce(&mut Context, Value) -> Option<Error>>(
     ctx: &mut Context,
+    opcode: &OpCode,
     f: F,
   ) -> Option<Error> {
     if let Some(v) = ctx.stack_pop() {
       f(ctx, v)
     } else {
       Some(ctx.reflect_instruction(|opcode_ref| {
-        Error::from_ref(String::from("cannot operate on empty stack"), opcode_ref)
+        Error::from_ref(
+          String::from("cannot operate on empty stack"),
+          opcode,
+          opcode_ref,
+        )
       }))
     }
   }
 
   fn binary_op<F: FnOnce(&mut Context, Value, Value) -> Option<Error>>(
     ctx: &mut Context,
+    opcode: &OpCode,
     f: F,
   ) -> Option<Error> {
     if let Some(bv) = ctx.stack_pop() {
@@ -92,18 +99,27 @@ impl Vpu {
         f(ctx, av, bv)
       } else {
         Some(ctx.reflect_instruction(|opcode_ref| {
-          Error::from_ref(String::from("cannot operate on empty stack"), opcode_ref)
+          Error::from_ref(
+            String::from("cannot operate on empty stack"),
+            opcode,
+            opcode_ref,
+          )
         }))
       }
     } else {
       Some(ctx.reflect_instruction(|opcode_ref| {
-        Error::from_ref(String::from("cannot operate on empty stack"), opcode_ref)
+        Error::from_ref(
+          String::from("cannot operate on empty stack"),
+          opcode,
+          opcode_ref,
+        )
       }))
     }
   }
 
   fn global_op<F: FnOnce(&mut Context, String) -> Option<Error>>(
     ctx: &mut Context,
+    opcode: &OpCode,
     index: usize,
     f: F,
   ) -> Option<Error> {
@@ -114,6 +130,7 @@ impl Vpu {
         Some(ctx.reflect_instruction(|opcode_ref| {
           Error::from_ref(
             format!("global variable name is not an identifier: {}", name),
+            opcode,
             opcode_ref,
           )
         }))
@@ -122,6 +139,7 @@ impl Vpu {
       Some(ctx.reflect_instruction(|opcode_ref| {
         Error::from_ref(
           String::from("global variable name does not exist"),
+          opcode,
           opcode_ref,
         )
       }))
@@ -148,7 +166,13 @@ impl Interpreter for Vpu {
           if let Some(c) = ctx.const_at(index) {
             ctx.stack_push(c);
           } else {
-            todo!();
+            return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                String::from("could not lookup constant"),
+                &opcode,
+                opcode_ref,
+              )
+            }));
           }
         }
         OpCode::Nil => ctx.stack_push(Value::Nil),
@@ -160,60 +184,98 @@ impl Interpreter for Vpu {
         OpCode::PopN(count) => ctx.stack_pop_n(count),
         OpCode::LookupLocal(index) => match ctx.stack_index(index) {
           Some(l) => ctx.stack_push(l),
-          None => todo!(),
+          None => {
+            return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                format!("could not index stack at pos {}", index),
+                &opcode,
+                opcode_ref,
+              )
+            }));
+          }
         },
         OpCode::AssignLocal(index) => match ctx.stack_peek() {
           Some(v) => ctx.stack_assign(index, v),
-          None => todo!(),
+          None => {
+            return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                format!("could not replace stack value at pos {}", index),
+                &opcode,
+                opcode_ref,
+              )
+            }));
+          }
         },
         OpCode::LookupGlobal(index) => {
-          if let Some(e) = Vpu::global_op(ctx, index, |ctx, name| match ctx.lookup_global(&name) {
-            Some(g) => {
-              ctx.stack_push(g);
-              None
+          if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
+            match ctx.lookup_global(&name) {
+              Some(g) => {
+                ctx.stack_push(g);
+                None
+              }
+              None => Some(ctx.reflect_instruction(|opcode_ref| {
+                Error::from_ref(
+                  String::from("use of undefined variable"),
+                  &opcode,
+                  opcode_ref,
+                )
+              })),
             }
-            None => Some(ctx.reflect_instruction(|opcode_ref| {
-              Error::from_ref(String::from("use of undefined variable"), opcode_ref)
-            })),
           }) {
             return Err(e);
           }
         }
         OpCode::DefineGlobal(index) => {
-          if let Some(e) = Vpu::global_op(ctx, index, |ctx, name| {
+          if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
             if let Some(v) = ctx.stack_pop() {
-              if !ctx.define_global(name, v) {
-                todo!();
+              if ctx.define_global(name, v) {
+                None
+              } else {
+                Some(ctx.reflect_instruction(|opcode_ref| {
+                  Error::from_ref(String::from("tried redefining global variable, this error should be detected in the parsing phase"), &opcode, opcode_ref)
+                }))
               }
-              None
             } else {
-              todo!();
+              Some(ctx.reflect_instruction(|opcode_ref| {
+                Error::from_ref(
+                  String::from("can not define global using empty stack"),
+                  &opcode,
+                  opcode_ref,
+                )
+              }))
             }
           }) {
             return Err(e);
           }
         }
         OpCode::AssignGlobal(index) => {
-          if let Some(e) = Vpu::global_op(ctx, index, |ctx, name| {
+          if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
             if let Some(v) = ctx.stack_pop() {
               if !ctx.assign_global(name, v) {
                 return Some(ctx.reflect_instruction(|opcode_ref| {
                   Error::from_ref(
                     String::from("tried to assign to nonexistent global"),
+                    &opcode,
                     opcode_ref,
                   )
                 }));
               }
               None
             } else {
-              todo!();
+              Some(ctx.reflect_instruction(|opcode_ref| {
+                Error::from_ref(
+                  String::from("can not assign to global using empty stack"),
+                  &opcode,
+                  opcode_ref,
+                )
+              }))
             }
           }) {
             return Err(e);
           }
         }
         OpCode::Equal => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a == b));
             None
           }) {
@@ -221,7 +283,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::NotEqual => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a != b));
             None
           }) {
@@ -229,7 +291,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Greater => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a > b));
             None
           }) {
@@ -237,7 +299,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::GreaterEqual => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a >= b));
             None
           }) {
@@ -245,7 +307,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Less => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a < b));
             None
           }) {
@@ -253,7 +315,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::LessEqual => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a <= b));
             None
           }) {
@@ -263,61 +325,79 @@ impl Interpreter for Vpu {
         OpCode::Check => match ctx.stack_pop() {
           Some(a) => match ctx.stack_peek() {
             Some(b) => ctx.stack_push(Value::new(a == b)),
-            None => todo!(),
+            None => {
+              return Err(ctx.reflect_instruction(|opcode_ref| {
+                Error::from_ref(String::from("stack peek failed"), &opcode, opcode_ref)
+              }))
+            }
           },
-          None => todo!(),
+          None => {
+            return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(String::from("stack pop failed"), &opcode, opcode_ref)
+            }))
+          }
         },
         OpCode::Add => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| match a + b {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a + b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
+            Err(e) => {
+              Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)))
+            }
           }) {
             return Err(e);
           }
         }
         OpCode::Sub => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| match a - b {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a - b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
+            Err(e) => {
+              Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)))
+            }
           }) {
             return Err(e);
           }
         }
         OpCode::Mul => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| match a * b {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a * b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
+            Err(e) => {
+              Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)))
+            }
           }) {
             return Err(e);
           }
         }
         OpCode::Div => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| match a / b {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a / b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
+            Err(e) => {
+              Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)))
+            }
           }) {
             return Err(e);
           }
         }
         OpCode::Mod => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| match a % b {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a % b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
+            Err(e) => {
+              Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)))
+            }
           }) {
             return Err(e);
           }
@@ -343,7 +423,7 @@ impl Interpreter for Vpu {
           None => todo!(),
         },
         OpCode::Not => {
-          if let Some(e) = Vpu::unary_op(ctx, |ctx, v| {
+          if let Some(e) = Vpu::unary_op(ctx, &opcode, |ctx, v| {
             ctx.stack_push(!v);
             None
           }) {
@@ -351,18 +431,20 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Negate => {
-          if let Some(e) = Vpu::unary_op(ctx, |ctx, v| match -v {
+          if let Some(e) = Vpu::unary_op(ctx, &opcode, |ctx, v| match -v {
             Ok(n) => {
               ctx.stack_push(n);
               None
             }
-            Err(e) => Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, opcode_ref))),
+            Err(e) => {
+              Some(ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)))
+            }
           }) {
             return Err(e);
           }
         }
         OpCode::Print => {
-          if let Some(e) = Vpu::unary_op(ctx, |_, v| {
+          if let Some(e) = Vpu::unary_op(ctx, &opcode, |_, v| {
             println!("{}", v);
             None
           }) {
@@ -370,7 +452,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Swap => {
-          if let Some(e) = Vpu::binary_op(ctx, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(a);
             ctx.stack_push(b);
             None
