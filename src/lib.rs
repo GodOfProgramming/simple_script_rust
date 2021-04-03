@@ -138,6 +138,7 @@ impl Interpreter for Vpu {
       let opcode = ctx.next();
 
       if cfg!(debug_assertions) {
+        ctx.display_stack();
         ctx.display_instruction(&opcode, ctx.ip);
       }
 

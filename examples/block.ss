@@ -1,14 +1,10 @@
-let foo;
+let g = "global";
 {
-  foo = 1;
-  let bar = "not bar";
-  bar = "bar";
-  print bar;
-  {
-    let bar = true;
-    print bar;
-  }
-  end bar;
+  let l1 = "local1";
+  let l2 = "local2";
+  l2 = "local_2";
+  l1 = "local_1";
+  print l2;
+  print l1;
+  print g;
 }
-
-end true;

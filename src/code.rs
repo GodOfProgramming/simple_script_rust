@@ -498,6 +498,18 @@ impl Context {
       x => println!("{:<16?}", x),
     }
   }
+
+  pub fn display_stack(&self) {
+    print!("          | ");
+    if self.stack.is_empty() {
+      print!("[ ]");
+    } else {
+      for item in self.stack.iter() {
+        print!("[ {} ]", item);
+      }
+    }
+    println!();
+  }
 }
 
 struct Scanner<'src> {
