@@ -125,3 +125,27 @@ fn if_2() {
     },
   );
 }
+
+#[test]
+fn if_3() {
+  run(
+    "if true and false or true { end true; } else { end false; }",
+    |_, v| assert!(v.truthy()),
+  );
+}
+
+#[test]
+fn if_4() {
+  run(
+    "if true and false and false or true { end true; } else { end false; }",
+    |_, v| assert!(v.truthy()),
+  );
+}
+
+#[test]
+fn if_5() {
+  run(
+    "if true and false and (false or true) { end true; } else { end false; }",
+    |_, v| assert!(!v.truthy()),
+  );
+}
