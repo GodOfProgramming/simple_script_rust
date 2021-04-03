@@ -61,3 +61,40 @@ fn let_3() {
     assert_eq!(val, Value::new(7.2));
   });
 }
+
+#[test]
+fn if_0() {
+  const SCRIPT: &str = "let foo = true;
+  if foo {
+    foo = 1;
+  }";
+  run(SCRIPT, |ctx| {
+    let val = ctx.lookup_global("foo").unwrap();
+    assert_eq!(val, Value::new(1));
+  });
+}
+
+/**
+ * else block not executed
+ */
+#[test]
+fn if_1() {
+  run(
+    "let foo = true; if foo { foo = 1; } else { foo = 2; }",
+    |ctx| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::new(1));
+    },
+  );
+}
+
+#[test]
+fn if_2() {
+  run(
+    "let foo = false; if foo { foo = 1; } else { foo = 2; }",
+    |ctx| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::new(2));
+    },
+  );
+}

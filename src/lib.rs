@@ -135,7 +135,13 @@ impl Interpreter for Vpu {
       ctx.display_opcodes();
     }
     while !ctx.done() {
-      match ctx.next() {
+      let opcode = ctx.next();
+
+      if cfg!(debug_assertions) {
+        ctx.display_instruction(&opcode, ctx.ip);
+      }
+
+      match opcode {
         OpCode::NoOp => break,
         OpCode::Const(index) => {
           if let Some(c) = ctx.const_at(index) {
@@ -374,7 +380,7 @@ impl Interpreter for Vpu {
         OpCode::Jump(count) => ctx.jump(count),
         OpCode::JumpIfFalse(count) => match ctx.stack_peek() {
           Some(v) => {
-            if v.truthy() {
+            if !v.truthy() {
               ctx.jump(count);
               continue; // ip is now at correct place, so skip advance
             }

@@ -280,12 +280,12 @@ impl Reflection {
 }
 
 pub struct Context {
-  instructions: Vec<OpCode>,
-  ip: usize,
+  pub ip: usize,
 
   env: Env,
   stack: Vec<Value>,
   consts: Vec<Value>,
+  instructions: Vec<OpCode>,
   identifiers: BTreeMap<String, usize>,
 
   meta: Reflection,
@@ -294,11 +294,11 @@ pub struct Context {
 impl Context {
   fn new(meta: Reflection) -> Self {
     Self {
-      instructions: Vec::default(),
       ip: 0,
       env: Env::default(),
       stack: Vec::default(),
       consts: Vec::default(),
+      instructions: Vec::default(),
       identifiers: BTreeMap::new(),
       meta,
     }
@@ -433,6 +433,8 @@ impl Context {
         if let Some(prev) = self.meta.get(offset - 1) {
           if curr.line == prev.line {
             print!("   | ");
+          } else {
+            print!("{:#04} ", curr.line);
           }
         } else {
           print!("?????");
@@ -571,7 +573,7 @@ impl<'src> Scanner<'src> {
         };
 
         if cfg!(test) {
-          println!("made token {:?}", token);
+          println!("{}: {:?}", tokens.len(), token);
         }
 
         tokens.push(token);
@@ -950,7 +952,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
 
   fn parse(&mut self) -> Option<Vec<Error>> {
     while let Some(current) = self.current() {
-      self.declaration(current);
+      self.statement(current);
     }
 
     self.errors.take()
@@ -1040,7 +1042,13 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn emit(&mut self, pos: usize, op: OpCode) {
-    let meta = self.meta.get(pos).unwrap();
+    let meta = self
+      .meta
+      .get(pos)
+      .or_else(|| {
+        panic!("could not locate token meta at pos {}", pos);
+      })
+      .unwrap();
     self.ctx.write(op, meta.line, meta.column);
   }
 
@@ -1072,7 +1080,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
   }
 
-  fn declaration(&mut self, token: Token) {
+  fn statement(&mut self, token: Token) {
     match token {
       Token::Break => {
         self.advance();
@@ -1165,11 +1173,47 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn if_stmt(&mut self) {
-    unimplemented!();
+    if !self.expression() {
+      return;
+    }
+    if !self.consume(Token::LeftBrace, String::from("expect '{' after condition")) {
+      return;
+    }
+
+    let jmp_loc = self.emit_jump(self.index, OpCode::NoOp);
+    self.emit(self.index, OpCode::Pop);
+    self.block_stmt();
+
+    let else_loc = self.emit_jump(self.index - 1, OpCode::NoOp);
+    self.patch_jump(jmp_loc, |ctx, jmp_instr, offset| {
+      ctx.replace_instruction(jmp_instr, OpCode::JumpIfFalse(offset))
+    });
+    self.emit(self.index - 1, OpCode::Pop);
+
+    if self.advance_if_matches(Token::Else) {
+      if let Some(token) = self.current() {
+        self.statement(token);
+      } else {
+        self.error(self.index - 1, String::from("unexpected end of file"));
+        return;
+      }
+    }
+
+    self.patch_jump(else_loc, |ctx, jmp_instr, offset| {
+      ctx.replace_instruction(jmp_instr, OpCode::Jump(offset))
+    });
   }
 
   fn block_stmt(&mut self) {
-    unimplemented!();
+    self.wrap_block(|this| {
+      while let Some(token) = this.current() {
+        if token == Token::RightBrace {
+          break;
+        }
+        this.statement(token);
+      }
+      this.consume(Token::RightBrace, String::from(""))
+    });
   }
 
   fn let_stmt(&mut self) {
@@ -1224,6 +1268,38 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
 
   fn expression(&mut self) -> bool {
     self.parse_precedence(Precedence::Assignment)
+  }
+
+  fn wrap_scope<F: FnOnce(&mut Parser) -> bool>(&mut self, f: F) -> bool {
+    self.scope_depth += 1;
+    if !f(self) {
+      return false;
+    }
+    self.scope_depth -= 1;
+    true
+  }
+
+  fn wrap_block<F: FnOnce(&mut Parser) -> bool>(&mut self, f: F) -> bool {
+    if !self.wrap_scope(f) {
+      return false;
+    }
+
+    let mut count = 0;
+    for (i, local) in self.locals.iter().rev().enumerate() {
+      if local.depth <= self.scope_depth {
+        count = i + 1;
+      }
+    }
+
+    self
+      .locals
+      .truncate(self.locals.len().saturating_sub(count));
+
+    if count > 0 {
+      self.emit(self.index, OpCode::PopN(count));
+    }
+
+    true
   }
 
   fn rule_for(token: &Token) -> ParseRule<'ctx, 'file> {
