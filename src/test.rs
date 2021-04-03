@@ -18,6 +18,9 @@ fn run<F: FnOnce(Context)>(script: &str, f: F) {
   }
 }
 
+/**
+ * nil
+ */
 #[test]
 fn let_0() {
   run("let foo;", |ctx| {
@@ -26,6 +29,9 @@ fn let_0() {
   });
 }
 
+/**
+ * true
+ */
 #[test]
 fn let_1() {
   run("let foo = true;", |ctx| {
@@ -34,6 +40,9 @@ fn let_1() {
   });
 }
 
+/**
+ * add sub mul div mod
+ */
 #[test]
 fn let_2() {
   run("let foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;", |ctx| {
@@ -42,6 +51,9 @@ fn let_2() {
   });
 }
 
+/**
+ * add sub mul div mod
+ */
 #[test]
 fn let_3() {
   run("let foo; foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;", |ctx| {

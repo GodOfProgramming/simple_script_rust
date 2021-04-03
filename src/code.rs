@@ -849,7 +849,7 @@ impl<'src> Scanner<'src> {
   }
 }
 
-#[derive(PartialEq, PartialOrd, Clone, Copy)]
+#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
 enum Precedence {
   None,
   Assignment, // =
@@ -1130,7 +1130,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         self.advance();
         self.while_stmt();
       }
-      _ => (), // self.expression_stmt(),
+      _ => self.expression_stmt(),
     }
   }
 
@@ -1144,6 +1144,16 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
 
   fn end_stmt(&mut self) {
     unimplemented!();
+  }
+
+  fn expression_stmt(&mut self) {
+    if !self.expression() {
+      return;
+    }
+    if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+      return;
+    }
+    self.emit(self.index - 1, OpCode::Pop);
   }
 
   fn fn_stmt(&mut self) {
@@ -1605,28 +1615,30 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn resolve_local(&mut self, token: &Token, pos: usize) -> Option<Lookup> {
-    let mut index = self.locals.len() - 1;
+    if !self.locals.is_empty() {
+      let mut index = self.locals.len() - 1;
 
-    for local in self.locals.iter().rev() {
-      if let Token::Identifier(name) = token {
-        if *name == local.name {
-          if !local.initialized {
-            self.error(
-              pos,
-              String::from("can't read variable in it's own initializer"),
-            );
-            return None;
-          } else {
-            return Some(Lookup {
-              index,
-              kind: LookupKind::Local,
-            });
+      for local in self.locals.iter().rev() {
+        if let Token::Identifier(name) = token {
+          if *name == local.name {
+            if !local.initialized {
+              self.error(
+                pos,
+                String::from("can't read variable in it's own initializer"),
+              );
+              return None;
+            } else {
+              return Some(Lookup {
+                index,
+                kind: LookupKind::Local,
+              });
+            }
           }
+        } else {
+          todo!("error here");
         }
-      } else {
-        todo!("error here");
+        index -= 1;
       }
-      index -= 1;
     }
 
     Some(Lookup {
