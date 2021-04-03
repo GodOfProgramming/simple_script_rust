@@ -358,7 +358,7 @@ impl Context {
     self.env.assign(name, value)
   }
 
-  pub fn lookup_ident(&self, name: &String) -> Option<usize> {
+  pub fn lookup_ident(&self, name: &str) -> Option<usize> {
     self.identifiers.get(name).cloned()
   }
 

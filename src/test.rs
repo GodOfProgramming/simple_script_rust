@@ -18,6 +18,27 @@ fn run<F: FnOnce(Context, Value)>(script: &str, f: F) {
   }
 }
 
+#[test]
+fn adding_a_global() {
+  let vpu = Vpu::default();
+  let runner = Runner::new(vpu);
+  match runner.load(String::from("test"), "end foo;") {
+    Ok(mut ctx) => {
+      ctx.assign_global(String::from("foo"), Value::new("foo"));
+      match runner.run(&mut ctx) {
+        Ok(v) => assert_eq!(Value::new("foo"), v),
+        Err(err) => panic!("{}", err),
+      }
+    }
+    Err(errs) => {
+      for err in errs {
+        println!("{}", err);
+      }
+      panic!("compilation errors detected!");
+    }
+  }
+}
+
 /**
  * nil
  */
