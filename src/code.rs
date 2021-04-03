@@ -1509,7 +1509,10 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     if !self.expression() {
       return false;
     }
-    self.consume(Token::RightParen, String::from(""))
+    self.consume(
+      Token::RightParen,
+      String::from("expected ')' after expression"),
+    )
   }
 
   fn call_expr(&mut self, _: bool) -> bool {
