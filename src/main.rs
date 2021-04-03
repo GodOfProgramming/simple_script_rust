@@ -29,7 +29,7 @@ fn run_file(runner: Runner<Vpu>, file: String) -> bool {
           }
         },
         Err(errs) => {
-          println!("Errors detected when compiling!");
+          println!("Errors detected when compiling! ({})", errs.len());
           for err in errs {
             println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
           }

@@ -947,6 +947,26 @@ impl<'ctx, 'file> ParseRule<'ctx, 'file> {
   }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Statement {
+  None,
+  Break,
+  Cont,
+  End,
+  Fn,
+  For,
+  If,
+  Block,
+  Let,
+  Load,
+  Loop,
+  Match,
+  Print,
+  Ret,
+  While,
+  Expr,
+}
+
 struct Local {
   name: String,
   depth: usize,
@@ -970,12 +990,11 @@ pub struct Parser<'ctx, 'file> {
   ctx: &'ctx mut Context,
 
   index: usize,
+  scope_depth: usize,
+  current_stmt: Statement,
 
   errors: Option<Vec<Error>>,
-
   locals: Vec<Local>,
-
-  scope_depth: usize,
 }
 
 impl<'ctx, 'file> Parser<'ctx, 'file> {
@@ -985,9 +1004,10 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       meta,
       ctx,
       index: 0,
+      scope_depth: 0,
+      current_stmt: Statement::None,
       errors: None,
       locals: Vec::new(),
-      scope_depth: 0,
     }
   }
 
@@ -1104,13 +1124,10 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     offset
   }
 
-  fn patch_jump<F: FnOnce(&mut Context, usize, usize) -> bool>(
-    &mut self,
-    jmp_instr: usize,
-    f: F,
-  ) -> bool {
-    let offset = self.ctx.num_instructions() - jmp_instr;
-    f(self.ctx, jmp_instr, offset)
+  fn patch_jump<F: FnOnce(usize) -> OpCode>(&mut self, index: usize, f: F) -> bool {
+    let offset = self.ctx.num_instructions() - index;
+    let opcode = f(offset);
+    self.ctx.replace_instruction(index, opcode)
   }
 
   fn add_ident(&mut self, name: String) -> usize {
@@ -1233,9 +1250,9 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     self.block_stmt();
 
     let else_loc = self.emit_jump(self.index - 1, OpCode::NoOp);
-    self.patch_jump(jmp_loc, |ctx, jmp_instr, offset| {
-      ctx.replace_instruction(jmp_instr, OpCode::JumpIfFalse(offset))
-    });
+    if !self.patch_jump(jmp_loc, OpCode::JumpIfFalse) {
+      return;
+    }
     self.emit(self.index - 1, OpCode::Pop);
 
     if self.advance_if_matches(Token::Else) {
@@ -1247,9 +1264,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       }
     }
 
-    self.patch_jump(else_loc, |ctx, jmp_instr, offset| {
-      ctx.replace_instruction(jmp_instr, OpCode::Jump(offset))
-    });
+    self.patch_jump(else_loc, OpCode::Jump);
   }
 
   fn block_stmt(&mut self) {
@@ -1292,7 +1307,77 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn match_stmt(&mut self) {
-    unimplemented!();
+    if !self.expression() {
+      return;
+    }
+
+    if !self.consume(Token::LeftBrace, String::from("expect '{' after condition")) {
+      return;
+    }
+
+    let mut jumps = Vec::new();
+
+    let mut default_case_found = false;
+    while let Some(curr) = self.current() {
+      if curr == Token::RightBrace {
+        break;
+      }
+
+      if default_case_found {
+        self.error(self.index, String::from("default case must be last"));
+        return;
+      }
+
+      if self.advance_if_matches(Token::Arrow) {
+        if default_case_found {
+          self.error(
+            self.index,
+            String::from("can only have one default case in match"),
+          );
+          return;
+        }
+        default_case_found = true;
+      } else {
+        if !self.expression() {
+          return;
+        }
+
+        if !self.consume(Token::Arrow, String::from("expect '=>' after condition")) {
+          return;
+        }
+
+        self.emit(self.index - 1, OpCode::Check);
+      }
+
+      let next_jmp = self.emit_jump(self.index, OpCode::NoOp);
+
+      if let Some(curr) = self.current() {
+        self.statement(curr);
+        if !self.patch_jump(next_jmp, OpCode::JumpIfFalse) {
+          return;
+        }
+        self.emit(self.index, OpCode::Pop);
+        jumps.push(self.emit_jump(self.index, OpCode::NoOp));
+      } else {
+        self.error(
+          self.index - 1,
+          String::from("expected statement after condition"),
+        );
+        return;
+      }
+    }
+
+    for jump in jumps {
+      if !self.patch_jump(jump, OpCode::Jump) {
+        return;
+      }
+    }
+
+    if !self.consume(Token::RightBrace, String::from("expected '}' after match")) {
+      return;
+    }
+
+    self.emit(self.index - 1, OpCode::Pop);
   }
 
   fn print_stmt(&mut self) {
@@ -1627,9 +1712,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     if !self.parse_precedence(Precedence::And) {
       return false;
     }
-    self.patch_jump(jmp_pos, |ctx, jmp_instr, offset| {
-      ctx.replace_instruction(jmp_instr, OpCode::And(offset))
-    })
+    self.patch_jump(jmp_pos, OpCode::And)
   }
 
   fn or_expr(&mut self, _: bool) -> bool {
@@ -1637,9 +1720,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     if !self.parse_precedence(Precedence::Or) {
       return false;
     }
-    self.patch_jump(jmp_pos, |ctx, jmp_instr, offset| {
-      ctx.replace_instruction(jmp_instr, OpCode::Or(offset))
-    })
+    self.patch_jump(jmp_pos, OpCode::Or)
   }
 
   fn named_variable(&mut self, token: Token, pos: usize, can_assign: bool) -> bool {
@@ -1820,7 +1901,6 @@ pub struct Compiler;
 impl Compiler {
   pub fn compile(&self, file: &str, source: &str) -> Result<Context, Vec<Error>> {
     let mut scanner = Scanner::new(file, source);
-
     let (tokens, meta) = scanner
       .scan()
       .map_err(|errs| self.reformat_errors(source, errs))?;
