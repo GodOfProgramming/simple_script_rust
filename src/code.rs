@@ -150,6 +150,8 @@ pub enum OpCode {
   Call,
   /** Exits from a function */
   Return,
+  /** Stops executing. If an expression follows afterwards it is returned from the processing function */
+  End,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -458,15 +460,42 @@ impl Context {
       OpCode::PopN(count) => println!("{:<16} {:4}", "POP_N", count),
       OpCode::LookupLocal(index) => println!("{:<16} {:4}", "LOOKUP_LOCAL", index),
       OpCode::AssignLocal(index) => println!("{:<16} {:4}", "ASSIGN_LOCAL", index),
-      OpCode::LookupGlobal(name) => println!("{:<16} '{}'", "LOOKUP_GLOBAL", name),
-      OpCode::DefineGlobal(name) => println!("{:<16} '{}'", "DEFINE_GLOBAL", name),
-      OpCode::AssignGlobal(name) => println!("{:<16} '{}'", "ASSIGN_GLOBAL", name),
+      OpCode::LookupGlobal(name) => println!(
+        "{:<16} {:4} '{:?}'",
+        "LOOKUP_GLOBAL",
+        name,
+        if let Some(name) = self.const_at(*name) {
+          name
+        } else {
+          Value::new("????")
+        }
+      ),
+      OpCode::DefineGlobal(name) => println!(
+        "{:<16} {:4} '{:?}'",
+        "DEFINE_GLOBAL",
+        name,
+        if let Some(name) = self.const_at(*name) {
+          name
+        } else {
+          Value::new("????")
+        }
+      ),
+      OpCode::AssignGlobal(name) => println!(
+        "{:<16} {:4} '{:?}'",
+        "ASSIGN_GLOBAL",
+        name,
+        if let Some(name) = self.const_at(*name) {
+          name
+        } else {
+          Value::new("????")
+        }
+      ),
       OpCode::Jump(count) => println!("{:<16} {:4}", "JUMP", count),
       OpCode::JumpIfFalse(count) => println!("{:<16} {:4}", "JUMP_IF_FALSE", count),
       OpCode::Loop(count) => println!("{:<16} {:4}", "LOOP", count),
       OpCode::Or(count) => println!("{:<16} {:4}", "OR", count),
       OpCode::And(count) => println!("{:<16} {:4}", "AND", count),
-      x => println!("{:?}", x),
+      x => println!("{:<16?}", x),
     }
   }
 }
@@ -1151,7 +1180,14 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn end_stmt(&mut self) {
-    unimplemented!();
+    let pos = self.index - 1;
+    if !self.advance_if_matches(Token::Semicolon) && !self.expression() {
+      return;
+    }
+    if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+      return;
+    }
+    self.emit(pos, OpCode::End)
   }
 
   fn expression_stmt(&mut self) {
@@ -1285,18 +1321,19 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
 
     let mut count = 0;
-    for (i, local) in self.locals.iter().rev().enumerate() {
-      if local.depth <= self.scope_depth {
-        count = i + 1;
+    for local in self.locals.iter().rev() {
+      if local.depth > self.scope_depth {
+        count += 1;
+      } else {
+        break;
       }
     }
 
     self
       .locals
       .truncate(self.locals.len().saturating_sub(count));
-
     if count > 0 {
-      self.emit(self.index, OpCode::PopN(count));
+      self.emit(self.index - 1, OpCode::PopN(count));
     }
 
     true
@@ -1713,7 +1750,9 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         } else {
           todo!("error here");
         }
-        index -= 1;
+        if index > 0 {
+          index -= 1;
+        }
       }
     }
 
@@ -1777,7 +1816,7 @@ impl Compiler {
     let mut parser = Parser::new(tokens, meta, &mut ctx);
 
     if let Some(errors) = parser.parse() {
-      Err(errors)
+      Err(self.reformat_errors(source, errors))
     } else {
       Ok(ctx)
     }

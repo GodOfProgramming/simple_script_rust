@@ -63,11 +63,25 @@ fn let_3() {
 }
 
 #[test]
+fn block_0() {
+  run("let foo; { foo = 1; }", |ctx| {
+    let val = ctx.lookup_global("foo").unwrap();
+    assert_eq!(val, Value::new(1));
+  });
+}
+
+#[test]
+fn block_1() {
+  run("let foo; { foo = 1; let bar; bar = 0; }", |ctx| {
+    let val = ctx.lookup_global("foo").unwrap();
+    assert_eq!(val, Value::new(1));
+    assert!(ctx.lookup_global("bar").is_none());
+  });
+}
+
+#[test]
 fn if_0() {
-  const SCRIPT: &str = "let foo = true;
-  if foo {
-    foo = 1;
-  }";
+  const SCRIPT: &str = "let foo = true; if foo { foo = 1; }";
   run(SCRIPT, |ctx| {
     let val = ctx.lookup_global("foo").unwrap();
     assert_eq!(val, Value::new(1));

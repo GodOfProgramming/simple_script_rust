@@ -121,7 +121,7 @@ impl Vpu {
     } else {
       Some(ctx.reflect_instruction(|opcode_ref| {
         Error::from_ref(
-          String::from("could not find global variable name, this is most likely a parse error"),
+          String::from("global variable name does not exist"),
           opcode_ref,
         )
       }))
@@ -172,12 +172,7 @@ impl Interpreter for Vpu {
               None
             }
             None => Some(ctx.reflect_instruction(|opcode_ref| {
-              Error::from_ref(
-                String::from(
-                  "could not find global variable name, this is most likely a parse error",
-                ),
-                opcode_ref,
-              )
+              Error::from_ref(String::from("use of undefined variable"), opcode_ref)
             })),
           }) {
             return Err(e);
@@ -201,7 +196,12 @@ impl Interpreter for Vpu {
           if let Some(e) = Vpu::global_op(ctx, index, |ctx, name| {
             if let Some(v) = ctx.stack_pop() {
               if !ctx.assign_global(name, v) {
-                todo!();
+                return Some(ctx.reflect_instruction(|opcode_ref| {
+                  Error::from_ref(
+                    String::from("tried to assign to nonexistent global"),
+                    opcode_ref,
+                  )
+                }));
               }
               None
             } else {
@@ -391,6 +391,10 @@ impl Interpreter for Vpu {
           ctx.loop_back(count);
           continue; // ip is at correct place
         }
+        OpCode::End => match ctx.stack_pop() {
+          Some(v) => return Ok(v),
+          None => return Ok(Value::Nil),
+        },
         x => unimplemented!("Unimplemented: {:?}", x),
       }
       ctx.advance();
