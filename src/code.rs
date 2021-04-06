@@ -1121,9 +1121,12 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     self.ctx.write_const(c, meta.line, meta.column);
   }
 
-  fn emit_jump(&mut self, pos: usize, op: OpCode) -> usize {
+  /**
+   * Emits a no op instruction and returns its index, the "jump" is made later with a patch
+   */
+  fn emit_jump(&mut self, pos: usize) -> usize {
     let offset = self.ctx.num_instructions();
-    self.emit(pos, op);
+    self.emit(pos, OpCode::NoOp);
     offset
   }
 
@@ -1248,11 +1251,11 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       return;
     }
 
-    let jmp_loc = self.emit_jump(self.index, OpCode::NoOp);
+    let jmp_loc = self.emit_jump(self.index);
     self.emit(self.index, OpCode::Pop);
     self.block_stmt();
 
-    let else_loc = self.emit_jump(self.index - 1, OpCode::NoOp);
+    let else_loc = self.emit_jump(self.index - 1);
     if !self.patch_jump(jmp_loc, OpCode::JumpIfFalse) {
       return;
     }
@@ -1353,12 +1356,12 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         self.emit(self.index - 1, OpCode::Check);
       }
 
-      let next_jmp = self.emit_jump(self.index, OpCode::NoOp);
+      let next_jmp = self.emit_jump(self.index);
       self.emit(self.index, OpCode::Pop);
 
       if let Some(curr) = self.current() {
         self.statement(curr);
-        jumps.push(self.emit_jump(self.index, OpCode::NoOp));
+        jumps.push(self.emit_jump(self.index));
         if !self.patch_jump(next_jmp, OpCode::JumpIfFalse) {
           return;
         }
@@ -1401,7 +1404,32 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn while_stmt(&mut self) {
-    unimplemented!();
+    let loop_start = self.ctx.num_instructions();
+    if !self.expression() {
+      return;
+    }
+    if !self.consume(
+      Token::LeftBrace,
+      String::from("expected '{' after condition"),
+    ) {
+      return;
+    }
+
+    let exit_jump = self.emit_jump(self.index);
+
+    self.emit(self.index, OpCode::Pop);
+    self.wrap_loop(loop_start, |this| {
+      this.block_stmt();
+      this.emit(
+        this.index,
+        OpCode::Loop(this.ctx.num_instructions() - loop_start),
+      );
+      if !this.patch_jump(exit_jump, OpCode::JumpIfFalse) {
+        return false;
+      }
+      this.emit(this.index, OpCode::Pop);
+      true
+    });
   }
 
   fn expression(&mut self) -> bool {
@@ -1439,6 +1467,11 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
 
     true
+  }
+
+  fn wrap_loop<F: FnOnce(&mut Parser) -> bool>(&mut self, start: usize, f: F) -> bool {
+    // don't have to worry about wrapping the block since all loops expect block statements after the condition
+    f(self)
   }
 
   fn rule_for(token: &Token) -> ParseRule<'ctx, 'file> {
@@ -1713,7 +1746,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn and_expr(&mut self, _: bool) -> bool {
-    let jmp_pos = self.emit_jump(self.index, OpCode::NoOp);
+    let jmp_pos = self.emit_jump(self.index);
     if !self.parse_precedence(Precedence::And) {
       return false;
     }
@@ -1721,7 +1754,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn or_expr(&mut self, _: bool) -> bool {
-    let jmp_pos = self.emit_jump(self.index, OpCode::NoOp);
+    let jmp_pos = self.emit_jump(self.index);
     if !self.parse_precedence(Precedence::Or) {
       return false;
     }
