@@ -1028,6 +1028,9 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
 
     if let Some(errs) = &mut self.errors {
       if let Some(meta) = meta {
+        if cfg!(debug_assertions) {
+          println!("{} ({}, {}): {}", meta.file, meta.line, meta.column, msg);
+        }
         errs.push(Error {
           msg,
           file: String::from(meta.file),
@@ -1323,41 +1326,43 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         break;
       }
 
-      if default_case_found {
-        self.error(self.index, String::from("default case must be last"));
-        return;
-      }
-
       if self.advance_if_matches(Token::Arrow) {
         if default_case_found {
           self.error(
-            self.index,
+            self.index - 1,
             String::from("can only have one default case in match"),
           );
-          return;
         }
         default_case_found = true;
       } else {
+        if default_case_found {
+          self.error(
+            self.index,
+            String::from("found case after default was created"),
+          );
+        }
+
         if !self.expression() {
-          return;
+          continue;
         }
 
         if !self.consume(Token::Arrow, String::from("expect '=>' after condition")) {
-          return;
+          continue;
         }
 
         self.emit(self.index - 1, OpCode::Check);
       }
 
       let next_jmp = self.emit_jump(self.index, OpCode::NoOp);
+      self.emit(self.index, OpCode::Pop);
 
       if let Some(curr) = self.current() {
         self.statement(curr);
+        jumps.push(self.emit_jump(self.index, OpCode::NoOp));
         if !self.patch_jump(next_jmp, OpCode::JumpIfFalse) {
           return;
         }
         self.emit(self.index, OpCode::Pop);
-        jumps.push(self.emit_jump(self.index, OpCode::NoOp));
       } else {
         self.error(
           self.index - 1,
@@ -1508,7 +1513,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
           return false;
         }
       } else {
-        self.error(self.index, String::from("expected an expression"));
+        self.error(self.index - 1, String::from("expected an expression"));
         return false;
       }
 

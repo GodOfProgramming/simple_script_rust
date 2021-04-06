@@ -1,7 +1,8 @@
 let value = "match";
 
 match value {
-  "match" => print "match";
-  => print "default";
-  => print "default";
+  1 => print "found 1";
+  2 => print "foo";
+  "match" => print "found 'match'";
+  => print "found other";
 }
