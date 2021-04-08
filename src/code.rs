@@ -948,26 +948,6 @@ impl<'ctx, 'file> ParseRule<'ctx, 'file> {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Statement {
-  None,
-  Break,
-  Cont,
-  End,
-  Fn,
-  For,
-  If,
-  Block,
-  Let,
-  Load,
-  Loop,
-  Match,
-  Print,
-  Ret,
-  While,
-  Expr,
-}
-
 struct Local {
   name: String,
   depth: usize,
@@ -992,7 +972,6 @@ pub struct Parser<'ctx, 'file> {
 
   index: usize,
   scope_depth: usize,
-  current_stmt: Statement,
 
   errors: Option<Vec<Error>>,
   locals: Vec<Local>,
@@ -1012,7 +991,6 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       ctx,
       index: 0,
       scope_depth: 0,
-      current_stmt: Statement::None,
       errors: None,
       locals: Vec::new(),
       in_loop: false,
