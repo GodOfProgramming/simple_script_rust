@@ -138,7 +138,7 @@ fn let_stmt() {
     parser.index = 1;
     parser.let_stmt();
 
-    let expected_consts = vec![Value::new(String::from("foo"))];
+    let expected_consts = vec![Value::new("foo")];
     assert_eq!(expected_consts, parser.ctx.consts);
 
     let ident_loc = parser.ctx.identifiers.get("foo").cloned().unwrap();
@@ -155,6 +155,32 @@ fn print_stmt() {
     parser.index = 1;
     parser.print_stmt();
     let expected = vec![OpCode::Const(0), OpCode::Print];
+    assert_eq!(expected.len(), parser.ctx.instructions.len());
+    for (e, a) in expected.iter().zip(parser.ctx.instructions.iter()) {
+      assert_eq!(e, a);
+    }
+  });
+}
+
+#[test]
+fn while_stmt() {
+  do_with_parser("while i < 10 { i = i + 1; }", |mut parser| {
+    parser.index = 1;
+    parser.while_stmt();
+    let expected = vec![
+      OpCode::LookupGlobal(0),
+      OpCode::Const(1),
+      OpCode::Less,
+      OpCode::JumpIfFalse(8),
+      OpCode::Pop,
+      OpCode::LookupGlobal(0),
+      OpCode::Const(2),
+      OpCode::Add,
+      OpCode::AssignGlobal(0),
+      OpCode::Pop,
+      OpCode::Loop(10),
+      OpCode::Pop,
+    ];
     assert_eq!(expected.len(), parser.ctx.instructions.len());
     for (e, a) in expected.iter().zip(parser.ctx.instructions.iter()) {
       assert_eq!(e, a);

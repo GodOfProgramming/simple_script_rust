@@ -4,7 +4,8 @@ use crate::{
 };
 use std::{
   collections::BTreeMap,
-  fmt::{self, Debug, Display},
+  fmt::{self, Debug},
+  iter::FromIterator,
   str,
 };
 
@@ -995,6 +996,11 @@ pub struct Parser<'ctx, 'file> {
 
   errors: Option<Vec<Error>>,
   locals: Vec<Local>,
+
+  in_loop: bool,
+  loop_depth: usize,
+
+  breaks: Vec<usize>,
 }
 
 impl<'ctx, 'file> Parser<'ctx, 'file> {
@@ -1008,6 +1014,9 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       current_stmt: Statement::None,
       errors: None,
       locals: Vec::new(),
+      in_loop: false,
+      loop_depth: 0,
+      breaks: Vec::new(),
     }
   }
 
@@ -1144,6 +1153,23 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
   }
 
+  fn reduce_locals_to_depth(&mut self, depth: usize) -> usize {
+    let mut count = 0;
+    for local in self.locals.iter().rev() {
+      if local.depth > depth {
+        count += 1;
+      } else {
+        break;
+      }
+    }
+
+    self
+      .locals
+      .truncate(self.locals.len().saturating_sub(count));
+
+    return count;
+  }
+
   fn statement(&mut self, token: Token) {
     match token {
       Token::Break => {
@@ -1207,7 +1233,25 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn break_stmt(&mut self) {
-    unimplemented!();
+    let break_index = self.index - 1;
+    if !self.in_loop {
+      self.error(
+        break_index,
+        String::from("break statements can only be used within loops"),
+      );
+      return;
+    }
+
+    if !self.consume(Token::Semicolon, String::from("expect ';' after break")) {
+      return;
+    }
+
+    let count = self.reduce_locals_to_depth(self.loop_depth);
+    if count > 0 {
+      self.emit(break_index, OpCode::PopN(count));
+    }
+    let jmp = self.emit_jump(break_index);
+    self.breaks.push(jmp);
   }
 
   fn cont_stmt(&mut self) {
@@ -1251,26 +1295,28 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       return;
     }
 
-    let jmp_loc = self.emit_jump(self.index);
-    self.emit(self.index, OpCode::Pop);
+    let end = self.emit_jump(self.index);
     self.block_stmt();
 
-    let else_loc = self.emit_jump(self.index - 1);
-    if !self.patch_jump(jmp_loc, OpCode::JumpIfFalse) {
-      return;
-    }
-    self.emit(self.index - 1, OpCode::Pop);
-
     if self.advance_if_matches(Token::Else) {
+      let after_else = self.emit_jump(self.index - 1);
+      if !self.patch_jump(end, OpCode::JumpIfFalse) {
+        return;
+      }
+
       if let Some(token) = self.current() {
         self.statement(token);
       } else {
         self.error(self.index - 1, String::from("unexpected end of file"));
         return;
       }
+
+      self.patch_jump(after_else, OpCode::Jump);
+    } else if !self.patch_jump(end, OpCode::JumpIfFalse) {
+      return;
     }
 
-    self.patch_jump(else_loc, OpCode::Jump);
+    self.emit(self.index - 1, OpCode::Pop);
   }
 
   fn block_stmt(&mut self) {
@@ -1375,14 +1421,14 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       }
     }
 
+    if !self.consume(Token::RightBrace, String::from("expected '}' after match")) {
+      return;
+    }
+
     for jump in jumps {
       if !self.patch_jump(jump, OpCode::Jump) {
         return;
       }
-    }
-
-    if !self.consume(Token::RightBrace, String::from("expected '}' after match")) {
-      return;
     }
 
     self.emit(self.index - 1, OpCode::Pop);
@@ -1421,13 +1467,19 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     self.wrap_loop(loop_start, |this| {
       this.block_stmt();
       this.emit(
-        this.index,
+        this.index - 1,
         OpCode::Loop(this.ctx.num_instructions() - loop_start),
       );
       if !this.patch_jump(exit_jump, OpCode::JumpIfFalse) {
         return false;
       }
-      this.emit(this.index, OpCode::Pop);
+      let breaks: Vec<usize> = this.breaks.drain(0..).collect();
+      for br in breaks {
+        if !this.patch_jump(br, OpCode::Jump) {
+          return false;
+        }
+      }
+      this.emit(this.index - 1, OpCode::Pop);
       true
     });
   }
@@ -1450,18 +1502,8 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       return false;
     }
 
-    let mut count = 0;
-    for local in self.locals.iter().rev() {
-      if local.depth > self.scope_depth {
-        count += 1;
-      } else {
-        break;
-      }
-    }
+    let count = self.reduce_locals_to_depth(self.scope_depth);
 
-    self
-      .locals
-      .truncate(self.locals.len().saturating_sub(count));
     if count > 0 {
       self.emit(self.index - 1, OpCode::PopN(count));
     }
@@ -1470,8 +1512,22 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn wrap_loop<F: FnOnce(&mut Parser) -> bool>(&mut self, start: usize, f: F) -> bool {
+    let in_loop = self.in_loop;
+    let loop_depth = self.loop_depth;
+
+    let breaks: Vec<usize> = self.breaks.drain(0..).collect();
+
+    self.in_loop = true;
+    self.loop_depth = self.scope_depth;
+
     // don't have to worry about wrapping the block since all loops expect block statements after the condition
-    f(self)
+    let res = f(self);
+
+    self.in_loop = in_loop;
+    self.loop_depth = loop_depth;
+    self.breaks = breaks;
+
+    res
   }
 
   fn rule_for(token: &Token) -> ParseRule<'ctx, 'file> {

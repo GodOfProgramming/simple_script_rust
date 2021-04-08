@@ -68,9 +68,19 @@ pub trait Interpreter {
 }
 
 #[derive(Default)]
-pub struct Vpu;
+pub struct Vpu {
+  show_disassembly: bool,
+  runtime_disassembly: bool,
+}
 
 impl Vpu {
+  pub fn new(show_disassembly: bool, runtime_disassembly: bool) -> Self {
+    Self {
+      show_disassembly,
+      runtime_disassembly,
+    }
+  }
+
   fn unary_op<F: FnOnce(&mut Context, Value) -> Option<Error>>(
     ctx: &mut Context,
     opcode: &OpCode,
@@ -149,13 +159,16 @@ impl Vpu {
 
 impl Interpreter for Vpu {
   fn interpret(&self, ctx: &mut Context) -> Result<Value, Error> {
-    if cfg!(debug_assertions) {
+    #[cfg(debug_assertions)]
+    if self.show_disassembly {
       ctx.display_opcodes();
     }
+
     while !ctx.done() {
       let opcode = ctx.next();
 
-      if cfg!(debug_assertions) {
+      #[cfg(debug_assertions)]
+      if self.runtime_disassembly {
         ctx.display_stack();
         ctx.display_instruction(&opcode, ctx.ip);
       }
@@ -460,7 +473,10 @@ impl Interpreter for Vpu {
             return Err(e);
           }
         }
-        OpCode::Jump(count) => ctx.jump(count),
+        OpCode::Jump(count) => {
+          ctx.jump(count);
+          continue;
+        }
         OpCode::JumpIfFalse(count) => match ctx.stack_peek() {
           Some(v) => {
             if !v.truthy() {

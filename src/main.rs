@@ -4,7 +4,11 @@ use std::{env, fs, path::Path, process};
 fn main() {
   let mut exit_code = 0;
   let args: Vec<String> = env::args().collect();
-  let vpu = Vpu {};
+
+  let show_disassembly = env::var("SS_SHOW_DISASSEMBLY");
+  let runtime_disassembly = env::var("SS_RUNTIME_DISASSEMBLY");
+
+  let vpu = Vpu::new(show_disassembly.is_ok(), runtime_disassembly.is_ok());
   let runner = Runner::new(vpu);
 
   if let Some(file) = args.into_iter().nth(1) {
