@@ -999,6 +999,7 @@ pub struct Parser<'ctx, 'file> {
 
   in_loop: bool,
   loop_depth: usize,
+  cont_jump: usize,
 
   breaks: Vec<usize>,
 }
@@ -1016,6 +1017,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       locals: Vec::new(),
       in_loop: false,
       loop_depth: 0,
+      cont_jump: 0,
       breaks: Vec::new(),
     }
   }
@@ -1255,7 +1257,28 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn cont_stmt(&mut self) {
-    unimplemented!();
+    let cont_index = self.index - 1;
+    if !self.in_loop {
+      self.error(
+        cont_index,
+        String::from("cont statements can only be used within loops"),
+      );
+      return;
+    }
+
+    if !self.consume(Token::Semicolon, String::from("expect ';' after cont")) {
+      return;
+    }
+
+    let count = self.reduce_locals_to_depth(self.loop_depth);
+    if count > 0 {
+      self.emit(cont_index, OpCode::PopN(count));
+    }
+
+    self.emit(
+      cont_index,
+      OpCode::Loop(self.ctx.num_instructions() - self.cont_jump),
+    );
   }
 
   fn end_stmt(&mut self) {
@@ -1514,11 +1537,13 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   fn wrap_loop<F: FnOnce(&mut Parser) -> bool>(&mut self, start: usize, f: F) -> bool {
     let in_loop = self.in_loop;
     let loop_depth = self.loop_depth;
+    let cont_jump = self.cont_jump;
 
     let breaks: Vec<usize> = self.breaks.drain(0..).collect();
 
     self.in_loop = true;
     self.loop_depth = self.scope_depth;
+    self.cont_jump = start;
 
     // don't have to worry about wrapping the block since all loops expect block statements after the condition
     let res = f(self);
@@ -1526,6 +1551,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     self.in_loop = in_loop;
     self.loop_depth = loop_depth;
     self.breaks = breaks;
+    self.cont_jump = cont_jump;
 
     res
   }

@@ -1,7 +1,9 @@
 let x = 0;
-while true {
-  if x == 1 {
-    break;
-  }
+while x < 10 {
   x = x + 1;
+  if x < 5 {
+    cont;
+  } else {
+    print x;
+  }
 }
