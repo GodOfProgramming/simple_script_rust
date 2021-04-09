@@ -1295,7 +1295,58 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn for_stmt(&mut self) {
-    unimplemented!();
+    self.wrap_block(|this| {
+      // for x; y; z { }
+      //     ^
+      if this.advance_if_matches(Token::Let) {
+        this.let_stmt();
+      } else {
+        this.expression_stmt();
+      }
+
+      let loop_start = this.ctx.num_instructions();
+
+      // for x; y; z { }
+      //        ^
+      this.expression();
+      let exit_jump = this.emit_jump(this.index); // jump to exit if clause is false
+
+      this.consume(
+        Token::Semicolon,
+        String::from("expected ';' after expression"),
+      );
+
+      let body_jump = this.emit_jump(this.index); // jump over increment to the body
+      let increment_start = this.ctx.num_instructions();
+
+      // for x; y; z { }
+      //           ^
+      this.expression();
+      this.emit(this.index, OpCode::Pop);
+
+      if !this.consume(Token::LeftBrace, String::from("expect '{' after clauses")) {
+        return false;
+      }
+
+      this.emit(
+        this.index,
+        OpCode::Loop(this.ctx.num_instructions() - loop_start),
+      );
+      this.patch_jump(body_jump, OpCode::Jump);
+
+      this.wrap_loop(increment_start, |this| {
+        this.block_stmt();
+        this.emit(
+          this.index - 1,
+          OpCode::Loop(this.ctx.num_instructions() - increment_start),
+        );
+        true
+      });
+
+      this.patch_jump(exit_jump, OpCode::JumpIfFalse);
+
+      true
+    });
   }
 
   fn if_stmt(&mut self) {
@@ -1377,7 +1428,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         this.index - 1,
         OpCode::Loop(this.ctx.num_instructions() - start),
       );
-      this.patch_breaks()
+      true
     });
   }
 
@@ -1490,11 +1541,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         this.index - 1,
         OpCode::Loop(this.ctx.num_instructions() - loop_start),
       );
-      if !this.patch_jump(exit_jump, OpCode::JumpIfFalse) {
-        return false;
-      }
-      this.patch_breaks();
-      true
+      this.patch_jump(exit_jump, OpCode::JumpIfFalse)
     });
   }
 
@@ -1539,12 +1586,14 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     // don't have to worry about wrapping the block since all loops expect block statements after the condition
     let res = f(self);
 
+    let break_res = self.patch_breaks();
+
     self.in_loop = in_loop;
     self.loop_depth = loop_depth;
     self.breaks = breaks;
     self.cont_jump = cont_jump;
 
-    res
+    res && break_res
   }
 
   fn rule_for(token: &Token) -> ParseRule<'ctx, 'file> {
