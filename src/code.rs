@@ -1147,7 +1147,17 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       .locals
       .truncate(self.locals.len().saturating_sub(count));
 
-    return count;
+    count
+  }
+
+  fn patch_breaks(&mut self) -> bool {
+    let breaks: Vec<usize> = self.breaks.drain(0..).collect();
+    for br in breaks {
+      if !self.patch_jump(br, OpCode::Jump) {
+        return false;
+      }
+    }
+    true
   }
 
   fn statement(&mut self, token: Token) {
@@ -1296,12 +1306,12 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       return;
     }
 
-    let end = self.emit_jump(self.index);
+    let if_end = self.emit_jump(self.index);
     self.block_stmt();
 
     if self.advance_if_matches(Token::Else) {
-      let after_else = self.emit_jump(self.index - 1);
-      if !self.patch_jump(end, OpCode::JumpIfFalse) {
+      let else_end = self.emit_jump(self.index - 1);
+      if !self.patch_jump(if_end, OpCode::JumpIfFalse) {
         return;
       }
 
@@ -1312,12 +1322,10 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         return;
       }
 
-      self.patch_jump(after_else, OpCode::Jump);
-    } else if !self.patch_jump(end, OpCode::JumpIfFalse) {
-      return;
+      self.patch_jump(else_end, OpCode::Jump);
+    } else {
+      self.patch_jump(if_end, OpCode::JumpIfFalse);
     }
-
-    self.emit(self.index - 1, OpCode::Pop);
   }
 
   fn block_stmt(&mut self) {
@@ -1356,7 +1364,21 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn loop_stmt(&mut self) {
-    unimplemented!();
+    let start = self.ctx.num_instructions();
+    if !self.consume(
+      Token::LeftBrace,
+      String::from("expect '{' after loop keyword"),
+    ) {
+      return;
+    }
+    self.wrap_loop(start, |this| {
+      this.block_stmt();
+      this.emit(
+        this.index - 1,
+        OpCode::Loop(this.ctx.num_instructions() - start),
+      );
+      this.patch_breaks()
+    });
   }
 
   fn match_stmt(&mut self) {
@@ -1404,7 +1426,6 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       }
 
       let next_jmp = self.emit_jump(self.index);
-      self.emit(self.index, OpCode::Pop);
 
       if let Some(curr) = self.current() {
         self.statement(curr);
@@ -1412,7 +1433,6 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         if !self.patch_jump(next_jmp, OpCode::JumpIfFalse) {
           return;
         }
-        self.emit(self.index, OpCode::Pop);
       } else {
         self.error(
           self.index - 1,
@@ -1464,7 +1484,6 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
 
     let exit_jump = self.emit_jump(self.index);
 
-    self.emit(self.index, OpCode::Pop);
     self.wrap_loop(loop_start, |this| {
       this.block_stmt();
       this.emit(
@@ -1474,13 +1493,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       if !this.patch_jump(exit_jump, OpCode::JumpIfFalse) {
         return false;
       }
-      let breaks: Vec<usize> = this.breaks.drain(0..).collect();
-      for br in breaks {
-        if !this.patch_jump(br, OpCode::Jump) {
-          return false;
-        }
-      }
-      this.emit(this.index - 1, OpCode::Pop);
+      this.patch_breaks();
       true
     });
   }

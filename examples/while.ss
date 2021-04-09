@@ -1,9 +1,2 @@
-let x = 0;
-while x < 10 {
-  x = x + 1;
-  if x < 5 {
-    cont;
-  } else {
-    print x;
-  }
-}
+let i = 0;
+while i < 1 { i = i + 1; }

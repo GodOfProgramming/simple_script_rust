@@ -150,6 +150,24 @@ fn let_stmt() {
 }
 
 #[test]
+fn loop_stmt() {
+  do_with_parser("loop { if true { break; } }", |mut parser| {
+    parser.index = 1;
+    parser.loop_stmt();
+    let expected = vec![
+      OpCode::True,
+      OpCode::JumpIfFalse(2),
+      OpCode::Jump(2),
+      OpCode::Loop(3),
+    ];
+    assert_eq!(expected.len(), parser.ctx.instructions.len());
+    for (e, a) in expected.iter().zip(parser.ctx.instructions.iter()) {
+      assert_eq!(e, a);
+    }
+  });
+}
+
+#[test]
 fn print_stmt() {
   do_with_parser("print 1;", |mut parser| {
     parser.index = 1;
@@ -172,14 +190,11 @@ fn while_stmt() {
       OpCode::Const(1),
       OpCode::Less,
       OpCode::JumpIfFalse(8),
-      OpCode::Pop,
       OpCode::LookupGlobal(0),
       OpCode::Const(2),
       OpCode::Add,
       OpCode::AssignGlobal(0),
-      OpCode::Pop,
       OpCode::Loop(10),
-      OpCode::Pop,
     ];
     assert_eq!(expected.len(), parser.ctx.instructions.len());
     for (e, a) in expected.iter().zip(parser.ctx.instructions.iter()) {

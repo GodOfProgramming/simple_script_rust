@@ -241,13 +241,12 @@ impl Interpreter for Vpu {
         OpCode::DefineGlobal(index) => {
           if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
             if let Some(v) = ctx.stack_pop() {
-              if ctx.define_global(name, v) {
-                None
-              } else {
-                Some(ctx.reflect_instruction(|opcode_ref| {
+              if !ctx.define_global(name, v) {
+                return Some(ctx.reflect_instruction(|opcode_ref| {
                   Error::from_ref(String::from("tried redefining global variable, this error should be detected in the parsing phase"), &opcode, opcode_ref)
-                }))
+                }));
               }
+              None
             } else {
               Some(ctx.reflect_instruction(|opcode_ref| {
                 Error::from_ref(
@@ -416,24 +415,42 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Or(count) => match ctx.stack_peek() {
-          // TODO check if this should really be peek, think so because a pop happens after(?)
           Some(v) => {
             if v.truthy() {
               ctx.jump(count);
               continue;
+            } else {
+              ctx.stack_pop();
             }
           }
-          None => todo!(),
+          None => {
+            return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                String::from("no item on the stack to peek"),
+                &opcode,
+                opcode_ref,
+              )
+            }))
+          }
         },
         OpCode::And(count) => match ctx.stack_peek() {
-          // TODO check if this should really be peek, think so because a pop happens after(?)
           Some(v) => {
             if !v.truthy() {
               ctx.jump(count);
               continue;
+            } else {
+              ctx.stack_pop();
             }
           }
-          None => todo!(),
+          None => {
+            return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                String::from("no item on the stack to peek"),
+                &opcode,
+                opcode_ref,
+              )
+            }))
+          }
         },
         OpCode::Not => {
           if let Some(e) = Vpu::unary_op(ctx, &opcode, |ctx, v| {
@@ -477,14 +494,22 @@ impl Interpreter for Vpu {
           ctx.jump(count);
           continue;
         }
-        OpCode::JumpIfFalse(count) => match ctx.stack_peek() {
+        OpCode::JumpIfFalse(count) => match ctx.stack_pop() {
           Some(v) => {
             if !v.truthy() {
               ctx.jump(count);
               continue; // ip is now at correct place, so skip advance
             }
           }
-          None => todo!(),
+          None => {
+            return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                String::from("no item on the stack to pop"),
+                &opcode,
+                opcode_ref,
+              )
+            }))
+          }
         },
         OpCode::Loop(count) => {
           ctx.loop_back(count);
@@ -497,6 +522,11 @@ impl Interpreter for Vpu {
         x => unimplemented!("Unimplemented: {:?}", x),
       }
       ctx.advance();
+    }
+
+    #[cfg(debug_assertions)]
+    if self.runtime_disassembly {
+      ctx.display_stack();
     }
 
     Ok(Value::Nil)
