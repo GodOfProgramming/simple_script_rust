@@ -1,5 +1,5 @@
 use crate::{
-  types::{Env, Value},
+  types::{Env, NativeFunction, Value, ValueOpResult},
   Error, New,
 };
 use std::{
@@ -148,7 +148,7 @@ pub enum OpCode {
    */
   PushSp,
   /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
-  Call,
+  Call(usize),
   /** Exits from a function */
   Return,
   /** Stops executing. If an expression follows afterwards it is returned from the processing function */
@@ -335,6 +335,10 @@ impl Context {
     self.stack.get(index).cloned()
   }
 
+  pub fn stack_index_rev(&self, index: usize) -> Option<Value> {
+    self.stack.get(self.stack.len() - 1 - index).cloned()
+  }
+
   pub fn stack_peek(&self) -> Option<Value> {
     self.stack.last().cloned()
   }
@@ -357,6 +361,11 @@ impl Context {
 
   pub fn assign_global(&mut self, name: String, value: Value) -> bool {
     self.env.assign(name, value)
+  }
+
+  pub fn create_native(&mut self, name: String, func: fn(Vec<Value>) -> ValueOpResult) -> bool {
+    let native = NativeFunction::new(name.clone(), func);
+    self.assign_global(name, Value::new(native))
   }
 
   pub fn lookup_ident(&self, name: &str) -> Option<usize> {
@@ -496,6 +505,7 @@ impl Context {
       OpCode::Loop(count) => println!("{:<16} {:4}", "LOOP", count),
       OpCode::Or(count) => println!("{:<16} {:4}", "OR", count),
       OpCode::And(count) => println!("{:<16} {:4}", "AND", count),
+      OpCode::Call(count) => println!("{:<16} {:4}", "CALL", count),
       x => println!("{:<16?}", x),
     }
   }
@@ -1800,7 +1810,13 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn call_expr(&mut self, _: bool) -> bool {
-    unimplemented!();
+    let pos = self.index - 1;
+    if let Some(arg_count) = self.parse_arg_list() {
+      self.emit(pos, OpCode::Call(arg_count));
+      true
+    } else {
+      false
+    }
   }
 
   fn literal_expr(&mut self, _: bool) -> bool {
@@ -1959,6 +1975,36 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       self.error(
         self.index - 1,
         String::from("tried to lookup a token at an invalid index"),
+      );
+      None
+    }
+  }
+
+  fn parse_arg_list(&mut self) -> Option<usize> {
+    if let Some(token) = self.current() {
+      let mut count = 0;
+      if token != Token::RightParen {
+        loop {
+          if !self.expression() {
+            return None;
+          }
+          count += 1;
+          if !self.advance_if_matches(Token::Comma) {
+            break;
+          }
+        }
+      }
+      if !self.consume(
+        Token::RightParen,
+        String::from("expect ')' after arguments"),
+      ) {
+        return None;
+      }
+      Some(count)
+    } else {
+      self.error(
+        self.index - 1,
+        String::from("no current token to parse arguments from"),
       );
       None
     }

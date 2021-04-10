@@ -5,7 +5,10 @@ mod types;
 mod test;
 
 use code::{Compiler, Context, OpCode, OpCodeReflection};
-use std::fmt::{Debug, Display};
+use std::{
+  fmt::{Debug, Display},
+  iter::FromIterator,
+};
 use types::Value;
 
 pub trait New<T> {
@@ -519,6 +522,50 @@ impl Interpreter for Vpu {
           Some(v) => return Ok(v),
           None => return Ok(Value::Nil),
         },
+        OpCode::Call(airity) => {
+          if let Some(v) = ctx.stack_index_rev(airity) {
+            if let Value::Function(func) = v {
+              let mut args = Vec::new();
+              for _ in 0..airity {
+                if let Some(arg) = ctx.stack_pop() {
+                  args.push(arg);
+                } else {
+                  return Err(ctx.reflect_instruction(|opcode_ref| {
+                    Error::from_ref(
+                      String::from("no available argument on stack for function call"),
+                      &opcode,
+                      opcode_ref,
+                    )
+                  }));
+                }
+              }
+              match func.borrow_mut().call(args.drain(0..).rev().collect()) {
+                Ok(v) => ctx.stack_push(v),
+                Err(e) => {
+                  return Err(
+                    ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)),
+                  )
+                }
+              }
+            } else {
+              return Err(ctx.reflect_instruction(|opcode_ref| {
+                Error::from_ref(
+                  format!("unable to call non function '{}'", v),
+                  &opcode,
+                  opcode_ref,
+                )
+              }));
+            }
+          } else {
+            return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                String::from("cannot operate on empty stack"),
+                &opcode,
+                opcode_ref,
+              )
+            }));
+          }
+        }
         x => unimplemented!("Unimplemented: {:?}", x),
       }
       ctx.advance();

@@ -1,7 +1,9 @@
 use crate::New;
 use std::collections::BTreeMap;
 use std::fmt::{self, Debug, Display};
+use std::rc::Rc;
 use std::{
+  cell::RefCell,
   cmp::{Ordering, PartialEq, PartialOrd},
   ops::{Add, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
 };
@@ -13,6 +15,7 @@ pub enum Value {
   Num(f64),
   Str(String),
   List(Values),
+  Function(Rc<RefCell<dyn Call>>),
 }
 
 impl Value {
@@ -57,6 +60,14 @@ impl Value {
       Some(&mut list[idx])
     } else {
       None
+    }
+  }
+
+  pub fn call(&mut self, args: Vec<Value>) -> ValueOpResult {
+    if let Value::Function(call) = self {
+      call.borrow_mut().call(args)
+    } else {
+      Err(String::from("cannot call non function type"))
     }
   }
 }
@@ -109,7 +120,13 @@ impl New<Values> for Value {
   }
 }
 
-type ValueOpResult = Result<Value, String>;
+impl New<NativeFunction> for Value {
+  fn new(item: NativeFunction) -> Self {
+    Self::Function(Rc::new(RefCell::new(item)))
+  }
+}
+
+pub type ValueOpResult = Result<Value, String>;
 
 impl Add for Value {
   type Output = ValueOpResult;
@@ -210,11 +227,8 @@ impl Neg for Value {
   type Output = ValueOpResult;
   fn neg(self) -> Self::Output {
     match self {
-      Self::Nil => Err(String::from("cannot negate nil")),
-      Self::Bool(_) => Err(String::from("cannot negate a bool")),
       Self::Num(n) => Ok(Self::Num(-n)),
-      Self::Str(_) => Err(String::from("cannot negate a string")),
-      Self::List(_) => Err(String::from("cannot negate a list")),
+      _ => Err(format!("cannot negate '{}'", self)),
     }
   }
 }
@@ -267,6 +281,13 @@ impl PartialEq for Value {
       Self::Nil => {
         matches!(other, Value::Nil)
       }
+      Self::Function(_) => {
+        if let Self::Function(_) = other {
+          unimplemented!("cannot compare functions at this time");
+        } else {
+          false
+        }
+      }
     }
   }
 }
@@ -305,6 +326,7 @@ impl Display for Value {
       Self::Num(n) => write!(f, "{}", n),
       Self::Str(s) => write!(f, "{}", s),
       Self::List(l) => write!(f, "{}", l),
+      Self::Function(c) => write!(f, "{}", c.borrow_mut().name()),
     }
   }
 }
@@ -387,6 +409,32 @@ impl Env {
 
   pub fn lookup(&self, name: &str) -> Option<Value> {
     self.vars.get(name).cloned()
+  }
+}
+
+pub trait Call {
+  fn name(&self) -> &String;
+  fn call(&mut self, args: Vec<Value>) -> ValueOpResult;
+}
+
+pub struct NativeFunction {
+  name: String,
+  callee: fn(Vec<Value>) -> ValueOpResult,
+}
+
+impl NativeFunction {
+  pub fn new(name: String, func: fn(Vec<Value>) -> ValueOpResult) -> Self {
+    Self { name, callee: func }
+  }
+}
+
+impl Call for NativeFunction {
+  fn name(&self) -> &String {
+    &self.name
+  }
+
+  fn call(&mut self, args: Vec<Value>) -> ValueOpResult {
+    (self.callee)(args)
   }
 }
 

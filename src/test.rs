@@ -39,6 +39,36 @@ fn adding_a_global() {
   }
 }
 
+#[test]
+fn calling_a_native_function() {
+  let vpu = Vpu::default();
+  let runner = Runner::new(vpu);
+  match runner.load(
+    String::from("test"),
+    "let x = 1;
+    end test_func(x, 2);",
+  ) {
+    Ok(mut ctx) => {
+      ctx.create_native(String::from("test_func"), |args: Vec<Value>| {
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0], Value::new(1));
+        assert_eq!(args[1], Value::new(2));
+        Ok(Value::new(3))
+      });
+      match runner.run(&mut ctx) {
+        Ok(v) => assert_eq!(Value::new(3), v),
+        Err(err) => panic!("{}", err),
+      }
+    }
+    Err(errs) => {
+      for err in errs {
+        println!("{}", err);
+      }
+      panic!("compilation errors detected!");
+    }
+  }
+}
+
 /**
  * nil
  */
