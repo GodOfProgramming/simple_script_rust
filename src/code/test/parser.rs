@@ -133,6 +133,26 @@ fn emit_const_creates_expected_opcode() {
 }
 
 #[test]
+fn if_stmt() {
+  do_with_parser("if x { x + 1; }", |mut parser| {
+    parser.index = 1;
+    parser.if_stmt();
+    let expected = vec![
+      OpCode::LookupGlobal(0),
+      OpCode::JumpIfFalse(5),
+      OpCode::LookupGlobal(0),
+      OpCode::Const(1),
+      OpCode::Add,
+      OpCode::Pop,
+    ];
+    assert_eq!(expected.len(), parser.ctx.instructions.len());
+    for (e, a) in expected.iter().zip(parser.ctx.instructions.iter()) {
+      assert_eq!(e, a);
+    }
+  });
+}
+
+#[test]
 fn let_stmt() {
   do_with_parser("let foo = true;", |mut parser| {
     parser.index = 1;
@@ -189,12 +209,13 @@ fn while_stmt() {
       OpCode::LookupGlobal(0),
       OpCode::Const(1),
       OpCode::Less,
-      OpCode::JumpIfFalse(8),
+      OpCode::JumpIfFalse(7),
       OpCode::LookupGlobal(0),
       OpCode::Const(2),
       OpCode::Add,
       OpCode::AssignGlobal(0),
-      OpCode::Loop(10),
+      OpCode::Pop,
+      OpCode::Loop(9),
     ];
     assert_eq!(expected.len(), parser.ctx.instructions.len());
     for (e, a) in expected.iter().zip(parser.ctx.instructions.iter()) {

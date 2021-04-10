@@ -1,14 +1,25 @@
 use simple_script::{Runner, Vpu};
 use std::{env, fs, path::Path, process};
 
+const DISASSEMBLE_FLAG: &str = "--disassemble";
+const RUNTIME_DISASSEMBLE_FLAG: &str = "--runtime-disassembly";
+
 fn main() {
   let mut exit_code = 0;
-  let args: Vec<String> = env::args().collect();
+  let mut args: Vec<String> = env::args().collect();
 
-  let show_disassembly = env::var("SS_SHOW_DISASSEMBLY");
-  let runtime_disassembly = env::var("SS_RUNTIME_DISASSEMBLY");
+  let show_disassembly = args.contains(&String::from(DISASSEMBLE_FLAG));
+  let runtime_disassembly = args.contains(&String::from(RUNTIME_DISASSEMBLE_FLAG));
 
-  let vpu = Vpu::new(show_disassembly.is_ok(), runtime_disassembly.is_ok());
+  if show_disassembly {
+    args.retain(|arg| arg != DISASSEMBLE_FLAG);
+  }
+
+  if runtime_disassembly {
+    args.retain(|arg| arg != RUNTIME_DISASSEMBLE_FLAG);
+  }
+
+  let vpu = Vpu::new(show_disassembly, runtime_disassembly);
   let runner = Runner::new(vpu);
 
   if let Some(file) = args.into_iter().nth(1) {
