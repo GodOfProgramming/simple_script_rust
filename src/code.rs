@@ -1787,7 +1787,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
   }
 
-  fn make_function(&mut self, name: &str) {}
+  fn make_function(&mut self, _name: String) {}
 
   fn grouping_expr(&mut self, _: bool) -> bool {
     if !self.expression() {
