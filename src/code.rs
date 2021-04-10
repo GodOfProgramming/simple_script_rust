@@ -1291,7 +1291,32 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn fn_stmt(&mut self) {
-    unimplemented!();
+    let var_pos = self.index;
+    if let Some(global) = self.parse_variable(String::from("expected function name")) {
+      if self.scope_depth > 0 {
+        if let Some(local) = self.locals.last_mut() {
+          local.initialized = true;
+        } else {
+          self.error(
+            var_pos,
+            String::from("expected local variable instead of global"),
+          );
+        }
+      }
+      if let Some(token) = self.previous() {
+        if let Token::Identifier(name) = token {
+          self.make_function(name);
+          self.define_variable(global);
+        } else {
+          self.error(var_pos, String::from("previous token is not an identifier"));
+        }
+      } else {
+        self.error(
+          var_pos,
+          String::from("previous token not available after var name parse (sanity check)"),
+        );
+      }
+    }
   }
 
   fn for_stmt(&mut self) {
@@ -1761,6 +1786,8 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       false
     }
   }
+
+  fn make_function(&mut self, name: &str) {}
 
   fn grouping_expr(&mut self, _: bool) -> bool {
     if !self.expression() {
