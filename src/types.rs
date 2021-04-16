@@ -408,6 +408,11 @@ impl Env {
   }
 
   pub fn lookup(&self, name: &str) -> Option<Value> {
+    if let Some(parent) = &self.parent {
+      if let Some(value) = parent.vars.get(name).cloned() {
+        return Some(value);
+      }
+    }
     self.vars.get(name).cloned()
   }
 }
