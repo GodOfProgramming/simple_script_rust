@@ -286,6 +286,7 @@ impl Reflection {
 pub struct Context {
   pub ip: usize,
   pub id: usize,
+  pub name: String,
 
   env: Rc<RefCell<Env>>,
   stack: Vec<Value>,
@@ -300,6 +301,7 @@ impl Context {
     Self {
       ip: 0,
       id: 0,
+      name: String::default(),
       env: Rc::new(RefCell::new(Env::default())),
       stack: Vec::default(),
       consts: Vec::default(),
@@ -312,6 +314,7 @@ impl Context {
     Self {
       ip: 0,
       id,
+      name: String::default(),
       env: Rc::new(RefCell::new(Env::new_with_parent(parent_env))),
       stack: Vec::default(),
       consts: Vec::default(),
@@ -437,7 +440,14 @@ impl Context {
   }
 
   pub fn display_opcodes(&self) {
-    println!("<< MAIN >>");
+    println!(
+      "<< {} >>",
+      if self.id == 0 {
+        String::from("MAIN")
+      } else {
+        format!("function {}", self.name)
+      }
+    );
     for (i, op) in self.instructions.iter().enumerate() {
       self.display_instruction(op, i);
     }
@@ -1171,7 +1181,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
   }
 
-  fn reduce_locals_to_depth(&mut self, index: usize, depth: usize) {
+  fn num_locals_in_depth(&self, depth: usize) -> usize {
     let mut count = 0;
     for local in self.locals.iter().rev() {
       if local.depth > depth {
@@ -1180,6 +1190,11 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         break;
       }
     }
+    count
+  }
+
+  fn reduce_locals_to_depth(&mut self, index: usize, depth: usize) {
+    let count = self.num_locals_in_depth(depth);
 
     self
       .locals
@@ -1336,6 +1351,16 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         }
       }
 
+      let name = if let Some(token) = self.previous() {
+        if let Token::Identifier(name) = token {
+          name
+        } else {
+          panic!("unable to retrieve identifier, should not happen");
+        }
+      } else {
+        panic!("unable to retrieve identifier, should not happen");
+      };
+
       self.wrap_fn(self.index - 1, |this| {
         let mut airity = 0;
         if !this.consume(
@@ -1375,11 +1400,21 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
           }
 
           this.fn_block();
-          this.reduce_locals_to_depth(this.index - 1, this.scope_depth);
+          let count = this.num_locals_in_depth(this.scope_depth);
+
+          this
+            .locals
+            .truncate(this.locals.len().saturating_sub(count));
+
+          if count > 0 {
+            this.emit(this.index - 1, OpCode::PopN(count + airity));
+          }
         } else {
           this.error(this.index - 1, String::from("unexpected EOF"));
           return None;
         }
+
+        this.current_ctx().name = name;
 
         Some(airity)
       });

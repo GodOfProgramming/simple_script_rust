@@ -486,8 +486,8 @@ impl Interpreter for Vpu {
             match v {
               Value::Function(mut f) => match f.call(self, args) {
                 Ok(v) => {
-                  ctx.stack_push(v);
                   ctx.stack_pop();
+                  ctx.stack_push(v);
                 }
                 Err(e) => {
                   return Err(
