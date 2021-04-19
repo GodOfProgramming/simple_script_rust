@@ -27,7 +27,7 @@ impl Error {
   pub fn from_ref(msg: String, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
     let mut e = Self {
       msg,
-      file: opcode_ref.file,
+      file: opcode_ref.file.as_ref().clone(),
       line: opcode_ref.line,
       column: opcode_ref.column,
     };

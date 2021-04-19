@@ -443,5 +443,9 @@ impl Call for NativeFunction {
   }
 }
 
+pub struct Function {
+  name: String,
+}
+
 #[cfg(test)]
 mod test;

@@ -6,6 +6,7 @@ use std::{
   collections::BTreeMap,
   fmt::{self, Debug},
   iter::FromIterator,
+  rc::Rc,
   str,
 };
 
@@ -224,7 +225,7 @@ impl fmt::Display for Token {
   }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct TokenMeta<'file> {
   pub file: &'file str,
   pub line: usize,
@@ -239,20 +240,20 @@ pub struct OpCodeInfo {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct OpCodeReflection {
-  pub file: String,
+  pub file: Rc<String>,
   pub source_line: String,
   pub line: usize,
   pub column: usize,
 }
 
 pub struct Reflection {
-  file: String,
-  source: String,
+  file: Rc<String>,
+  source: Rc<String>,
   opcode_info: Vec<OpCodeInfo>,
 }
 
 impl Reflection {
-  fn new(file: String, source: String) -> Self {
+  fn new(file: Rc<String>, source: Rc<String>) -> Self {
     Reflection {
       file,
       source,
@@ -268,7 +269,7 @@ impl Reflection {
     if let Some(info) = self.opcode_info.get(offset).cloned() {
       if let Some(src) = self.source.lines().nth(info.line - 1) {
         Some(OpCodeReflection {
-          file: self.file.clone(),
+          file: Rc::clone(&self.file),
           source_line: String::from(src),
           line: info.line,
           column: info.column,
@@ -289,7 +290,6 @@ pub struct Context {
   stack: Vec<Value>,
   consts: Vec<Value>,
   instructions: Vec<OpCode>,
-  identifiers: BTreeMap<String, usize>,
 
   meta: Reflection,
 }
@@ -302,7 +302,6 @@ impl Context {
       stack: Vec::default(),
       consts: Vec::default(),
       instructions: Vec::default(),
-      identifiers: BTreeMap::new(),
       meta,
     }
   }
@@ -368,16 +367,6 @@ impl Context {
     self.assign_global(name, Value::new(native))
   }
 
-  pub fn lookup_ident(&self, name: &str) -> Option<usize> {
-    self.identifiers.get(name).cloned()
-  }
-
-  pub fn add_ident(&mut self, name: String) -> usize {
-    let index = self.add_const(Value::new(name.clone()));
-    self.identifiers.insert(name, index);
-    index
-  }
-
   pub fn jump(&mut self, count: usize) {
     self.ip = self.ip.saturating_add(count);
   }
@@ -423,7 +412,7 @@ impl Context {
     } else {
       Error {
         msg: format!("could not fetch info for instruction {:04X}", self.ip),
-        file: self.meta.file.clone(),
+        file: self.meta.file.as_ref().clone(),
         line: 0,
         column: 0,
       }
@@ -980,6 +969,8 @@ pub struct Parser<'ctx, 'file> {
   meta: Vec<TokenMeta<'file>>,
   ctx: &'ctx mut Context,
 
+  current_fn: Option<Context>,
+
   index: usize,
   scope_depth: usize,
 
@@ -991,6 +982,8 @@ pub struct Parser<'ctx, 'file> {
   cont_jump: usize,
 
   breaks: Vec<usize>,
+
+  identifiers: BTreeMap<String, usize>,
 }
 
 impl<'ctx, 'file> Parser<'ctx, 'file> {
@@ -999,6 +992,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       tokens,
       meta,
       ctx,
+      current_fn: None,
       index: 0,
       scope_depth: 0,
       errors: None,
@@ -1007,6 +1001,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       loop_depth: 0,
       cont_jump: 0,
       breaks: Vec::new(),
+      identifiers: BTreeMap::new(),
     }
   }
 
@@ -1040,6 +1035,14 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     }
 
     self.sync();
+  }
+
+  fn current_ctx(&mut self) -> &mut Context {
+    if let Some(ctx) = &mut self.current_fn {
+      ctx
+    } else {
+      &mut self.ctx
+    }
   }
 
   fn current(&self) -> Option<Token> {
@@ -1105,45 +1108,50 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn emit(&mut self, pos: usize, op: OpCode) {
-    let meta = self
-      .meta
-      .get(pos)
-      .or_else(|| {
-        panic!("could not locate token meta at pos {}", pos);
-      })
-      .unwrap();
-    self.ctx.write(op, meta.line, meta.column);
+    if let Some(meta) = self.meta.get(pos).cloned() {
+      self.current_ctx().write(op, meta.line, meta.column);
+    } else {
+      panic!("could not locate token meta at pos {}", pos);
+    }
   }
 
   fn emit_const(&mut self, pos: usize, c: Value) {
-    let meta = self.meta.get(pos).unwrap();
-    self.ctx.write_const(c, meta.line, meta.column);
+    if let Some(meta) = self.meta.get(pos).cloned() {
+      self.current_ctx().write_const(c, meta.line, meta.column);
+    } else {
+      panic!("could not locate token meta at pos {}", pos);
+    }
   }
 
   /**
    * Emits a no op instruction and returns its index, the "jump" is made later with a patch
    */
   fn emit_jump(&mut self, pos: usize) -> usize {
-    let offset = self.ctx.num_instructions();
+    let offset = self.current_ctx().num_instructions();
     self.emit(pos, OpCode::NoOp);
     offset
   }
 
   fn patch_jump<F: FnOnce(usize) -> OpCode>(&mut self, index: usize, f: F) -> bool {
-    let offset = self.ctx.num_instructions() - index;
+    let offset = self.current_ctx().num_instructions() - index;
     let opcode = f(offset);
-    self.ctx.replace_instruction(index, opcode)
+    self.current_ctx().replace_instruction(index, opcode)
   }
 
+  /**
+   * Returns the index of the identifier name, and creates it if it doesn't already exist
+   */
   fn add_ident(&mut self, name: String) -> usize {
-    if let Some(index) = self.ctx.lookup_ident(&name) {
+    if let Some(index) = self.identifiers.get(&name).cloned() {
       index
     } else {
-      self.ctx.add_ident(name)
+      let index = self.current_ctx().add_const(Value::new(name.clone()));
+      self.identifiers.insert(name, index);
+      index
     }
   }
 
-  fn reduce_locals_to_depth(&mut self, depth: usize) -> usize {
+  fn reduce_locals_to_depth(&mut self, index: usize, depth: usize) {
     let mut count = 0;
     for local in self.locals.iter().rev() {
       if local.depth > depth {
@@ -1157,7 +1165,9 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       .locals
       .truncate(self.locals.len().saturating_sub(count));
 
-    count
+    if count > 0 {
+      self.emit(index, OpCode::PopN(count));
+    }
   }
 
   fn patch_breaks(&mut self) -> bool {
@@ -1246,10 +1256,8 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       return;
     }
 
-    let count = self.reduce_locals_to_depth(self.loop_depth);
-    if count > 0 {
-      self.emit(break_index, OpCode::PopN(count));
-    }
+    self.reduce_locals_to_depth(break_index, self.loop_depth);
+
     let jmp = self.emit_jump(break_index);
     self.breaks.push(jmp);
   }
@@ -1268,15 +1276,9 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       return;
     }
 
-    let count = self.reduce_locals_to_depth(self.loop_depth);
-    if count > 0 {
-      self.emit(cont_index, OpCode::PopN(count));
-    }
-
-    self.emit(
-      cont_index,
-      OpCode::Loop(self.ctx.num_instructions() - self.cont_jump),
-    );
+    self.reduce_locals_to_depth(cont_index, self.loop_depth);
+    let dist = self.current_ctx().num_instructions() - self.cont_jump;
+    self.emit(cont_index, OpCode::Loop(dist));
   }
 
   fn end_stmt(&mut self) {
@@ -1309,16 +1311,17 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         } else {
           self.error(
             var_pos,
-            String::from("expected local variable instead of global"),
+            String::from("expected local variable instead of global, this is a parser error"),
           );
         }
       }
+
       if let Some(token) = self.previous() {
         if let Token::Identifier(name) = token {
-          self.make_function(name);
+          self.wrap_fn(|this| true);
           self.define_variable(global);
         } else {
-          self.error(var_pos, String::from("previous token is not an identifier"));
+          self.error(var_pos, String::from("expected an identifier"));
         }
       } else {
         self.error(
@@ -1326,6 +1329,8 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
           String::from("previous token not available after var name parse (sanity check)"),
         );
       }
+    } else {
+      self.error(self.index - 1, String::from("expected identifier"))
     }
   }
 
@@ -1450,7 +1455,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn loop_stmt(&mut self) {
-    let start = self.ctx.num_instructions();
+    let start = self.current_ctx().num_instructions();
     if !self.consume(
       Token::LeftBrace,
       String::from("expect '{' after loop keyword"),
@@ -1557,7 +1562,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
   }
 
   fn while_stmt(&mut self) {
-    let loop_start = self.ctx.num_instructions();
+    let loop_start = self.current_ctx().num_instructions();
     if !self.expression() {
       return;
     }
@@ -1598,11 +1603,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       return false;
     }
 
-    let count = self.reduce_locals_to_depth(self.scope_depth);
-
-    if count > 0 {
-      self.emit(self.index - 1, OpCode::PopN(count));
-    }
+    self.reduce_locals_to_depth(self.index - 1, self.scope_depth);
 
     true
   }
@@ -1629,6 +1630,22 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     self.cont_jump = cont_jump;
 
     res && break_res
+  }
+
+  fn wrap_fn<F: FnOnce(&mut Parser) -> bool>(&mut self, f: F) -> bool {
+    let func = self.current_fn.take();
+
+    let reflection = Reflection::new(
+      Rc::clone(&self.current_ctx().meta.file),
+      Rc::clone(&self.current_ctx().meta.source),
+    );
+    self.current_fn = Some(Context::new(reflection));
+
+    let res = f(self);
+
+    self.current_fn = func;
+
+    res
   }
 
   fn rule_for(token: &Token) -> ParseRule<'ctx, 'file> {
@@ -1796,8 +1813,6 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       false
     }
   }
-
-  fn make_function(&mut self, _name: String) {}
 
   fn grouping_expr(&mut self, _: bool) -> bool {
     if !self.expression() {
@@ -2138,13 +2153,16 @@ impl Compiler {
       .scan()
       .map_err(|errs| self.reformat_errors(source, errs))?;
 
-    let code_meta = Reflection::new(String::from(file), String::from(source));
-    let mut ctx = Context::new(code_meta);
+    let file = Rc::new(String::from(file));
+    let source = Rc::new(String::from(source));
+
+    let reflection = Reflection::new(file, Rc::clone(&source));
+    let mut ctx = Context::new(reflection);
 
     let mut parser = Parser::new(tokens, meta, &mut ctx);
 
     if let Some(errors) = parser.parse() {
-      Err(self.reformat_errors(source, errors))
+      Err(self.reformat_errors(source.as_ref(), errors))
     } else {
       Ok(ctx)
     }

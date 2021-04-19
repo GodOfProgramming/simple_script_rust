@@ -9,7 +9,7 @@ fn do_with_parser<F: FnOnce(Parser)>(script: &str, f: F) {
 
   let (tokens, meta) = scanner.scan().unwrap();
 
-  let code_meta = Reflection::new(String::from("test"), String::from(script));
+  let code_meta = Reflection::new(Rc::new(String::from("test")), Rc::new(String::from(script)));
   let mut ctx = Context::new(code_meta);
 
   let parser = Parser::new(tokens, meta, &mut ctx);
@@ -104,7 +104,7 @@ fn emit_creates_expected_opcode() {
     assert_eq!(parser.ctx.instructions[0], OpCode::Add);
     assert_eq!(
       OpCodeReflection {
-        file: String::from("test"),
+        file: Rc::new(String::from("test")),
         source_line: String::from("1 + 1"),
         line: 1,
         column: 3,
@@ -122,7 +122,7 @@ fn emit_const_creates_expected_opcode() {
     assert_eq!(parser.ctx.consts[0], Value::Num(1.0));
     assert_eq!(
       OpCodeReflection {
-        file: String::from("test"),
+        file: Rc::new(String::from("test")),
         source_line: String::from("foo + 1"),
         line: 1,
         column: 7,
@@ -161,7 +161,7 @@ fn let_stmt() {
     let expected_consts = vec![Value::new("foo")];
     assert_eq!(expected_consts, parser.ctx.consts);
 
-    let ident_loc = parser.ctx.identifiers.get("foo").cloned().unwrap();
+    let ident_loc = parser.identifiers.get("foo").cloned().unwrap();
     assert_eq!(ident_loc, 0usize);
 
     let expected_opcodes = vec![OpCode::True, OpCode::DefineGlobal(0)];
