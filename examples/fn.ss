@@ -1,7 +1,8 @@
-var important_func;
-{
-  var c = 3;
-  important_func = |a, b| {
-    a + b + c;
-  };
+fn function(arg1, arg2) {
+  fn p(arg) {
+    print arg;
+  }
+  p(arg1 + arg2);
 }
+
+function(1, 2);

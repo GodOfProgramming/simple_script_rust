@@ -9,65 +9,10 @@ use std::{
   fmt::{Debug, Display},
   iter::FromIterator,
 };
-use types::Value;
+use types::{Error, Interpreter, Value};
 
 pub trait New<T> {
   fn new(item: T) -> Self;
-}
-
-#[derive(Default, PartialEq)]
-pub struct Error {
-  pub msg: String,
-  pub file: String,
-  pub line: usize,
-  pub column: usize,
-}
-
-impl Error {
-  pub fn from_ref(msg: String, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
-    let mut e = Self {
-      msg,
-      file: opcode_ref.file.as_ref().clone(),
-      line: opcode_ref.line,
-      column: opcode_ref.column,
-    };
-    e.format_with_src_line(opcode_ref.source_line);
-    e.msg = format!("{}\nOffending OpCode: {:?}", e.msg, opcode);
-    e
-  }
-
-  pub fn format_with_src_line(&mut self, src: String) {
-    self.msg = format!(
-      "{}\n{}\n{}",
-      self.msg,
-      src,
-      format!("{}^", " ".repeat(self.column - 1))
-    );
-  }
-}
-
-impl Debug for Error {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-    writeln!(
-      f,
-      "{} ({}, {}): {}",
-      self.file, self.line, self.column, self.msg
-    )
-  }
-}
-
-impl Display for Error {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-    writeln!(
-      f,
-      "{} ({}, {}): {}",
-      self.file, self.line, self.column, self.msg
-    )
-  }
-}
-
-pub trait Interpreter {
-  fn interpret(&self, ctx: &mut Context) -> Result<Value, Error>;
 }
 
 #[derive(Default)]
@@ -524,37 +469,49 @@ impl Interpreter for Vpu {
         },
         OpCode::Call(airity) => {
           if let Some(v) = ctx.stack_index_rev(airity) {
-            if let Value::Function(func) = v {
-              let mut args = Vec::new();
-              for _ in 0..airity {
-                if let Some(arg) = ctx.stack_pop() {
-                  args.push(arg);
-                } else {
-                  return Err(ctx.reflect_instruction(|opcode_ref| {
-                    Error::from_ref(
-                      String::from("no available argument on stack for function call"),
-                      &opcode,
-                      opcode_ref,
-                    )
-                  }));
-                }
+            let mut args = Vec::new();
+            for _ in 0..airity {
+              if let Some(arg) = ctx.stack_pop() {
+                args.push(arg);
+              } else {
+                return Err(ctx.reflect_instruction(|opcode_ref| {
+                  Error::from_ref(
+                    String::from("no available argument on stack for function call"),
+                    &opcode,
+                    opcode_ref,
+                  )
+                }));
               }
-              match func.borrow_mut().call(args.drain(0..).rev().collect()) {
+            }
+            match v {
+              Value::Function(mut f) => match f.call(self, args) {
+                Ok(v) => {
+                  ctx.stack_push(v);
+                  ctx.stack_pop();
+                }
+                Err(e) => {
+                  return Err(
+                    ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)),
+                  )
+                }
+              },
+              Value::NativeFunction(f) => match f(args.drain(0..).rev().collect()) {
                 Ok(v) => ctx.stack_push(v),
                 Err(e) => {
                   return Err(
                     ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)),
                   )
                 }
+              },
+              _ => {
+                return Err(ctx.reflect_instruction(|opcode_ref| {
+                  Error::from_ref(
+                    format!("unable to call non function '{}'", v),
+                    &opcode,
+                    opcode_ref,
+                  )
+                }))
               }
-            } else {
-              return Err(ctx.reflect_instruction(|opcode_ref| {
-                Error::from_ref(
-                  format!("unable to call non function '{}'", v),
-                  &opcode,
-                  opcode_ref,
-                )
-              }));
             }
           } else {
             return Err(ctx.reflect_instruction(|opcode_ref| {

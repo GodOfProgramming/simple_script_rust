@@ -1,11 +1,11 @@
 use crate::{
-  types::{Env, NativeFunction, Value, ValueOpResult},
-  Error, New,
+  types::{Env, Error, Function, NativeFn, Value},
+  New,
 };
 use std::{
+  cell::RefCell,
   collections::BTreeMap,
   fmt::{self, Debug},
-  iter::FromIterator,
   rc::Rc,
   str,
 };
@@ -285,8 +285,9 @@ impl Reflection {
 
 pub struct Context {
   pub ip: usize,
+  pub id: usize,
 
-  env: Env,
+  env: Rc<RefCell<Env>>,
   stack: Vec<Value>,
   consts: Vec<Value>,
   instructions: Vec<OpCode>,
@@ -295,14 +296,27 @@ pub struct Context {
 }
 
 impl Context {
-  fn new(meta: Reflection) -> Self {
+  fn new(reflection: Reflection) -> Self {
     Self {
       ip: 0,
-      env: Env::default(),
+      id: 0,
+      env: Rc::new(RefCell::new(Env::default())),
       stack: Vec::default(),
       consts: Vec::default(),
       instructions: Vec::default(),
-      meta,
+      meta: reflection,
+    }
+  }
+
+  fn new_child(reflection: Reflection, id: usize, parent_env: Rc<RefCell<Env>>) -> Self {
+    Self {
+      ip: 0,
+      id,
+      env: Rc::new(RefCell::new(Env::new_with_parent(parent_env))),
+      stack: Vec::default(),
+      consts: Vec::default(),
+      instructions: Vec::default(),
+      meta: reflection,
     }
   }
 
@@ -346,24 +360,27 @@ impl Context {
     self.stack[index] = value;
   }
 
+  pub fn stack_move(&mut self, other: Vec<Value>) {
+    self.stack = other;
+  }
+
   pub fn const_at(&self, index: usize) -> Option<Value> {
     self.consts.get(index).cloned()
   }
 
   pub fn lookup_global(&self, name: &str) -> Option<Value> {
-    self.env.lookup(name)
+    self.env.borrow().lookup(name)
   }
 
   pub fn define_global(&mut self, name: String, value: Value) -> bool {
-    self.env.define(name, value)
+    self.env.borrow_mut().define(name, value)
   }
 
   pub fn assign_global(&mut self, name: String, value: Value) -> bool {
-    self.env.assign(name, value)
+    self.env.borrow_mut().assign(name, value)
   }
 
-  pub fn create_native(&mut self, name: String, func: fn(Vec<Value>) -> ValueOpResult) -> bool {
-    let native = NativeFunction::new(name.clone(), func);
+  pub fn create_native(&mut self, name: String, native: NativeFn) -> bool {
     self.assign_global(name, Value::new(native))
   }
 
@@ -974,6 +991,8 @@ pub struct Parser<'ctx, 'file> {
   index: usize,
   scope_depth: usize,
 
+  function_id: usize,
+
   errors: Option<Vec<Error>>,
   locals: Vec<Local>,
 
@@ -995,6 +1014,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       current_fn: None,
       index: 0,
       scope_depth: 0,
+      function_id: 0,
       errors: None,
       locals: Vec::new(),
       in_loop: false,
@@ -1316,21 +1336,56 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         }
       }
 
-      if let Some(token) = self.previous() {
-        if let Token::Identifier(name) = token {
-          self.wrap_fn(|this| true);
-          self.define_variable(global);
-        } else {
-          self.error(var_pos, String::from("expected an identifier"));
+      self.wrap_fn(self.index - 1, |this| {
+        let mut airity = 0;
+        if !this.consume(
+          Token::LeftParen,
+          String::from("expect '(' after function name"),
+        ) {
+          return None;
         }
-      } else {
-        self.error(
-          var_pos,
-          String::from("previous token not available after var name parse (sanity check)"),
-        );
-      }
+
+        if let Some(token) = this.current() {
+          if token != Token::RightParen {
+            loop {
+              if let Some(param) = this.parse_variable(String::from("expected parameter name")) {
+                airity += 1;
+                this.define_variable(param);
+              } else {
+                return None;
+              }
+              if !this.advance_if_matches(Token::Comma) {
+                break;
+              }
+            }
+          }
+
+          if !this.consume(
+            Token::RightParen,
+            String::from("expected ')' after parameters"),
+          ) {
+            return None;
+          }
+
+          if !this.consume(
+            Token::LeftBrace,
+            String::from("expected '{' after function declaration"),
+          ) {
+            return None;
+          }
+
+          this.fn_block();
+          this.reduce_locals_to_depth(this.index - 1, this.scope_depth);
+        } else {
+          this.error(this.index - 1, String::from("unexpected EOF"));
+          return None;
+        }
+
+        Some(airity)
+      });
+      self.define_variable(global);
     } else {
-      self.error(self.index - 1, String::from("expected identifier"))
+      self.error(var_pos, String::from("expected an identifier"));
     }
   }
 
@@ -1427,7 +1482,19 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         }
         this.statement(token);
       }
-      this.consume(Token::RightBrace, String::from(""))
+      this.consume(Token::RightBrace, String::from("expected '}' after block"))
+    });
+  }
+
+  fn fn_block(&mut self) {
+    self.wrap_scope(|this| {
+      while let Some(token) = this.current() {
+        if token == Token::RightBrace {
+          break;
+        }
+        this.statement(token);
+      }
+      this.consume(Token::RightBrace, String::from("expected '}' after block"))
     });
   }
 
@@ -1632,20 +1699,33 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     res && break_res
   }
 
-  fn wrap_fn<F: FnOnce(&mut Parser) -> bool>(&mut self, f: F) -> bool {
+  fn wrap_fn<F: FnOnce(&mut Parser) -> Option<usize>>(&mut self, index: usize, f: F) {
+    self.function_id += 1;
+
     let func = self.current_fn.take();
+    let locals: Vec<Local> = self.locals.drain(0..).collect();
 
     let reflection = Reflection::new(
       Rc::clone(&self.current_ctx().meta.file),
       Rc::clone(&self.current_ctx().meta.source),
     );
-    self.current_fn = Some(Context::new(reflection));
+    self.current_fn = Some(Context::new_child(
+      reflection,
+      self.function_id,
+      Rc::clone(&self.current_ctx().env),
+    ));
 
-    let res = f(self);
+    self.wrap_scope(|this| {
+      let airity = f(this);
+      let ctx = this.current_fn.take().unwrap();
+      this.current_fn = func;
+      this.locals = locals;
 
-    self.current_fn = func;
-
-    res
+      if let Some(airity) = airity {
+        this.emit_const(index, Value::Function(Function::new(airity, ctx)))
+      }
+      true
+    });
   }
 
   fn rule_for(token: &Token) -> ParseRule<'ctx, 'file> {

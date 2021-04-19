@@ -1,12 +1,73 @@
-use crate::New;
-use std::collections::BTreeMap;
-use std::fmt::{self, Debug, Display};
-use std::rc::Rc;
+use crate::{
+  code::{Context, OpCode, OpCodeReflection},
+  New,
+};
 use std::{
   cell::RefCell,
   cmp::{Ordering, PartialEq, PartialOrd},
+  collections::BTreeMap,
+  fmt::{self, Debug, Display},
+  iter::FromIterator,
   ops::{Add, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
+  rc::Rc,
 };
+
+pub trait Interpreter {
+  fn interpret(&self, ctx: &mut Context) -> Result<Value, Error>;
+}
+
+#[derive(Default, PartialEq)]
+pub struct Error {
+  pub msg: String,
+  pub file: String,
+  pub line: usize,
+  pub column: usize,
+}
+
+impl Error {
+  pub fn from_ref(msg: String, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
+    let mut e = Self {
+      msg,
+      file: opcode_ref.file.as_ref().clone(),
+      line: opcode_ref.line,
+      column: opcode_ref.column,
+    };
+    e.format_with_src_line(opcode_ref.source_line);
+    e.msg = format!("{}\nOffending OpCode: {:?}", e.msg, opcode);
+    e
+  }
+
+  pub fn format_with_src_line(&mut self, src: String) {
+    self.msg = format!(
+      "{}\n{}\n{}",
+      self.msg,
+      src,
+      format!("{}^", " ".repeat(self.column - 1))
+    );
+  }
+}
+
+impl Debug for Error {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    writeln!(
+      f,
+      "{} ({}, {}): {}",
+      self.file, self.line, self.column, self.msg
+    )
+  }
+}
+
+impl Display for Error {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    writeln!(
+      f,
+      "{} ({}, {}): {}",
+      self.file, self.line, self.column, self.msg
+    )
+  }
+}
+
+pub type NativeFn = fn(Vec<Value>) -> ValueOpResult;
 
 #[derive(Clone)]
 pub enum Value {
@@ -15,7 +76,8 @@ pub enum Value {
   Num(f64),
   Str(String),
   List(Values),
-  Function(Rc<RefCell<dyn Call>>),
+  Function(Function),
+  NativeFunction(NativeFn),
 }
 
 impl Value {
@@ -60,14 +122,6 @@ impl Value {
       Some(&mut list[idx])
     } else {
       None
-    }
-  }
-
-  pub fn call(&mut self, args: Vec<Value>) -> ValueOpResult {
-    if let Value::Function(call) = self {
-      call.borrow_mut().call(args)
-    } else {
-      Err(String::from("cannot call non function type"))
     }
   }
 }
@@ -120,9 +174,15 @@ impl New<Values> for Value {
   }
 }
 
-impl New<NativeFunction> for Value {
-  fn new(item: NativeFunction) -> Self {
-    Self::Function(Rc::new(RefCell::new(item)))
+impl New<Function> for Value {
+  fn new(item: Function) -> Self {
+    Self::Function(item)
+  }
+}
+
+impl New<NativeFn> for Value {
+  fn new(item: NativeFn) -> Self {
+    Self::NativeFunction(item)
   }
 }
 
@@ -281,9 +341,16 @@ impl PartialEq for Value {
       Self::Nil => {
         matches!(other, Value::Nil)
       }
-      Self::Function(_) => {
-        if let Self::Function(_) = other {
-          unimplemented!("cannot compare functions at this time");
+      Self::Function(a) => {
+        if let Self::Function(b) = other {
+          a.ctx.borrow().id == b.ctx.borrow().id
+        } else {
+          false
+        }
+      }
+      Self::NativeFunction(a) => {
+        if let Self::NativeFunction(b) = other {
+          a == b
         } else {
           false
         }
@@ -326,7 +393,8 @@ impl Display for Value {
       Self::Num(n) => write!(f, "{}", n),
       Self::Str(s) => write!(f, "{}", s),
       Self::List(l) => write!(f, "{}", l),
-      Self::Function(c) => write!(f, "{}", c.borrow_mut().name()),
+      Self::Function(_) => write!(f, "<function>"),
+      Self::NativeFunction(_) => write!(f, "<native function>"),
     }
   }
 }
@@ -387,12 +455,12 @@ impl Display for Values {
 
 #[derive(Default)]
 pub struct Env {
-  parent: Option<Box<Env>>,
+  parent: Option<Rc<RefCell<Env>>>,
   vars: BTreeMap<String, Value>,
 }
 
 impl Env {
-  pub fn new_with_parent(parent: Box<Env>) -> Self {
+  pub fn new_with_parent(parent: Rc<RefCell<Env>>) -> Self {
     Self {
       parent: Some(parent),
       vars: BTreeMap::new(),
@@ -409,7 +477,7 @@ impl Env {
 
   pub fn lookup(&self, name: &str) -> Option<Value> {
     if let Some(parent) = &self.parent {
-      if let Some(value) = parent.vars.get(name).cloned() {
+      if let Some(value) = parent.borrow().vars.get(name).cloned() {
         return Some(value);
       }
     }
@@ -418,33 +486,44 @@ impl Env {
 }
 
 pub trait Call {
-  fn name(&self) -> &String;
   fn call(&mut self, args: Vec<Value>) -> ValueOpResult;
 }
 
-pub struct NativeFunction {
-  name: String,
-  callee: fn(Vec<Value>) -> ValueOpResult,
-}
-
-impl NativeFunction {
-  pub fn new(name: String, func: fn(Vec<Value>) -> ValueOpResult) -> Self {
-    Self { name, callee: func }
-  }
-}
-
-impl Call for NativeFunction {
-  fn name(&self) -> &String {
-    &self.name
-  }
-
-  fn call(&mut self, args: Vec<Value>) -> ValueOpResult {
-    (self.callee)(args)
-  }
-}
-
+#[derive(Clone)]
 pub struct Function {
-  name: String,
+  airity: usize,
+
+  // TODO refactor this to not be a RefCell
+  ctx: Rc<RefCell<Context>>,
+}
+
+impl Function {
+  pub fn new(airity: usize, ctx: Context) -> Self {
+    Self {
+      airity,
+      ctx: Rc::new(RefCell::new(ctx)),
+    }
+  }
+
+  pub fn call<I: Interpreter>(
+    &mut self,
+    interpreter: &I,
+    args: Vec<Value>,
+  ) -> Result<Value, String> {
+    if self.airity != args.len() {
+      return Err(format!(
+        "invalid number of arguments, expected {}, got {}",
+        self.airity,
+        args.len()
+      ));
+    }
+
+    let ctx = &mut self.ctx.borrow_mut();
+    ctx.ip = 0;
+    ctx.stack_move(args.into_iter().rev().collect());
+
+    interpreter.interpret(ctx).map_err(|e| e.msg)
+  }
 }
 
 #[cfg(test)]
