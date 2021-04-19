@@ -466,19 +466,19 @@ impl Context {
 
     match op {
       OpCode::Const(index) => {
-        print!("{:<16} {:4} ", "CONST", index);
+        print!("{:<16} {:4} ", "Const", index);
         let c = self.const_at(*index);
         match c {
           Some(v) => println!("'{}'", v),
           None => println!("INVALID INDEX"),
         }
       }
-      OpCode::PopN(count) => println!("{:<16} {:4}", "POP_N", count),
-      OpCode::LookupLocal(index) => println!("{:<16} {:4}", "LOOKUP_LOCAL", index),
-      OpCode::AssignLocal(index) => println!("{:<16} {:4}", "ASSIGN_LOCAL", index),
+      OpCode::PopN(count) => println!("{:<16} {:4}", "PopN", count),
+      OpCode::LookupLocal(index) => println!("{:<16} {:4}", "LookupLocal", index),
+      OpCode::AssignLocal(index) => println!("{:<16} {:4}", "AssignLocal", index),
       OpCode::LookupGlobal(name) => println!(
         "{:<16} {:4} '{:?}'",
-        "LOOKUP_GLOBAL",
+        "LookupGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
           name
@@ -488,7 +488,7 @@ impl Context {
       ),
       OpCode::DefineGlobal(name) => println!(
         "{:<16} {:4} '{:?}'",
-        "DEFINE_GLOBAL",
+        "DefineGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
           name
@@ -498,7 +498,7 @@ impl Context {
       ),
       OpCode::AssignGlobal(name) => println!(
         "{:<16} {:4} '{:?}'",
-        "ASSIGN_GLOBAL",
+        "AssignGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
           name
@@ -506,12 +506,12 @@ impl Context {
           Value::new("????")
         }
       ),
-      OpCode::Jump(count) => println!("{:<16} {:4}", "JUMP", count),
-      OpCode::JumpIfFalse(count) => println!("{:<16} {:4}", "JUMP_IF_FALSE", count),
-      OpCode::Loop(count) => println!("{:<16} {:4}", "LOOP", count),
-      OpCode::Or(count) => println!("{:<16} {:4}", "OR", count),
-      OpCode::And(count) => println!("{:<16} {:4}", "AND", count),
-      OpCode::Call(count) => println!("{:<16} {:4}", "CALL", count),
+      OpCode::Jump(count) => println!("{:<16} {:4}", "Jump", count),
+      OpCode::JumpIfFalse(count) => println!("{:<16} {:4}", "JumpIfFalse", count),
+      OpCode::Loop(count) => println!("{:<16} {:4}", "Loop", count),
+      OpCode::Or(count) => println!("{:<16} {:4}", "Or", count),
+      OpCode::And(count) => println!("{:<16} {:4}", "And", count),
+      OpCode::Call(count) => println!("{:<16} {:4}", "Call", count),
       x => println!("{:<16?}", x),
     }
   }
